@@ -152,13 +152,13 @@ isOneToOne: false
                   ]
                 },"order_items": {
                   Row: {
-                    "created_at": string,"id": string,"line_total_cents": number,"order_id": string,"pricing_tier_id": string,"pricing_tier_name": string,"quantity": number,"quantity_discount_cents": number,"ticket_type_id": string,"ticket_type_name": string,"unit_price_cents": number,"updated_at": string
+                    "created_at": string,"id": string,"bundle_id": string | null,"line_total_cents": number,"order_id": string,"pricing_tier_id": string,"pricing_tier_name": string,"quantity": number,"quantity_discount_cents": number,"ticket_type_id": string,"ticket_type_name": string,"unit_price_cents": number,"updated_at": string
                   }
                   Insert: {
-                    "created_at"?: string,"id"?: string,"line_total_cents": number,"order_id": string,"pricing_tier_id": string,"pricing_tier_name": string,"quantity": number,"quantity_discount_cents"?: number,"ticket_type_id": string,"ticket_type_name": string,"unit_price_cents": number,"updated_at"?: string
+                    "created_at"?: string,"id"?: string,"bundle_id"?: string | null,"line_total_cents": number,"order_id": string,"pricing_tier_id": string,"pricing_tier_name": string,"quantity": number,"quantity_discount_cents"?: number,"ticket_type_id": string,"ticket_type_name": string,"unit_price_cents": number,"updated_at"?: string
                   }
                   Update: {
-                    "created_at"?: string,"id"?: string,"line_total_cents"?: number,"order_id"?: string,"pricing_tier_id"?: string,"pricing_tier_name"?: string,"quantity"?: number,"quantity_discount_cents"?: number,"ticket_type_id"?: string,"ticket_type_name"?: string,"unit_price_cents"?: number,"updated_at"?: string
+                    "created_at"?: string,"id"?: string,"bundle_id"?: string | null,"line_total_cents"?: number,"order_id"?: string,"pricing_tier_id"?: string,"pricing_tier_name"?: string,"quantity"?: number,"quantity_discount_cents"?: number,"ticket_type_id"?: string,"ticket_type_name"?: string,"unit_price_cents"?: number,"updated_at"?: string
                   }
                   Relationships: [
                     {
