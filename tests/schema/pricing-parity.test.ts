@@ -218,30 +218,41 @@ describe("pricing: stage selection and parity", () => {
   });
 
   it("agrees with the TypeScript rules on the applied discount amounts", async () => {
-    await db.exec("update public.pricing_tiers set quantity_sold = 3 where sequence = 1");
-      const q = await quote(db, 3, "AMIGOS");
-    const resolved = resolveDiscountAmounts({
-      subtotal: copCents(q.subtotalInCents),
-      quantityDiscount: copCents(q.quantityDiscount.amountInCents),
-      codeDiscount: copCents(q.discountCode.amountInCents),
-      combination: "BEST_SINGLE",
-    });
+    await db.exec(
+      "update public.pricing_tiers set quantity_sold = quantity_limit - quantity_reserved where sequence = 1",
+    );
+    try {
+      // Coupons are intentionally valid for one General ticket only.
+      const q = await quote(db, 1, "AMIGOS");
+      const resolved = resolveDiscountAmounts({
+        subtotal: copCents(q.subtotalInCents),
+        quantityDiscount: copCents(q.quantityDiscount.amountInCents),
+        codeDiscount: copCents(q.discountCode.amountInCents),
+        combination: "BEST_SINGLE",
+      });
 
-    expect(q.discountCombination).toBe("BEST_SINGLE");
-    expect(q.quantityDiscountInCents).toBe(resolved.quantityDiscountApplied);
-    expect(q.discountCodeInCents).toBe(resolved.codeDiscountApplied);
-    expect(q.totalDiscountInCents).toBe(resolved.totalDiscount);
-    expect(q.totalInCents).toBe(resolved.total);
-    // 3 x 9.5M = 28.5M; quantity 10% = 2.85M; code 25% = 7.125M -> code wins.
-    expect(q.totalInCents).toBe(25_875_000);
-    await db.exec("update public.pricing_tiers set quantity_sold = 0 where sequence = 1");
+      expect(q.discountCombination).toBe("BEST_SINGLE");
+      expect(q.discountCode.reason).toBe("OK");
+      expect(q.discountCodeInCents).toBe(2_875_000);
+      expect(q.quantityDiscountInCents).toBe(resolved.quantityDiscountApplied);
+      expect(q.discountCodeInCents).toBe(resolved.codeDiscountApplied);
+      expect(q.totalDiscountInCents).toBe(resolved.totalDiscount);
+      expect(q.totalInCents).toBe(resolved.total);
+      // General: 11.5M minus the 25% single-ticket code = 8.625M.
+      expect(q.totalInCents).toBe(8_625_000);
+    } finally {
+      await db.exec("update public.pricing_tiers set quantity_sold = 0 where sequence = 1");
+    }
   });
 
   it("switches to STACK when the policy row says so", async () => {
     await db.exec(`update public.pricing_policy set discount_combination = 'STACK'`);
     try {
-      await db.exec("update public.pricing_tiers set quantity_sold = 3 where sequence = 1");
-      const q = await quote(db, 3, "AMIGOS");
+      await db.exec(
+        "update public.pricing_tiers set quantity_sold = quantity_limit - quantity_reserved where sequence = 1",
+      );
+      // Bundle discount applies to two General tickets; single-ticket coupons are refused.
+      const q = await quote(db, 2, "AMIGOS");
       const resolved = resolveDiscountAmounts({
         subtotal: copCents(q.subtotalInCents),
         quantityDiscount: copCents(q.quantityDiscount.amountInCents),
@@ -249,10 +260,12 @@ describe("pricing: stage selection and parity", () => {
         combination: "STACK",
       });
       expect(q.discountCombination).toBe("STACK");
+      expect(q.discountCode.reason).toBe("WRONG_QUANTITY");
+      expect(q.quantityDiscountInCents).toBe(3_450_000);
       expect(q.quantityDiscountInCents).toBe(resolved.quantityDiscountApplied);
       expect(q.discountCodeInCents).toBe(resolved.codeDiscountApplied);
       expect(q.totalInCents).toBe(resolved.total);
-      expect(q.totalInCents).toBe(22_425_000);
+      expect(q.totalInCents).toBe(19_550_000);
     } finally {
       await db.exec(`update public.pricing_policy set discount_combination = 'BEST_SINGLE'; update public.pricing_tiers set quantity_sold = 0 where sequence = 1`);
     }
@@ -276,7 +289,7 @@ describe("pricing: stage selection and parity", () => {
   });
 
   it("applies a FIXED code to its configured General tier and caps it at the subtotal", async () => {
-    await db.exec("update public.pricing_tiers set quantity_sold = 3 where sequence = 1");
+    await db.exec("update public.pricing_tiers set quantity_sold = quantity_limit - quantity_reserved where sequence = 1");
     try {
       const q = await quote(db, 1, "FIJO");
       expect(q.pricingTier.name).toBe("General");
@@ -291,7 +304,7 @@ describe("pricing: stage selection and parity", () => {
     await db.exec("update public.pricing_tiers set quantity_sold = 2 where sequence = 1");
     try {
       expect(await rejection(db.query(quoteSql(2)))).toContain("SOLD_OUT");
-      await db.exec("update public.pricing_tiers set quantity_sold = 3 where sequence = 1");
+      await db.exec("update public.pricing_tiers set quantity_sold = quantity_limit - quantity_reserved where sequence = 1");
       const q = await quote(db, 2);
       expect(q.pricingTier.name).toBe("General");
       expect(q.quantityDiscount.amountInCents).toBe(3_450_000);
@@ -303,7 +316,7 @@ describe("pricing: stage selection and parity", () => {
 
   it("accepts coupons only for one ticket on the configured General tier", async () => {
     expect((await quote(db, 1, "GENERAL10")).discountCode.reason).toBe("WRONG_SALES_STAGE");
-    await db.exec("update public.pricing_tiers set quantity_sold = 3 where sequence = 1");
+    await db.exec("update public.pricing_tiers set quantity_sold = quantity_limit - quantity_reserved where sequence = 1");
     try {
       const single = await quote(db, 1, "GENERAL10");
       expect(single.discountCode.reason).toBe("OK");
@@ -510,7 +523,7 @@ describe("order creation", () => {
   it("replays an order that used a discount code with the amounts already applied", async () => {
     // FIJO is a fixed 1.000.000-centavo code with unlimited redemptions.
     const key = "idem-discount-replay-01";
-    await db.exec("update public.pricing_tiers set quantity_sold = 3 where sequence = 1");
+    await db.exec("update public.pricing_tiers set quantity_sold = quantity_limit - quantity_reserved where sequence = 1");
     const fresh = await createOrder(db, { quantity: 1, code: "FIJO", key });
     const replay = await createOrder(db, { quantity: 1, code: "FIJO", key });
 
@@ -575,7 +588,7 @@ describe("order creation", () => {
 
   it("rolls everything back when the discount code is exhausted", async () => {
     // AMIGOS has max_redemptions = 1: the first order consumes it.
-    await db.exec("update public.pricing_tiers set quantity_sold = 3 where sequence = 1");
+    await db.exec("update public.pricing_tiers set quantity_sold = quantity_limit - quantity_reserved where sequence = 1");
     const first = await createOrder(db, { quantity: 1, code: "AMIGOS", key: "idem-code-00000001" });
     expect(first.discountCodeInCents).toBeGreaterThan(0);
 
