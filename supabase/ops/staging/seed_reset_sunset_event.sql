@@ -100,4 +100,4 @@ BEGIN
     is_active = true;
 
 END
-$;
+$$;
