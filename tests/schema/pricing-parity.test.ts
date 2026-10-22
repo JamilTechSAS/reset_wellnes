@@ -132,7 +132,7 @@ async function rejection(promise: Promise<unknown>): Promise<string> {
 async function seed(db: PGlite): Promise<void> {
   await db.exec(`
     do $$
-    declare v_event uuid; v_tt uuid;
+    declare v_event uuid; v_tt uuid; v_tier2 uuid;
     begin
       insert into public.events (code, name, starts_at, status, capacity)
         values ('${EVENT}', 'Evento', now() + interval '60 days', 'PUBLISHED', 120)
@@ -144,16 +144,21 @@ async function seed(db: PGlite): Promise<void> {
         (ticket_type_id, name, sequence, price_cents, quantity_limit, sales_starts_at)
       values
         (v_tt, 'Preventa 1', 1, 9500000, 3, now() - interval '1 day'),
-        (v_tt, 'Preventa 2', 2, 11500000, null, now() - interval '1 day'),
+        (v_tt, 'General', 2, 11500000, null, now() - interval '1 day'),
         (v_tt, 'Preventa futura', 3, 5000000, null, now() + interval '30 days');
+      select id into v_tier2 from public.pricing_tiers where ticket_type_id = v_tt and sequence = 2;
       insert into public.quantity_discounts (ticket_type_id, min_quantity, percent_bps)
         values (v_tt, 3, 1000);
-      insert into public.discount_codes (event_id, code, kind, percent_bps, max_redemptions)
-        values (v_event, 'AMIGOS', 'PERCENT', 2500, 1);
-      insert into public.discount_codes (event_id, code, kind, amount_cents)
-        values (v_event, 'FIJO', 'FIXED', 1000000);
-      insert into public.discount_codes (event_id, code, kind, percent_bps, is_active)
-        values (v_event, 'APAGADO', 'PERCENT', 5000, false);
+      insert into public.quantity_discounts (ticket_type_id, pricing_tier_id, min_quantity, max_quantity, percent_bps)
+        values (v_tt, v_tier2, 2, 2, 1500);
+      insert into public.discount_codes (event_id, ticket_type_id, pricing_tier_id, code, kind, percent_bps, max_redemptions, max_quantity)
+        values (v_event, v_tt, v_tier2, 'AMIGOS', 'PERCENT', 2500, 1, 6);
+      insert into public.discount_codes (event_id, ticket_type_id, pricing_tier_id, code, kind, amount_cents, max_quantity)
+        values (v_event, v_tt, v_tier2, 'FIJO', 'FIXED', 1000000, 6);
+      insert into public.discount_codes (event_id, ticket_type_id, pricing_tier_id, code, kind, percent_bps, max_quantity, is_active)
+        values (v_event, v_tt, v_tier2, 'APAGADO', 'PERCENT', 5000, 6, false);
+      insert into public.discount_codes (event_id, ticket_type_id, pricing_tier_id, code, kind, percent_bps, max_quantity)
+        values (v_event, v_tt, v_tier2, 'GENERAL10', 'PERCENT', 1000, 1);
     end $$;
   `);
 }
@@ -254,7 +259,7 @@ describe("pricing: stage selection and parity", () => {
     const cases: readonly (readonly [string, string])[] = [
       ["NOPE", "NOT_FOUND"],
       ["APAGADO", "INACTIVE"],
-      ["FIJO", "OK"],
+      ["FIJO", "WRONG_SALES_STAGE"],
     ];
     for (const [code, reason] of cases) {
       const q = await quote(db, 1, code);
@@ -267,11 +272,46 @@ describe("pricing: stage selection and parity", () => {
     expect(notSupplied.discountCode.supplied).toBe(false);
   });
 
-  it("applies a FIXED code and caps it at the subtotal", async () => {
-    const q = await quote(db, 1, "FIJO");
-    expect(q.discountCode.kind).toBe("FIXED");
-    // 9.5M - 1M = 8.5M
-    expect(q.totalInCents).toBe(8_500_000);
+  it("applies a FIXED code to its configured General tier and caps it at the subtotal", async () => {
+    await db.exec("update public.pricing_tiers set quantity_sold = 3 where sequence = 1");
+    try {
+      const q = await quote(db, 1, "FIJO");
+      expect(q.pricingTier.name).toBe("General");
+      expect(q.discountCode.kind).toBe("FIXED");
+      expect(q.totalInCents).toBe(10_500_000);
+    } finally {
+      await db.exec("update public.pricing_tiers set quantity_sold = 0 where sequence = 1");
+    }
+  });
+
+  it("keeps General locked until Preventa is exhausted and prices the two-ticket package there", async () => {
+    await db.exec("update public.pricing_tiers set quantity_sold = 2 where sequence = 1");
+    try {
+      expect(await rejection(db.query(quoteSql(2)))).toContain("SOLD_OUT");
+      await db.exec("update public.pricing_tiers set quantity_sold = 3 where sequence = 1");
+      const q = await quote(db, 2);
+      expect(q.pricingTier.name).toBe("General");
+      expect(q.quantityDiscount.amountInCents).toBe(3_450_000);
+      expect(q.totalInCents).toBe(19_550_000);
+    } finally {
+      await db.exec("update public.pricing_tiers set quantity_sold = 0 where sequence = 1");
+    }
+  });
+
+  it("accepts coupons only for one ticket on the configured General tier", async () => {
+    expect((await quote(db, 1, "GENERAL10")).discountCode.reason).toBe("WRONG_SALES_STAGE");
+    await db.exec("update public.pricing_tiers set quantity_sold = 3 where sequence = 1");
+    try {
+      const single = await quote(db, 1, "GENERAL10");
+      expect(single.discountCode.reason).toBe("OK");
+      expect(single.totalInCents).toBe(10_350_000);
+      const bundle = await quote(db, 2, "GENERAL10");
+      expect(bundle.discountCode.reason).toBe("WRONG_QUANTITY");
+      expect(bundle.totalInCents).toBe(19_550_000);
+      expect(await rejection(db.query(orderSql({quantity:2,code:"GENERAL10",key:"idem-general-coupon-001"})))).toContain("DISCOUNT_WRONG_QUANTITY");
+    } finally {
+      await db.exec("update public.pricing_tiers set quantity_sold = 0 where sequence = 1");
+    }
   });
 
   it("refuses quantities outside the configured per-order limits", async () => {
@@ -399,7 +439,7 @@ describe("order creation", () => {
 
     // The next order falls through to stage 2 (pricier), not an error.
     const order = await createOrder(db, { quantity: 1, key: "idem-stage2-00000001" });
-    expect(order.pricingTierName).toBe("Preventa 2");
+    expect(order.pricingTierName).toBe("General");
     expect(order.unitPriceInCents).toBe(11_500_000);
   });
 
