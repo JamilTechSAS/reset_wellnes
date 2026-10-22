@@ -162,9 +162,17 @@ function summaryRow(
 function quoteSummary(quote: Quote): string {
   // The product name comes from the backend quote, never from a hardcoded label: the event
   // sells three products and only the server knows which one priced this order.
-  const isTwoPersonPackage = quote.quantity === 2 && quote.pricingTier.name === "General" && quote.quantityDiscountInCents > 0;
+  const isTwoPersonPackage =
+    quote.quantity === 2 &&
+    quote.pricingTier.name === "General" &&
+    quote.quantityDiscountInCents > 0;
   const rows = [
-    summaryRow(isTwoPersonPackage ? "Comparte esta experiencia (2 entradas)" : `${quote.ticketType.name} × ${quote.quantity}`, quote.subtotalInCents),
+    summaryRow(
+      isTwoPersonPackage
+        ? "Comparte esta experiencia (2 entradas)"
+        : `${quote.ticketType.name} × ${quote.quantity}`,
+      quote.subtotalInCents,
+    ),
     quote.quantityDiscountInCents > 0
       ? summaryRow(isTwoPersonPackage ? "Descuento del paquete" : "Descuento por cantidad", -quote.quantityDiscountInCents, { muted: true })
       : "",

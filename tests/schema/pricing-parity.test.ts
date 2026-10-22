@@ -311,7 +311,11 @@ describe("pricing: stage selection and parity", () => {
       const bundle = await quote(db, 2, "GENERAL10");
       expect(bundle.discountCode.reason).toBe("WRONG_QUANTITY");
       expect(bundle.totalInCents).toBe(19_550_000);
-      expect(await rejection(db.query(orderSql({quantity:2,code:"GENERAL10",key:"idem-general-coupon-001"})))).toContain("DISCOUNT_WRONG_QUANTITY");
+      expect(
+        await rejection(
+          db.query(orderSql({ quantity: 2, code: "GENERAL10", key: "idem-general-coupon-001" })),
+        ),
+      ).toContain("DISCOUNT_WRONG_QUANTITY");
     } finally {
       await db.exec("update public.pricing_tiers set quantity_sold = 0 where sequence = 1");
     }

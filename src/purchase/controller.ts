@@ -389,7 +389,8 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
       const event = await api.getEvent(config.eventCode, signal);
       const ticketType = selectTicketType(event, config.ticketTypeCode);
       const availability = ticketType?.availability ?? event.sales.availability;
-      const discountCode = quantity === 1 && ticketType?.currentTier?.name === "General" ? savedDiscountCode : "";
+      const discountCode =
+        quantity === 1 && ticketType?.currentTier?.name === "General" ? savedDiscountCode : "";
       const purchasable =
         event.sales.salesOpen &&
         ticketType !== undefined &&
