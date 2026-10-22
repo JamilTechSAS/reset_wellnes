@@ -104,7 +104,7 @@ export type QuoteRequest = {
   readonly eventCode: string;
   readonly ticketTypeCode: string;
   readonly quantity: number;
-  readonly bundleCode: "DOUBLE_EXPERIENCE" | undefined;
+  readonly bundleCode?: "DOUBLE_EXPERIENCE";
   readonly discountCode: string | undefined;
   readonly reservationMinutes: number;
 };
