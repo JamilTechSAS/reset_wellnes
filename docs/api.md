@@ -149,6 +149,8 @@ max_per_order]`; the discount code belongs to the event, is active, unexpired an
 limit. Totals are recomputed server-side from database state and **never** taken from input —
 there is no amount parameter anywhere in the request.
 
+Named product: `Doble experiencia` is selected only by sending `"bundleCode": "DOUBLE_EXPERIENCE"` with quantity `2`. The database prices that product at `34000000` centavos ($340,000 COP), reserves two admissions from the General stage, and rejects promo codes with the bundle. Without `bundleCode`, a quantity of two represents two individual General tickets at $400,000 COP; it never receives the bundle price automatically.
+
 ### `POST /orders` — implemented (Phase 3)
 
 Creates the order atomically (inventory reserved, discounts claimed, participant and consents
