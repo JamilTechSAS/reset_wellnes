@@ -94,6 +94,7 @@ export type PurchaseState = {
   readonly event: PublicEvent | null;
   readonly availability: AvailabilityLabel;
   readonly quantity: number;
+  readonly bundleCode: "DOUBLE_EXPERIENCE" | null;
   readonly discountCode: string;
   readonly participant: ParticipantFormValues;
   readonly issues: readonly FieldIssue[];
@@ -133,6 +134,7 @@ export type PurchaseController = {
   subscribe(listener: (state: PurchaseState) => void): () => void;
   start(): Promise<void>;
   setQuantity(quantity: number): void;
+  setBundleCode(bundleCode: "DOUBLE_EXPERIENCE" | null): void;
   setDiscountCode(value: string): void;
   setField(field: ParticipantField, value: string | boolean): void;
   requestQuote(): Promise<void>;
@@ -157,6 +159,7 @@ function initialState(): PurchaseState {
     event: null,
     availability: "AVAILABLE",
     quantity: 1,
+    bundleCode: null,
     discountCode: "",
     participant: EMPTY_PARTICIPANT_FORM,
     issues: [],
@@ -327,8 +330,8 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
 
   function persistDraft(): void {
     saveDraft(store, {
-      quantity: state.quantity,
-      discountCode: state.discountCode,
+      quantity: state.bundleCode === null ? state.quantity : 1,
+      discountCode: state.bundleCode === null ? state.discountCode : "",
       participant: {
         firstName: state.participant.firstName,
         lastName: state.participant.lastName,
@@ -356,7 +359,7 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
 
   function eligibleDiscountCode(): string | undefined {
     const ticketType = selectTicketType(state.event, config.ticketTypeCode);
-    if (state.quantity !== 1 || ticketType?.currentTier?.name !== "General") return undefined;
+    if (state.bundleCode !== null || state.quantity !== 1 || ticketType?.currentTier?.name !== "General") return undefined;
     return state.discountCode.length === 0 ? undefined : state.discountCode;
   }
 
@@ -366,8 +369,8 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
 
   async function start(): Promise<void> {
     const draft = loadDraft(store);
-    const quantity = clamp(draft?.quantity ?? state.quantity, 1, MAX_QUANTITY_FALLBACK);
-    const savedDiscountCode = quantity === 1 ? (draft?.discountCode ?? state.discountCode) : "";
+    const quantity = state.bundleCode !== null ? 2 : clamp(draft?.quantity ?? state.quantity, 1, MAX_QUANTITY_FALLBACK);
+    const savedDiscountCode = state.bundleCode === null && quantity === 1 ? (draft?.discountCode ?? state.discountCode) : "";
     const participant = {
       ...participantFromDraft(draft, state.participant),
       ...(state.participant.dataProcessing ? { dataProcessing: true } : {}),
@@ -456,10 +459,28 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
   // -------------------------------------------------------------------------
 
   function setQuantity(quantity: number): void {
+    if (state.bundleCode !== null) {
+      return;
+    }
     const next = clamp(Math.trunc(quantity) || minQuantity(), minQuantity(), maxQuantity());
     emit({ quantity: next, quote: null, discountCode: next === 1 ? state.discountCode : "" });
     persistDraft();
   }
+
+  function setBundleCode(bundleCode: "DOUBLE_EXPERIENCE" | null): void {
+    const leavingBundle = state.bundleCode !== null && bundleCode === null;
+    const quantity = bundleCode !== null ? 2 : leavingBundle ? 1 : state.quantity;
+    emit({
+      bundleCode,
+      quantity,
+      discountCode: bundleCode !== null || leavingBundle ? "" : state.discountCode,
+      quote: null,
+    });
+    if (bundleCode === null) {
+      persistDraft();
+    }
+  }
+
 
   function setDiscountCode(value: string): void {
     emit({ discountCode: value.trim().toUpperCase(), quote: null });
@@ -488,6 +509,7 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
           eventCode: config.eventCode,
           ticketTypeCode: config.ticketTypeCode,
           quantity: state.quantity,
+          ...(state.bundleCode === null ? {} : { bundleCode: state.bundleCode }),
           ...(eligibleDiscountCode() === undefined ? {} : { discountCode: eligibleDiscountCode() }),
         },
         signal,
@@ -548,6 +570,7 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
           eventCode: config.eventCode,
           ticketTypeCode: config.ticketTypeCode,
           quantity: state.quantity,
+          ...(state.bundleCode === null ? {} : { bundleCode: state.bundleCode }),
           ...(eligibleDiscountCode() === undefined ? {} : { discountCode: eligibleDiscountCode() }),
           buyer: {
             email: buyerEmail,
@@ -917,6 +940,7 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
     },
     start,
     setQuantity,
+    setBundleCode,
     setDiscountCode,
     setField,
     requestQuote,
