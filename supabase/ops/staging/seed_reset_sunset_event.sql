@@ -45,15 +45,16 @@ BEGIN
     is_active = true
   RETURNING id INTO v_ticket_type_id;
 
-  -- 30 tickets in preventa; later General sales have an independent 70-ticket limit.
-  -- The General stage cannot be selected until preventa is exhausted or its window ends.
+  -- 30 tickets in preventa for 72 hours from launch (2026-10-24 10:00 Colombia),
+  -- or until sold out. General then sells the remaining 70 tickets, until 2026-11-13 ends.
+  -- The pricing-stage selector exposes General only after preventa is exhausted or closes.
   INSERT INTO public.pricing_tiers (
     ticket_type_id, name, sequence, price_cents, quantity_limit,
     sales_starts_at, sales_ends_at, is_active
   ) VALUES (
     v_ticket_type_id, 'Preventa', 1, 16000000, 30,
     timestamptz '2026-10-24 15:00:00+00',
-    timestamptz '2026-11-14 05:00:00+00',
+    timestamptz '2026-10-27 15:00:00+00',
     true
   )
   ON CONFLICT (ticket_type_id, sequence) DO UPDATE SET
