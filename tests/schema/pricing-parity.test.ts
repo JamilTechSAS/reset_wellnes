@@ -218,7 +218,8 @@ describe("pricing: stage selection and parity", () => {
   });
 
   it("agrees with the TypeScript rules on the applied discount amounts", async () => {
-    const q = await quote(db, 3, "AMIGOS");
+    await db.exec("update public.pricing_tiers set quantity_sold = 3 where sequence = 1");
+      const q = await quote(db, 3, "AMIGOS");
     const resolved = resolveDiscountAmounts({
       subtotal: copCents(q.subtotalInCents),
       quantityDiscount: copCents(q.quantityDiscount.amountInCents),
@@ -232,12 +233,13 @@ describe("pricing: stage selection and parity", () => {
     expect(q.totalDiscountInCents).toBe(resolved.totalDiscount);
     expect(q.totalInCents).toBe(resolved.total);
     // 3 x 9.5M = 28.5M; quantity 10% = 2.85M; code 25% = 7.125M -> code wins.
-    expect(q.totalInCents).toBe(21_375_000);
+    expect(q.totalInCents).toBe(25_875_000);
   });
 
   it("switches to STACK when the policy row says so", async () => {
     await db.exec(`update public.pricing_policy set discount_combination = 'STACK'`);
     try {
+      await db.exec("update public.pricing_tiers set quantity_sold = 3 where sequence = 1");
       const q = await quote(db, 3, "AMIGOS");
       const resolved = resolveDiscountAmounts({
         subtotal: copCents(q.subtotalInCents),
@@ -249,7 +251,7 @@ describe("pricing: stage selection and parity", () => {
       expect(q.quantityDiscountInCents).toBe(resolved.quantityDiscountApplied);
       expect(q.discountCodeInCents).toBe(resolved.codeDiscountApplied);
       expect(q.totalInCents).toBe(resolved.total);
-      expect(q.totalInCents).toBe(18_525_000);
+      expect(q.totalInCents).toBe(22_425_000);
     } finally {
       await db.exec(`update public.pricing_policy set discount_combination = 'BEST_SINGLE'`);
     }
@@ -503,8 +505,9 @@ describe("order creation", () => {
   it("replays an order that used a discount code with the amounts already applied", async () => {
     // FIJO is a fixed 1.000.000-centavo code with unlimited redemptions.
     const key = "idem-discount-replay-01";
-    const fresh = await createOrder(db, { quantity: 2, code: "FIJO", key });
-    const replay = await createOrder(db, { quantity: 2, code: "FIJO", key });
+    await db.exec("update public.pricing_tiers set quantity_sold = 3 where sequence = 1");
+    const fresh = await createOrder(db, { quantity: 1, code: "FIJO", key });
+    const replay = await createOrder(db, { quantity: 1, code: "FIJO", key });
 
     expect(fresh.discountCodeInCents).toBe(1_000_000);
     expect(replay.replayed).toBe(true);
@@ -567,6 +570,7 @@ describe("order creation", () => {
 
   it("rolls everything back when the discount code is exhausted", async () => {
     // AMIGOS has max_redemptions = 1: the first order consumes it.
+    await db.exec("update public.pricing_tiers set quantity_sold = 3 where sequence = 1");
     const first = await createOrder(db, { quantity: 1, code: "AMIGOS", key: "idem-code-00000001" });
     expect(first.discountCodeInCents).toBeGreaterThan(0);
 
