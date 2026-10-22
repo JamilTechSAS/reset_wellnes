@@ -267,6 +267,50 @@ describe("server-side quote", () => {
     );
   });
 
+  it("quotes Doble experiencia as a named two-admission product", async () => {
+    const api = createFakeApi();
+    const event = makeEvent();
+    api.getEvent.mockResolvedValue({
+      ...event,
+      sales: {
+        ...event.sales,
+        ticketTypes: event.sales.ticketTypes.map((ticketType) => ({
+          ...ticketType,
+          currentTier: { name: "General", sequence: 2, priceInCents: 20_000_000 },
+        })),
+      },
+    });
+    api.quote.mockResolvedValue(
+      makeQuote({
+        quantity: 2,
+        ticketType: { code: "DOUBLE_EXPERIENCE", name: "Doble experiencia" },
+        pricingTier: { name: "General", sequence: 2, unitPriceInCents: 17_000_000 },
+        subtotalInCents: 34_000_000,
+        quantityDiscount: { applies: false, percentBps: 0, amountInCents: 0 },
+        quantityDiscountInCents: 0,
+        totalDiscountInCents: 0,
+        totalInCents: 34_000_000,
+      }),
+    );
+    const env = setup({ api, seed: draftEntry(1) });
+    env.controller.setBundleCode("DOUBLE_EXPERIENCE");
+    await reachReview(env);
+
+    expect(env.controller.getState().quantity).toBe(2);
+    expect(env.controller.getState().quote?.totalInCents).toBe(34_000_000);
+    expect(env.api.quote).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventCode: TEST_EVENT_CODE,
+        ticketTypeCode: TEST_TICKET_TYPE_CODE,
+        quantity: 2,
+        bundleCode: "DOUBLE_EXPERIENCE",
+      }),
+      expect.anything(),
+    );
+    env.controller.setQuantity(4);
+    expect(env.controller.getState().quantity).toBe(2);
+  });
+
   it("sends the discount code and surfaces the backend's verdict on it", async () => {
     const api = createFakeApi();
     const event = makeEvent();
