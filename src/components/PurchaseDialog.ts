@@ -165,20 +165,20 @@ function quoteSummary(quote: Quote, bundleCode: PurchaseState["bundleCode"]): st
     summaryRow(
       isBundle
         ? "Doble experiencia (2 entradas)"
-        : \`\${quote.ticketType.name} × \${quote.quantity}\`,
+        : `${quote.ticketType.name} × ${quote.quantity}`,
       quote.subtotalInCents,
     ),
     quote.quantityDiscountInCents > 0
       ? summaryRow("Descuento por cantidad", -quote.quantityDiscountInCents, { muted: true })
       : "",
     quote.discountCodeInCents > 0
-      ? summaryRow(\`Código \${quote.discountCode.code ?? ""}\`.trim(), -quote.discountCodeInCents, {
+      ? summaryRow(`Código ${quote.discountCode.code ?? ""}`.trim(), -quote.discountCodeInCents, {
           muted: true,
         })
       : "",
     summaryRow("Total", quote.totalInCents, { strong: true }),
   ];
-  return \`<div class="summary">\${rows.join("")}</div>\`;
+  return `<div class="summary">${rows.join("")}</div>`;
 }
 
 
@@ -304,13 +304,13 @@ function renderForm(state: PurchaseState, ctx: PurchaseDialogContext, showProble
       }
       ${
         isBundle
-          ? \`<p class="purchase-section-note">Doble experiencia incluye 2 entradas Generales por $340.000. Es un producto independiente y no admite códigos promocionales.</p>\`
+          ? `<p class="purchase-section-note">Doble experiencia incluye 2 entradas Generales por $340.000. Es un producto independiente y no admite códigos promocionales.</p>`
           : currentTierName === "Preventa"
-            ? \`<p class="purchase-section-note">Doble experiencia estará disponible en la etapa General, al terminar la preventa.</p>\`
+            ? `<p class="purchase-section-note">Doble experiencia estará disponible en la etapa General, al terminar la preventa.</p>`
             : isGeneralStage && state.quantity === 2
-              ? \`<p class="purchase-section-note">Dos entradas Generales individuales cuestan $400.000. Doble experiencia es un producto separado.</p>\`
+              ? `<p class="purchase-section-note">Dos entradas Generales individuales cuestan $400.000. Doble experiencia es un producto separado.</p>`
               : isGeneralStage
-                ? \`<p class="purchase-section-note">Los códigos de descuento solo aplican a una entrada General.</p>\`
+                ? `<p class="purchase-section-note">Los códigos de descuento solo aplican a una entrada General.</p>`
                 : ""
       }
     </section>
