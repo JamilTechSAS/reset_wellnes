@@ -152,7 +152,7 @@ const MAX_QUANTITY_FALLBACK = 4;
 
 function initialState(): PurchaseState {
   return {
-    step: "loading",
+    step: "form",
     busy: false,
     event: null,
     availability: "AVAILABLE",
@@ -359,8 +359,24 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
   // -------------------------------------------------------------------------
 
   async function start(): Promise<void> {
-    emit({ step: "loading", busy: true, problem: null });
     const draft = loadDraft(store);
+    const quantity = clamp(draft?.quantity ?? state.quantity, 1, MAX_QUANTITY_FALLBACK);
+    const participant = {
+      ...participantFromDraft(draft, state.participant),
+      ...(state.participant.dataProcessing ? { dataProcessing: true } : {}),
+      ...(state.participant.futureEvents ? { futureEvents: true } : {}),
+    };
+
+    // Immediately present the form to the buyer without blocking
+    emit({
+      step: "form",
+      busy: false,
+      problem: null,
+      quantity,
+      discountCode: draft?.discountCode ?? state.discountCode,
+      participant,
+    });
+
     const signal = newSignal();
     try {
       const event = await api.getEvent(config.eventCode, signal);
@@ -372,13 +388,12 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
         ticketType.salesOpen &&
         availabilityIsPurchasable(availability);
 
-      const quantity = clamp(draft?.quantity ?? 1, 1, MAX_QUANTITY_FALLBACK);
       emit({
         event,
         availability,
         quantity,
-        discountCode: draft?.discountCode ?? "",
-        participant: participantFromDraft(draft, EMPTY_PARTICIPANT_FORM),
+        discountCode: draft?.discountCode ?? state.discountCode,
+        participant,
         busy: false,
         step: purchasable ? "form" : "closed",
         problem: purchasable
@@ -402,17 +417,27 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
       const problem = describeError(error);
       // A missing event is not an error the buyer can fix: show the friendly closed state.
       const closed = error instanceof ApiError && error.code === "NOT_FOUND";
+      if (closed) {
+        emit({
+          busy: false,
+          step: "closed",
+          problem: {
+            ...problem,
+            title: "Venta no disponible",
+            message:
+              "El evento aún no está disponible para compra. Escríbenos y te avisamos cuando las ventas abran.",
+          },
+        });
+        return;
+      }
+
+      // If the API fails or responds with network/transient error, keep the form
+      // visible and accessible to the buyer, displaying the problem as a clear notice
+      // without collapsing or hiding the buyer fields.
       emit({
         busy: false,
-        step: closed ? "closed" : "problem",
-        problem: closed
-          ? {
-              ...problem,
-              title: "Venta no disponible",
-              message:
-                "El evento aún no está disponible para compra. Escríbenos y te avisamos cuando las ventas abran.",
-            }
-          : problem,
+        step: "form",
+        problem,
       });
     }
   }

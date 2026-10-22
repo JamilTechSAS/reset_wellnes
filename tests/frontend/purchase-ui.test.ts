@@ -10,6 +10,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { NetworkError } from "../../src/api/client.ts";
 import { EVENT_CONTENT_CONFIG } from "../../src/config/event-content.ts";
 import { loadFrontendConfig } from "../../src/config/env.ts";
 import { mountPurchaseDialog, renderPurchaseStep } from "../../src/components/PurchaseDialog.ts";
@@ -733,5 +734,99 @@ describe("purchase dialog", () => {
       "1234-5678-9012",
     );
     expect(vi.isMockFunction(api.getOrderStatus)).toBe(true);
+  });
+
+  it("opens the buyer form directly without a blocking loader even if participant data is empty", () => {
+    const { dialog } = openDialog();
+    dialog.open();
+
+    const overlay = container.querySelector<HTMLElement>(".purchase-overlay");
+    expect(overlay?.hidden).toBe(false);
+    expect(container.querySelector("#pf-first-name")).not.toBeNull();
+    expect(container.querySelector("#pf-last-name")).not.toBeNull();
+    expect(container.querySelector("#pf-national-id")).not.toBeNull();
+    expect(container.querySelector("#pf-email")).not.toBeNull();
+    expect(container.querySelector("#pf-phone")).not.toBeNull();
+    expect(container.querySelector("#pf-city")).not.toBeNull();
+    expect(container.querySelector("#pf-consent-data")).not.toBeNull();
+    expect(container.querySelector(".purchase-state-title")?.textContent).not.toBe(
+      "Cargando disponibilidad",
+    );
+  });
+
+  it("keeps the buyer form visible with entered data and without requiring 'Editar datos' when an API error occurs", async () => {
+    api.getEvent.mockRejectedValue(new NetworkError("Failed to fetch"));
+    const { controller, dialog } = openDialog();
+    dialog.open();
+    await flush();
+
+    // The form remains rendered and visible, not collapsed behind an error card
+    expect(container.querySelector("#pf-first-name")).not.toBeNull();
+    expect(container.querySelector("#pf-email")).not.toBeNull();
+    expect(container.querySelector('[data-action="edit"]')).toBeNull();
+
+    // The problem alert banner is clearly displayed inside the form
+    const alertEl = container.querySelector('[role="alert"]');
+    expect(alertEl).not.toBeNull();
+    expect(alertEl?.textContent).toContain("Problema de conexión");
+
+    // The user can type their information and it is preserved
+    const firstNameInput = container.querySelector<HTMLInputElement>("#pf-first-name")!;
+    firstNameInput.focus();
+    firstNameInput.value = "Carlos";
+    firstNameInput.dispatchEvent(new Event("input", { bubbles: true }));
+
+    expect(controller.getState().participant.firstName).toBe("Carlos");
+    expect(container.querySelector<HTMLInputElement>("#pf-first-name")?.value).toBe("Carlos");
+  });
+
+  it("preserves the email input element, value and focus while typing in email and text fields", async () => {
+    const { controller, dialog } = openDialog();
+    dialog.open();
+    await flush();
+
+    const emailInput = container.querySelector<HTMLInputElement>("#pf-email")!;
+    expect(emailInput).not.toBeNull();
+    emailInput.focus();
+
+    // Keystroke 1: "carlos@"
+    emailInput.value = "carlos@";
+    emailInput.dispatchEvent(new Event("input", { bubbles: true }));
+
+    // Element node identity is preserved (DOM not replaced via innerHTML)
+    expect(container.querySelector("#pf-email")).toBe(emailInput);
+    expect(document.activeElement).toBe(emailInput);
+    expect(controller.getState().participant.email).toBe("carlos@");
+
+    // Keystroke 2: "carlos@example.com"
+    emailInput.value = "carlos@example.com";
+    emailInput.dispatchEvent(new Event("input", { bubbles: true }));
+
+    expect(container.querySelector("#pf-email")).toBe(emailInput);
+    expect(document.activeElement).toBe(emailInput);
+    expect(controller.getState().participant.email).toBe("carlos@example.com");
+  });
+
+  it("preserves quantity and terms acceptance passed into open() across operations and errors", async () => {
+    api.quote.mockRejectedValue(new NetworkError("Timeout"));
+    const { controller, dialog } = openDialog();
+    dialog.open({ quantity: 2, acceptedTerms: true });
+    await flush();
+
+    expect(controller.getState().quantity).toBe(2);
+    expect(controller.getState().participant.dataProcessing).toBe(true);
+
+    const consentInput = container.querySelector<HTMLInputElement>("#pf-consent-data")!;
+    expect(consentInput.checked).toBe(true);
+    expect(container.querySelector(".qty-value-number")?.textContent).toBe("2");
+
+    // When quote fails, form remains visible with quantity and consent preserved
+    container.querySelector<HTMLButtonElement>('[data-action="quote"]')?.click();
+    await flush();
+
+    expect(controller.getState().quantity).toBe(2);
+    expect(controller.getState().participant.dataProcessing).toBe(true);
+    expect(container.querySelector<HTMLInputElement>("#pf-consent-data")?.checked).toBe(true);
+    expect(container.querySelector(".qty-value-number")?.textContent).toBe("2");
   });
 });

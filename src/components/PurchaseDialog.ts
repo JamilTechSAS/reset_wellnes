@@ -45,6 +45,10 @@ export type OpenPurchaseOptions = {
    * which is also what the "consultar mi compra" entry point uses.
    */
   readonly resume?: { readonly transactionId?: string | undefined } | undefined;
+  readonly quantity?: number | undefined;
+  readonly acceptedTerms?: boolean | undefined;
+  readonly tier?: string | undefined;
+  readonly source?: string | undefined;
 };
 
 export type PurchaseDialog = {
@@ -243,6 +247,14 @@ function renderForm(state: PurchaseState, ctx: PurchaseDialogContext): string {
   const p = state.participant;
 
   return `
+    ${
+      state.problem === null
+        ? ""
+        : `<div class="inline-note tone-warning" role="alert" style="margin-bottom: 1rem;">
+             ${renderIcon("alert")}
+             <span><strong>${escapeHtml(state.problem.title)}:</strong> ${escapeHtml(state.problem.message)}</span>
+           </div>`
+    }
     ${
       event === null
         ? ""
@@ -791,6 +803,31 @@ export function mountPurchaseDialog(options: {
   }
 
   function render(state: PurchaseState): void {
+    const isEditingForm =
+      isOpen &&
+      state.step === "form" &&
+      lastStep === "form" &&
+      document.activeElement instanceof HTMLInputElement &&
+      bodyEl?.contains(document.activeElement) === true;
+
+    if (isEditingForm) {
+      // User is actively typing or interacting with a form control.
+      // Do NOT destroy the DOM with innerHTML: doing so blows away the native input node,
+      // which resets cursor/caret position (especially in <input type="email"> where selectionStart
+      // is not supported) and disrupts mobile keyboards/IME.
+      const activeInput = document.activeElement as HTMLInputElement;
+      const fieldName = activeInput.dataset.field as ParticipantField | undefined;
+      if (fieldName !== undefined) {
+        const fieldEl = activeInput.closest(".field") ?? activeInput.closest(".consent-list");
+        if (fieldEl !== null && !state.issues.some((i) => i.field === fieldName)) {
+          fieldEl.classList.remove("has-error");
+          activeInput.removeAttribute("aria-invalid");
+          fieldEl.querySelector(".field-error")?.remove();
+        }
+      }
+      return;
+    }
+
     const step = renderPurchaseStep(state, context);
     const focus = state.step === lastStep ? captureFocus() : null;
     closable = step.closable;
@@ -838,6 +875,14 @@ export function mountPurchaseDialog(options: {
     overlay.hidden = false;
     overlay.classList.add("is-open");
     document.body.style.overflow = "hidden";
+
+    if (openOptions.quantity !== undefined) {
+      controller.setQuantity(openOptions.quantity);
+    }
+    if (openOptions.acceptedTerms === true) {
+      controller.setField("dataProcessing", true);
+    }
+
     render(controller.getState());
     const target = overlay.querySelector<HTMLElement>(FOCUSABLE);
     (titleEl ?? target)?.focus();

@@ -200,8 +200,8 @@ export function bootstrap(): { cleanup: () => void } {
 
   // Initialize client-delivered page interactions (menu, modal, reveal, form, tickets)
   const clientCleanup = initClientInteractions({
-    openPurchase: () => {
-      dialog.open();
+    openPurchase: (_source, details) => {
+      dialog.open(details);
     },
     openLookup: () => {
       dialog.open({ resume: {} });

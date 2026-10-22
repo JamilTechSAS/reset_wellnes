@@ -13,7 +13,14 @@
  */
 
 export type ClientInteractionsOptions = {
-  readonly openPurchase?: (source: string) => void;
+  readonly openPurchase?: (
+    source: string,
+    details?: {
+      readonly quantity?: number;
+      readonly tier?: string;
+      readonly acceptedTerms?: boolean;
+    },
+  ) => void;
   readonly openLookup?: () => void;
   readonly openLegal?: (tab: string) => void;
 };
@@ -495,8 +502,16 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
         return;
       }
 
+      const selectedRadio = document.querySelector<HTMLInputElement>(".tipo input:checked");
+      const tier = selectedRadio?.value ?? defaultTier;
+      const quantity = tier === "duo" ? 2 : 1;
+
       // Enter the approved real backend purchase flow
-      options.openPurchase?.("ticket-section");
+      options.openPurchase?.("ticket-section", {
+        quantity,
+        tier,
+        acceptedTerms: true,
+      });
     };
 
     buyButton.addEventListener("click", handleBuyClick);

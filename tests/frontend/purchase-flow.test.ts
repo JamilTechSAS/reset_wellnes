@@ -191,7 +191,7 @@ describe("loading the event", () => {
     await env.controller.start();
 
     const state = env.controller.getState();
-    expect(state.step).toBe("problem");
+    expect(state.step).toBe("form");
     expect(state.problem?.kind).toBe("server");
     expect(state.problem?.canRetry).toBe(true);
     expect(JSON.stringify(state.problem)).not.toContain("boom");
