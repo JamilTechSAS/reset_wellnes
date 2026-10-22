@@ -238,13 +238,18 @@ export function createOrderGateway(client: DbClient): OrderGateway {
         ...(request.userAgent === undefined ? {} : { p_user_agent: request.userAgent }),
       };
 
-      const { data, error } =
-        request.bundleCode === undefined
-          ? await client.rpc("create_order", rpcArgs)
-          : await client.rpc("create_bundle_order", {
-              ...rpcArgs,
-              p_bundle_code: request.bundleCode,
-            });
+      if (request.bundleCode !== undefined) {
+        const { data, error } = await client.rpc("create_bundle_order", {
+          ...rpcArgs,
+          p_bundle_code: request.bundleCode,
+        });
+        if (error !== null) {
+          throw mapSqlErrorToAppError(error);
+        }
+        return data as CreateOrderResult;
+      }
+
+      const { data, error } = await client.rpc("create_order", rpcArgs);
       if (error !== null) {
         throw mapSqlErrorToAppError(error);
       }
