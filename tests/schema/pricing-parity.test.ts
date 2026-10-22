@@ -151,7 +151,7 @@ async function rejection(promise: Promise<unknown>): Promise<string> {
   }
 }
 
-/** Fresh database per test group, seeded with a stage ladder and two codes. */
+/** Fresh database per test group, seeded with a stage ladder, a named bundle and test codes. */
 async function seed(db: PGlite): Promise<void> {
   await db.exec(`
     do $$
@@ -275,7 +275,7 @@ describe("pricing: stage selection and parity", () => {
       await db.exec(
         "update public.pricing_tiers set quantity_sold = quantity_limit - quantity_reserved where sequence = 1",
       );
-      // Bundle discount applies to two General tickets; single-ticket coupons are refused.
+      // The tier quantity discount starts at three tickets; the single-ticket coupon is refused here.
       const q = await quote(db, 3, "AMIGOS");
       const resolved = resolveDiscountAmounts({
         subtotal: copCents(q.subtotalInCents),
