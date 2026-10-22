@@ -74,14 +74,23 @@ const PARTICIPANT = JSON.stringify({
   consents: { dataProcessing: true, futureEvents: false },
 });
 
-function quoteSql(quantity: number, code: string | null = null, minutes = 15): string {
+function quoteSql(
+  quantity: number,
+  code: string | null = null,
+  minutes = 15,
+  bundleCode: string | null = null,
+): string {
   const codeArg = code === null ? "null" : `'${code}'`;
+  if (bundleCode !== null) {
+    return `select public.quote_bundle_order_price('${EVENT}','GENERAL',${String(quantity)},${String(minutes)},'${bundleCode}',${codeArg}) as q`;
+  }
   return `select public.quote_order_price('${EVENT}','GENERAL',${String(quantity)},${String(minutes)},${codeArg}) as q`;
 }
 
 function orderSql(options: {
   quantity: number;
   code?: string | null;
+  bundleCode?: string | null;
   key?: string | null;
   email?: string;
   participant?: string;
@@ -91,17 +100,31 @@ function orderSql(options: {
   const key = options.key ?? null;
   const email = options.email ?? "buyer@example.com";
   const participant = options.participant ?? PARTICIPANT;
-  // Argument order follows the function signature: optional parameters come last, in the
-  // order (discount code, idempotency key, ip, user agent).
+  const codeArg = code === null ? "null" : `'${code}'`;
+  const keyArg = key === null ? "null" : `'${key}'`;
+
+  if (options.bundleCode !== undefined && options.bundleCode !== null) {
+    return `select public.create_bundle_order(
+      '${EVENT}','GENERAL',${String(options.quantity)},${String(options.minutes ?? 15)},
+      '${email}','Comprador','3001234567','${participant}'::jsonb,
+      '${options.bundleCode}',${codeArg},${keyArg},
+      '181.10.20.30','vitest/1.0') as o`;
+  }
+
+  // Optional parameters are discount code, idempotency key, IP and user agent.
   return `select public.create_order(
     '${EVENT}','GENERAL',${String(options.quantity)},${String(options.minutes ?? 15)},
     '${email}','Comprador','3001234567','${participant}'::jsonb,
-    ${code === null ? "null" : `'${code}'`},${key === null ? "null" : `'${key}'`},
-    '181.10.20.30','vitest/1.0') as o`;
+    ${codeArg},${keyArg},'181.10.20.30','vitest/1.0') as o`;
 }
 
-async function quote(db: PGlite, quantity: number, code: string | null = null): Promise<Quote> {
-  const result = await db.query<{ q: Quote }>(quoteSql(quantity, code));
+async function quote(
+  db: PGlite,
+  quantity: number,
+  code: string | null = null,
+  bundleCode: string | null = null,
+): Promise<Quote> {
+  const result = await db.query<{ q: Quote }>(quoteSql(quantity, code, 15, bundleCode));
   const row = result.rows[0]?.q;
   if (row === undefined) {
     throw new Error("quote returned no row");
@@ -149,8 +172,9 @@ async function seed(db: PGlite): Promise<void> {
       select id into v_tier2 from public.pricing_tiers where ticket_type_id = v_tt and sequence = 2;
       insert into public.quantity_discounts (ticket_type_id, min_quantity, percent_bps)
         values (v_tt, 3, 1000);
-      insert into public.quantity_discounts (ticket_type_id, pricing_tier_id, min_quantity, max_quantity, percent_bps)
-        values (v_tt, v_tier2, 2, 2, 1500);
+      insert into public.ticket_bundles
+        (event_id, ticket_type_id, pricing_tier_id, code, name, included_admissions, price_cents)
+      values (v_event, v_tt, v_tier2, 'DOUBLE_EXPERIENCE', 'Doble experiencia', 2, 34000000);
       insert into public.discount_codes (event_id, ticket_type_id, pricing_tier_id, code, kind, percent_bps, max_redemptions, max_quantity)
         values (v_event, v_tt, v_tier2, 'AMIGOS', 'PERCENT', 2500, 1, 6);
       insert into public.discount_codes (event_id, ticket_type_id, pricing_tier_id, code, kind, amount_cents, max_quantity)
@@ -252,7 +276,7 @@ describe("pricing: stage selection and parity", () => {
         "update public.pricing_tiers set quantity_sold = quantity_limit - quantity_reserved where sequence = 1",
       );
       // Bundle discount applies to two General tickets; single-ticket coupons are refused.
-      const q = await quote(db, 2, "AMIGOS");
+      const q = await quote(db, 3, "AMIGOS");
       const resolved = resolveDiscountAmounts({
         subtotal: copCents(q.subtotalInCents),
         quantityDiscount: copCents(q.quantityDiscount.amountInCents),
@@ -265,7 +289,7 @@ describe("pricing: stage selection and parity", () => {
       expect(q.quantityDiscountInCents).toBe(resolved.quantityDiscountApplied);
       expect(q.discountCodeInCents).toBe(resolved.codeDiscountApplied);
       expect(q.totalInCents).toBe(resolved.total);
-      expect(q.totalInCents).toBe(19_550_000);
+      expect(q.totalInCents).toBe(31_050_000);
     } finally {
       await db.exec(`update public.pricing_policy set discount_combination = 'BEST_SINGLE'; update public.pricing_tiers set quantity_sold = 0 where sequence = 1`);
     }
@@ -300,15 +324,31 @@ describe("pricing: stage selection and parity", () => {
     }
   });
 
-  it("keeps General locked until Preventa is exhausted and prices the two-ticket package there", async () => {
+  it("keeps General locked until Preventa is exhausted and prices only Doble experiencia at $340,000", async () => {
     await db.exec("update public.pricing_tiers set quantity_sold = 2 where sequence = 1");
     try {
       expect(await rejection(db.query(quoteSql(2)))).toContain("SOLD_OUT");
-      await db.exec("update public.pricing_tiers set quantity_sold = quantity_limit - quantity_reserved where sequence = 1");
-      const q = await quote(db, 2);
-      expect(q.pricingTier.name).toBe("General");
-      expect(q.quantityDiscount.amountInCents).toBe(3_450_000);
-      expect(q.totalInCents).toBe(19_550_000);
+      expect(await rejection(db.query(quoteSql(2, null, 15, "DOUBLE_EXPERIENCE")))).toContain(
+        "SOLD_OUT",
+      );
+
+      await db.exec(
+        "update public.pricing_tiers set quantity_sold = quantity_limit - quantity_reserved where sequence = 1",
+      );
+
+      const bundle = await quote(db, 2, null, "DOUBLE_EXPERIENCE");
+      expect(bundle.pricingTier.name).toBe("General");
+      expect(bundle.quantity).toBe(2);
+      expect(bundle.subtotalInCents).toBe(34_000_000);
+      expect(bundle.quantityDiscountInCents).toBe(0);
+      expect(bundle.discountCodeInCents).toBe(0);
+      expect(bundle.totalInCents).toBe(34_000_000);
+
+      const individualTickets = await quote(db, 2);
+      expect(individualTickets.pricingTier.name).toBe("General");
+      expect(individualTickets.subtotalInCents).toBe(23_000_000);
+      expect(individualTickets.quantityDiscountInCents).toBe(0);
+      expect(individualTickets.totalInCents).toBe(23_000_000);
     } finally {
       await db.exec("update public.pricing_tiers set quantity_sold = 0 where sequence = 1");
     }
@@ -323,7 +363,7 @@ describe("pricing: stage selection and parity", () => {
       expect(single.totalInCents).toBe(10_350_000);
       const bundle = await quote(db, 2, "GENERAL10");
       expect(bundle.discountCode.reason).toBe("WRONG_QUANTITY");
-      expect(bundle.totalInCents).toBe(19_550_000);
+      expect(bundle.totalInCents).toBe(23_000_000);
       expect(
         await rejection(
           db.query(orderSql({ quantity: 2, code: "GENERAL10", key: "idem-general-coupon-001" })),
