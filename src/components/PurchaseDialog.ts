@@ -294,13 +294,15 @@ function renderForm(state: PurchaseState, ctx: PurchaseDialogContext, showProble
         } aria-label="Agregar una entrada">${renderIcon("plus")}</button>
       </div>
       ${
-        unit === null
-          ? ""
-          : `<p class="qty-unit">${ticketType === undefined ? "" : `${escapeHtml(ticketType.name)} · `}${escapeHtml(formatCopCents(unit))} por entrada${
-              ticketType?.currentTier === null || ticketType?.currentTier === undefined
-                ? ""
-                : ` · ${escapeHtml(ticketType.currentTier.name)}`
-            }</p>`
+        isBundle
+          ? `<p class="qty-unit">Doble experiencia · $170.000 por persona</p>`
+          : unit === null
+            ? ""
+            : `<p class="qty-unit">${ticketType === undefined ? "" : `${escapeHtml(ticketType.name)} · `}${escapeHtml(formatCopCents(unit))} por entrada${
+                ticketType?.currentTier === null || ticketType?.currentTier === undefined
+                  ? ""
+                  : ` · ${escapeHtml(ticketType.currentTier.name)}`
+              }</p>`
       }
       ${
         isBundle
