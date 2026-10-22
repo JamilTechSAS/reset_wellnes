@@ -159,32 +159,28 @@ function summaryRow(
   `;
 }
 
-function quoteSummary(quote: Quote): string {
-  // The product name comes from the backend quote, never from a hardcoded label: the event
-  // sells three products and only the server knows which one priced this order.
-  const isTwoPersonPackage =
-    quote.quantity === 2 &&
-    quote.pricingTier.name === "General" &&
-    quote.quantityDiscountInCents > 0;
+function quoteSummary(quote: Quote, bundleCode: PurchaseState["bundleCode"]): string {
+  const isBundle = bundleCode === "DOUBLE_EXPERIENCE";
   const rows = [
     summaryRow(
-      isTwoPersonPackage
-        ? "Comparte esta experiencia (2 entradas)"
-        : `${quote.ticketType.name} × ${quote.quantity}`,
+      isBundle
+        ? "Doble experiencia (2 entradas)"
+        : \`\${quote.ticketType.name} × \${quote.quantity}\`,
       quote.subtotalInCents,
     ),
     quote.quantityDiscountInCents > 0
-      ? summaryRow(isTwoPersonPackage ? "Descuento del paquete" : "Descuento por cantidad", -quote.quantityDiscountInCents, { muted: true })
+      ? summaryRow("Descuento por cantidad", -quote.quantityDiscountInCents, { muted: true })
       : "",
     quote.discountCodeInCents > 0
-      ? summaryRow(`Código ${quote.discountCode.code ?? ""}`.trim(), -quote.discountCodeInCents, {
+      ? summaryRow(\`Código \${quote.discountCode.code ?? ""}\`.trim(), -quote.discountCodeInCents, {
           muted: true,
         })
       : "",
     summaryRow("Total", quote.totalInCents, { strong: true }),
   ];
-  return `<div class="summary">${rows.join("")}</div>`;
+  return \`<div class="summary">\${rows.join("")}</div>\`;
 }
+
 
 function discountNotice(quote: Quote): string {
   const { discountCode } = quote;
@@ -257,7 +253,8 @@ function renderForm(state: PurchaseState, ctx: PurchaseDialogContext, showProble
   const event = state.event;
   const ticketType = selectTicketType(event, ctx.config.ticketTypeCode);
   const unit = previewUnitPrice(event, ctx.config.ticketTypeCode);
-  const previewTotal = unit === null ? null : unit * state.quantity;
+  const isBundle = state.bundleCode === "DOUBLE_EXPERIENCE";
+  const previewTotal = isBundle ? 34_000_000 : unit === null ? null : unit * state.quantity;
   const currentTierName = ticketType?.currentTier?.name;
   const isGeneralStage = currentTierName === "General";
   const showDiscountCode = isGeneralStage && state.quantity === 1;
@@ -286,14 +283,14 @@ function renderForm(state: PurchaseState, ctx: PurchaseDialogContext, showProble
       <h3 class="purchase-section-title" id="purchase-qty-title">Cantidad de entradas</h3>
       <div class="qty-stepper" role="group" aria-labelledby="purchase-qty-title">
         <button type="button" class="qty-btn" data-action="qty-dec" ${
-          state.quantity <= 1 ? "disabled" : ""
+          isBundle || state.quantity <= 1 ? "disabled" : ""
         } aria-label="Quitar una entrada">${renderIcon("minus")}</button>
         <span class="qty-value" aria-live="off">
           <span class="qty-value-number">${state.quantity}</span>
           <span class="qty-value-label">${state.quantity === 1 ? "entrada" : "entradas"}</span>
         </span>
         <button type="button" class="qty-btn" data-action="qty-inc" ${
-          state.quantity >= max ? "disabled" : ""
+          isBundle || state.quantity >= max ? "disabled" : ""
         } aria-label="Agregar una entrada">${renderIcon("plus")}</button>
       </div>
       ${
@@ -306,13 +303,15 @@ function renderForm(state: PurchaseState, ctx: PurchaseDialogContext, showProble
             }</p>`
       }
       ${
-        currentTierName === "Preventa"
-          ? `<p class="purchase-section-note">El paquete para dos personas y los cupones estarán disponibles durante la etapa General, al terminar la preventa.</p>`
-          : isGeneralStage && state.quantity === 2
-            ? `<p class="purchase-section-note">Comparte esta experiencia incluye dos entradas. Los cupones no aplican al paquete.</p>`
-            : isGeneralStage
-              ? `<p class="purchase-section-note">Los cupones de descuento solo aplican a una entrada General.</p>`
-              : ""
+        isBundle
+          ? \`<p class="purchase-section-note">Doble experiencia incluye 2 entradas Generales por $340.000. Es un producto independiente y no admite códigos promocionales.</p>\`
+          : currentTierName === "Preventa"
+            ? \`<p class="purchase-section-note">Doble experiencia estará disponible en la etapa General, al terminar la preventa.</p>\`
+            : isGeneralStage && state.quantity === 2
+              ? \`<p class="purchase-section-note">Dos entradas Generales individuales cuestan $400.000. Doble experiencia es un producto separado.</p>\`
+              : isGeneralStage
+                ? \`<p class="purchase-section-note">Los códigos de descuento solo aplican a una entrada General.</p>\`
+                : ""
       }
     </section>
 
@@ -369,7 +368,7 @@ function renderForm(state: PurchaseState, ctx: PurchaseDialogContext, showProble
       previewTotal === null
         ? ""
         : `<div class="summary preview">
-             ${summaryRow(`${state.quantity} × ${formatCopCents(unit ?? 0)}`, previewTotal, { strong: true })}
+             ${summaryRow(isBundle ? "Doble experiencia · 2 entradas" : `${state.quantity} × ${formatCopCents(unit ?? 0)}`, previewTotal, { strong: true })}
              <p class="summary-caption">Precio estimado. El valor definitivo se confirma al continuar.</p>
            </div>`
     }
@@ -420,11 +419,11 @@ function renderReview(state: PurchaseState, ctx: PurchaseDialogContext): string 
       <h3 class="purchase-section-title">Resumen de tu compra</h3>
       <div class="review-lines">
         <div class="review-line"><span>Evento</span><strong>${escapeHtml(quote.event.name)}</strong></div>
-        <div class="review-line"><span>Entrada</span><strong>${escapeHtml(quote.ticketType.name)}${ticketType?.currentTier === null || ticketType?.currentTier === undefined ? "" : ` · ${escapeHtml(ticketType.currentTier.name)}`}</strong></div>
+        <div class="review-line"><span>Entrada</span><strong>${escapeHtml(state.bundleCode === "DOUBLE_EXPERIENCE" ? "Doble experiencia" : quote.ticketType.name)}${ticketType?.currentTier === null || ticketType?.currentTier === undefined ? "" : ` · ${escapeHtml(ticketType.currentTier.name)}`}</strong></div>
         <div class="review-line"><span>Cantidad</span><strong>${quote.quantity}</strong></div>
         <div class="review-line"><span>Titular</span><strong>${escapeHtml(`${state.participant.firstName} ${state.participant.lastName}`.trim())}</strong></div>
       </div>
-      ${quoteSummary(quote)}
+      ${quoteSummary(quote, state.bundleCode)}
       <p class="reservation-note">${renderIcon("hourglass")}<span>${escapeHtml(reservationCopy)}</span></p>
     </section>
   `;
@@ -909,6 +908,7 @@ export function mountPurchaseDialog(options: {
     overlay.classList.add("is-open");
     document.body.style.overflow = "hidden";
 
+    controller.setBundleCode(openOptions.tier === "duo" ? "DOUBLE_EXPERIENCE" : null);
     if (openOptions.quantity !== undefined) {
       controller.setQuantity(openOptions.quantity);
     }
