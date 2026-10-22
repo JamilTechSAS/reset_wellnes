@@ -111,6 +111,7 @@ export async function handleQuote(options: {
     eventCode: request.eventCode,
     ticketTypeCode: request.ticketTypeCode,
     quantity: request.quantity,
+    bundleCode: request.bundleCode,
     discountCode: request.discountCode,
     reservationMinutes: options.config.orderReservationMinutes,
   });
@@ -257,6 +258,7 @@ export async function handleCreateOrder(options: {
     eventCode: request.eventCode,
     ticketTypeCode: request.ticketTypeCode,
     quantity: request.quantity,
+    bundleCode: request.bundleCode,
     discountCode: request.discountCode,
     reservationMinutes: options.config.orderReservationMinutes,
     buyerEmail: request.buyer.email,
