@@ -502,6 +502,9 @@ isOneToOne: false
 "create_order":
 { Args: { "p_buyer_email": string,"p_buyer_name": string,"p_buyer_phone": string,"p_discount_code"?: string,"p_event_code": string,"p_idempotency_key"?: string,"p_ip_address"?: string,"p_participant": Json,"p_quantity": number,"p_reservation_minutes": number,"p_ticket_type_code": string,"p_user_agent"?: string }; Returns: Json
                            },
+"create_bundle_order":
+{ Args: { "p_buyer_email": string,"p_buyer_name": string,"p_buyer_phone": string,"p_bundle_code": string,"p_discount_code"?: string,"p_event_code": string,"p_idempotency_key"?: string,"p_ip_address"?: string,"p_participant": Json,"p_quantity": number,"p_reservation_minutes": number,"p_ticket_type_code": string,"p_user_agent"?: string }; Returns: Json
+                           },
 "expire_pending_orders":
 { Args: { "p_limit"?: number,"p_now"?: string }; Returns: Json
                            },
@@ -537,6 +540,9 @@ isOneToOne: false
                            },
 "quote_order_price":
 { Args: { "p_discount_code"?: string,"p_event_code": string,"p_quantity": number,"p_reservation_minutes": number,"p_ticket_type_code": string }; Returns: Json
+                           },
+"quote_bundle_order_price":
+{ Args: { "p_bundle_code": string,"p_discount_code"?: string,"p_event_code": string,"p_quantity": number,"p_reservation_minutes": number,"p_ticket_type_code": string }; Returns: Json
                            },
 "record_check_in":
 { Args: { "p_method"?: string,"p_notes"?: string,"p_now"?: string,"p_operator_label": string,"p_operator_user_id"?: string,"p_ticket_token": string }; Returns: Json
