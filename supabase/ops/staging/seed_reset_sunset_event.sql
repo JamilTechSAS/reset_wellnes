@@ -6,6 +6,7 @@ DECLARE
   v_event_id uuid;
   v_ticket_type_id uuid;
   v_preventa_tier_id uuid;
+  v_general_tier_id uuid;
 BEGIN
   INSERT INTO public.events (
     code, name, venue_name, venue_address, city, starts_at, ends_at, timezone,
@@ -81,7 +82,22 @@ BEGIN
     quantity_limit = EXCLUDED.quantity_limit,
     sales_starts_at = EXCLUDED.sales_starts_at,
     sales_ends_at = EXCLUDED.sales_ends_at,
+    is_active = true
+  RETURNING id INTO v_general_tier_id;
+
+  INSERT INTO public.ticket_bundles (
+    event_id, ticket_type_id, pricing_tier_id, code, name, included_admissions, price_cents, is_active
+  ) VALUES (
+    v_event_id, v_ticket_type_id, v_general_tier_id, 'DOUBLE_EXPERIENCE',
+    'Doble experiencia', 2, 34000000, true
+  )
+  ON CONFLICT (event_id, code) DO UPDATE SET
+    ticket_type_id = EXCLUDED.ticket_type_id,
+    pricing_tier_id = EXCLUDED.pricing_tier_id,
+    name = EXCLUDED.name,
+    included_admissions = EXCLUDED.included_admissions,
+    price_cents = EXCLUDED.price_cents,
     is_active = true;
 
 END
-$$;
+$;
