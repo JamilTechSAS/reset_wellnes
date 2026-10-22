@@ -528,7 +528,7 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
 
     if (options.salesConfig !== undefined) {
       const { apiBaseUrl, eventCode, ticketTypeCode } = options.salesConfig;
-      const endpoint = `${apiBaseUrl.replace(/\\/+$/, "")}/events/${encodeURIComponent(eventCode)}`;
+      const endpoint = `${apiBaseUrl.replace(/\/+$/, "")}/events/${encodeURIComponent(eventCode)}`;
       void fetch(endpoint)
         .then(async (response) => {
           if (!response.ok) {
