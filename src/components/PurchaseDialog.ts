@@ -17,6 +17,7 @@
 
 import type { AvailabilityLabel, OrderStatus, PublicEvent, Quote } from "../api/types.ts";
 import type { FrontendConfig } from "../config/env.ts";
+import type { LegalTabId } from "../types/content.ts";
 import type { PurchaseController, PurchaseProblem, PurchaseState } from "../purchase/controller.ts";
 import {
   formatEventDate,
@@ -29,6 +30,7 @@ import { issuesForField, type ParticipantField } from "../purchase/validation.ts
 import { selectTicketType } from "../purchase/ticket-selection.ts";
 import { renderTicketCard, type TicketCardEvent } from "./TicketCard.ts";
 import { escapeHtml, renderIcon } from "../utils/dom.ts";
+import { dispatchOpenLegal } from "../utils/events.ts";
 
 export type PurchaseDialogContext = {
   readonly config: FrontendConfig;
@@ -98,6 +100,7 @@ function field(args: {
   readonly type?: string;
   readonly inputmode?: string;
   readonly autocomplete?: string;
+  readonly placeholder?: string;
   readonly hint?: string;
   readonly issues: readonly { readonly field: ParticipantField; readonly message: string }[];
   readonly required?: boolean;
@@ -123,6 +126,7 @@ function field(args: {
         type="${args.type ?? "text"}"
         ${args.inputmode === undefined ? "" : `inputmode="${args.inputmode}"`}
         ${args.autocomplete === undefined ? "" : `autocomplete="${args.autocomplete}"`}
+        ${args.placeholder === undefined ? "" : `placeholder="${escapeHtml(args.placeholder)}"`}
         ${args.maxlength === undefined ? "" : `maxlength="${args.maxlength}"`}
         value="${escapeHtml(args.value)}"
         ${messages.length > 0 ? 'aria-invalid="true"' : ""}
@@ -238,7 +242,7 @@ function renderClosed(problem: PurchaseProblem | null, ctx: PurchaseDialogContex
   `;
 }
 
-function renderForm(state: PurchaseState, ctx: PurchaseDialogContext): string {
+function renderForm(state: PurchaseState, ctx: PurchaseDialogContext, showProblem = true): string {
   const event = state.event;
   const ticketType = selectTicketType(event, ctx.config.ticketTypeCode);
   const unit = previewUnitPrice(event, ctx.config.ticketTypeCode);
@@ -248,7 +252,7 @@ function renderForm(state: PurchaseState, ctx: PurchaseDialogContext): string {
 
   return `
     ${
-      state.problem === null
+      !showProblem || state.problem === null
         ? ""
         : `<div class="inline-note tone-warning" role="alert" style="margin-bottom: 1rem;">
              ${renderIcon("alert")}
@@ -299,36 +303,33 @@ function renderForm(state: PurchaseState, ctx: PurchaseDialogContext): string {
         ${field({ id: "pf-last-name", field: "lastName", label: "Apellido", value: p.lastName, autocomplete: "family-name", issues: state.issues, required: true, maxlength: 80 })}
         ${field({ id: "pf-national-id", field: "nationalId", label: "Cédula", value: p.nationalId, inputmode: "numeric", autocomplete: "off", hint: "6 a 12 dígitos", issues: state.issues, required: true, maxlength: 12 })}
         ${field({ id: "pf-email", field: "email", label: "Correo electrónico", value: p.email, type: "email", inputmode: "email", autocomplete: "email", hint: "Aquí recibirás tu entrada", issues: state.issues, required: true, maxlength: 254 })}
-        ${field({ id: "pf-phone", field: "phone", label: "Celular", value: p.phone, inputmode: "tel", autocomplete: "tel", hint: "7 a 15 dígitos", issues: state.issues, required: true, maxlength: 15 })}
+        ${field({ id: "pf-phone", field: "phone", label: "Celular", value: p.phone, inputmode: "tel", autocomplete: "tel", issues: state.issues, required: true, maxlength: 15 })}
         ${field({ id: "pf-city", field: "city", label: "Ciudad", value: p.city, autocomplete: "address-level2", issues: state.issues, required: true, maxlength: 80 })}
-        ${field({ id: "pf-instagram", field: "instagram", label: "Instagram", value: p.instagram, autocomplete: "off", hint: "Opcional", issues: state.issues, maxlength: 30 })}
+        ${field({ id: "pf-instagram", field: "instagram", label: "Usuario Instagram", value: p.instagram, autocomplete: "off", placeholder: "@reset.wll", issues: state.issues, maxlength: 30 })}
       </div>
 
       <div class="consent-list">
-        <label class="consent-row" for="pf-consent-data">
+        <div class="consent-row">
           <input type="checkbox" id="pf-consent-data" data-field="dataProcessing" ${
             p.dataProcessing ? "checked" : ""
           } />
-          <span>
-            Autorizo el <strong>tratamiento de mis datos personales</strong> conforme a la
-            política de privacidad, para gestionar mi compra y mi ingreso al evento.
-            <em>(Obligatorio)</em>
+          <span class="consent-text">
+            <label for="pf-consent-data">Acepto los </label><a href="terminos-y-condiciones.html" target="_blank" rel="noopener noreferrer" data-legal-tab="participantes">términos y condiciones</a><label for="pf-consent-data"> y autorizo el </label><a href="terminos-y-condiciones.html#privacidad" target="_blank" rel="noopener noreferrer" data-legal-tab="privacidad">tratamiento de mis datos personales</a><label for="pf-consent-data"> conforme a la </label><a href="terminos-y-condiciones.html#privacidad" target="_blank" rel="noopener noreferrer" data-legal-tab="privacidad">política de privacidad</a><label for="pf-consent-data">, para gestionar mi compra y mi ingreso al evento. <em>(Obligatorio)</em></label>
           </span>
-        </label>
+        </div>
         ${
           issuesForField(state.issues, "dataProcessing").length === 0
             ? ""
             : `<p class="field-error" id="pf-consent-data-error">${renderIcon("alert")}<span>${escapeHtml(issuesForField(state.issues, "dataProcessing").join(" "))}</span></p>`
         }
-        <label class="consent-row" for="pf-consent-future">
+        <div class="consent-row">
           <input type="checkbox" id="pf-consent-future" data-field="futureEvents" ${
             p.futureEvents ? "checked" : ""
           } />
-          <span>
-            Quiero recibir información sobre <strong>próximos eventos</strong> y novedades.
-            <em>(Opcional)</em>
+          <span class="consent-text">
+            <label for="pf-consent-future">Quiero recibir información sobre <strong>próximos eventos</strong> y novedades conforme a la </label><a href="terminos-y-condiciones.html#privacidad" target="_blank" rel="noopener noreferrer" data-legal-tab="privacidad">política de privacidad</a><label for="pf-consent-future">. <em>(Opcional)</em></label>
           </span>
-        </label>
+        </div>
       </div>
 
       <div class="field">
@@ -359,14 +360,14 @@ function renderForm(state: PurchaseState, ctx: PurchaseDialogContext): string {
 }
 
 function renderFormFooter(state: PurchaseState): string {
-  const isEpayco = state.checkout !== null && "provider" in state.checkout;
-  const providerLabel = isEpayco ? "ePayco" : "Wompi";
+  const isWompi = state.checkout !== null && !("provider" in state.checkout);
+  const providerLabel = isWompi ? "Wompi" : "ePayco";
   return `
     <div class="purchase-foot-inner">
       <button type="button" class="btn btn-primary btn-block btn-lg" data-action="quote" ${
         state.busy ? "disabled" : ""
       }>
-        <span>${state.busy ? "Calculando…" : "Continuar al pago"}</span>
+        <span>${state.busy ? "Calculando…" : "Continuar"}</span>
         ${state.busy ? renderIcon("loader") : renderIcon("arrow-right")}
       </button>
       <p class="purchase-trust">${renderIcon("lock")}<span>Pago procesado de forma segura por ${providerLabel}</span></p>
@@ -638,7 +639,11 @@ type RenderedStep = {
   readonly closable: boolean;
 };
 
-export function renderPurchaseStep(state: PurchaseState, ctx: PurchaseDialogContext): RenderedStep {
+export function renderPurchaseStep(
+  state: PurchaseState,
+  ctx: PurchaseDialogContext,
+  options: { readonly showFormProblem?: boolean } = {},
+): RenderedStep {
   switch (state.step) {
     case "loading":
       return {
@@ -657,7 +662,7 @@ export function renderPurchaseStep(state: PurchaseState, ctx: PurchaseDialogCont
     case "form":
       return {
         title: "Comprar entrada",
-        body: renderForm(state, ctx),
+        body: renderForm(state, ctx, options.showFormProblem ?? true),
         foot: renderFormFooter(state),
         closable: true,
       };
@@ -751,6 +756,8 @@ export function mountPurchaseDialog(options: {
   let isOpen = false;
   let previousActive: HTMLElement | null = null;
   let lastStep = "";
+  let hasAttemptedQuote = false;
+  let isHandlingInput = false;
   // The step decides whether the buyer may leave right now; one flag, checked by every exit.
   let closable = true;
 
@@ -804,6 +811,7 @@ export function mountPurchaseDialog(options: {
 
   function render(state: PurchaseState): void {
     const isEditingForm =
+      isHandlingInput &&
       isOpen &&
       state.step === "form" &&
       lastStep === "form" &&
@@ -828,7 +836,7 @@ export function mountPurchaseDialog(options: {
       return;
     }
 
-    const step = renderPurchaseStep(state, context);
+    const step = renderPurchaseStep(state, context, { showFormProblem: hasAttemptedQuote });
     const focus = state.step === lastStep ? captureFocus() : null;
     closable = step.closable;
     if (closeBtn !== null) closeBtn.disabled = !closable;
@@ -844,6 +852,13 @@ export function mountPurchaseDialog(options: {
     if (isOpen && state.step !== lastStep) {
       lastStep = state.step;
       titleEl?.focus();
+      return;
+    }
+    if (state.issues.length > 0 && bodyEl !== null) {
+      const firstInvalid = bodyEl.querySelector<HTMLElement>(
+        ".has-error .field-input, .consent-row input[aria-invalid='true'], .has-error input",
+      );
+      firstInvalid?.focus();
       return;
     }
     restoreFocus(focus);
@@ -871,6 +886,7 @@ export function mountPurchaseDialog(options: {
       return;
     }
     isOpen = true;
+    hasAttemptedQuote = false;
     previousActive = document.activeElement as HTMLElement | null;
     overlay.hidden = false;
     overlay.classList.add("is-open");
@@ -952,6 +968,27 @@ export function mountPurchaseDialog(options: {
       requestClose();
       return;
     }
+    const legalAnchor = target?.closest<HTMLAnchorElement>(".consent-row a");
+    if (legalAnchor) {
+      event.preventDefault();
+      event.stopPropagation();
+      const tab = legalAnchor.getAttribute("data-legal-tab") as LegalTabId | null;
+      if (tab !== null) {
+        dispatchOpenLegal(tab);
+      }
+      return;
+    }
+    const consentRow = target?.closest<HTMLElement>(".consent-row");
+    if (
+      consentRow &&
+      !target?.closest("a") &&
+      !target?.closest("input") &&
+      !target?.closest("label")
+    ) {
+      const checkbox = consentRow.querySelector<HTMLInputElement>("input[type='checkbox']");
+      checkbox?.click();
+      return;
+    }
     const actionEl = target?.closest<HTMLElement>("[data-action]");
     const action = actionEl?.dataset.action;
     switch (action) {
@@ -965,6 +1002,7 @@ export function mountPurchaseDialog(options: {
         controller.setQuantity(controller.getState().quantity - 1);
         break;
       case "quote":
+        hasAttemptedQuote = true;
         void controller.requestQuote();
         break;
       case "back":
@@ -978,6 +1016,7 @@ export function mountPurchaseDialog(options: {
         void controller.refreshStatus();
         break;
       case "retry":
+        hasAttemptedQuote = true;
         void controller.requestQuote();
         break;
       case "retry-payment":
@@ -1001,11 +1040,21 @@ export function mountPurchaseDialog(options: {
     }
     const fieldName = target.dataset.field as ParticipantField | undefined;
     if (fieldName !== undefined) {
-      controller.setField(fieldName, target.type === "checkbox" ? target.checked : target.value);
+      isHandlingInput = true;
+      try {
+        controller.setField(fieldName, target.type === "checkbox" ? target.checked : target.value);
+      } finally {
+        isHandlingInput = false;
+      }
       return;
     }
     if (target.dataset.discount === "true") {
-      controller.setDiscountCode(target.value);
+      isHandlingInput = true;
+      try {
+        controller.setDiscountCode(target.value);
+      } finally {
+        isHandlingInput = false;
+      }
     }
   }
 

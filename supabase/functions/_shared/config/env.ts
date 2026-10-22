@@ -515,13 +515,48 @@ export function parseCorsAllowedOrigins(env: EnvRecord): readonly string[] {
     .filter((origin) => origin.length > 0);
 }
 
+export type LoadConfigOptions = {
+  /**
+   * Whether to strictly require payment provider credentials (ePayco or Wompi).
+   * Default: true.
+   * When false, missing payment credentials do not cause ConfigError and default to empty strings.
+   */
+  readonly requirePayment?: boolean;
+  /**
+   * Whether to strictly require PUBLIC_WEB_BASE_URL and API_BASE_URL.
+   * Default: true.
+   * When false, missing or empty URLs do not cause ConfigError and default to empty strings.
+   */
+  readonly requirePublicUrls?: boolean;
+  /**
+   * Whether to strictly require email credentials when EMAIL_ENABLED=true or isDeployed.
+   * Default: true.
+   */
+  readonly requireEmail?: boolean;
+  /**
+   * Whether to strictly require MAINTENANCE_API_TOKEN outside development.
+   * Default: true.
+   */
+  readonly requireMaintenanceToken?: boolean;
+  /**
+   * Whether to strictly require CORS_ALLOWED_ORIGINS outside development.
+   * Default: true.
+   */
+  readonly requireCors?: boolean;
+};
+
 /**
  * Loads and validates the backend configuration.
  *
  * @throws {ConfigError} when the configuration is incomplete or inconsistent.
  */
-export function loadConfig(env: EnvRecord): BackendConfig {
+export function loadConfig(env: EnvRecord, options: LoadConfigOptions = {}): BackendConfig {
   const issues: string[] = [];
+  const requirePayment = options.requirePayment ?? true;
+  const requirePublicUrls = options.requirePublicUrls ?? true;
+  const requireEmail = options.requireEmail ?? true;
+  const requireMaintenanceToken = options.requireMaintenanceToken ?? true;
+  const requireCors = options.requireCors ?? true;
 
   const appEnv = readEnum(env, "APP_ENV", APP_ENVIRONMENTS, "development", issues);
   const isDeployed = appEnv !== "development";
@@ -570,7 +605,7 @@ export function loadConfig(env: EnvRecord): BackendConfig {
 
   // --- ePayco -------------------------------------------------------------
   const epaycoPublicKey =
-    paymentProvider === "epayco"
+    paymentProvider === "epayco" && requirePayment
       ? requireValue(
           env,
           "EPAYCO_PUBLIC_KEY",
@@ -579,7 +614,7 @@ export function loadConfig(env: EnvRecord): BackendConfig {
         )
       : (env.EPAYCO_PUBLIC_KEY?.trim() ?? "");
   const epaycoPrivateKey =
-    paymentProvider === "epayco"
+    paymentProvider === "epayco" && requirePayment
       ? requireValue(
           env,
           "EPAYCO_PRIVATE_KEY",
@@ -588,7 +623,7 @@ export function loadConfig(env: EnvRecord): BackendConfig {
         )
       : (env.EPAYCO_PRIVATE_KEY?.trim() ?? "");
   const epaycoPKey =
-    paymentProvider === "epayco"
+    paymentProvider === "epayco" && requirePayment
       ? requireValue(
           env,
           "EPAYCO_P_KEY",
@@ -597,7 +632,7 @@ export function loadConfig(env: EnvRecord): BackendConfig {
         )
       : (env.EPAYCO_P_KEY?.trim() ?? "");
   const epaycoCustIdCliente =
-    paymentProvider === "epayco"
+    paymentProvider === "epayco" && requirePayment
       ? requireValue(
           env,
           "EPAYCO_CUST_ID_CLIENTE",
@@ -625,7 +660,7 @@ export function loadConfig(env: EnvRecord): BackendConfig {
   const wompiDetails = WOMPI_ENVIRONMENT_DETAILS[wompiEnvironment];
 
   const wompiPublicKey =
-    paymentProvider === "wompi"
+    paymentProvider === "wompi" && requirePayment
       ? requireValue(
           env,
           "WOMPI_PUBLIC_KEY",
@@ -634,15 +669,15 @@ export function loadConfig(env: EnvRecord): BackendConfig {
         )
       : (env.WOMPI_PUBLIC_KEY?.trim() ?? "");
   const wompiPrivateKey =
-    paymentProvider === "wompi"
+    paymentProvider === "wompi" && requirePayment
       ? requireValue(env, "WOMPI_PRIVATE_KEY", issues, "server-side only")
       : (env.WOMPI_PRIVATE_KEY?.trim() ?? "");
   const wompiIntegritySecret =
-    paymentProvider === "wompi"
+    paymentProvider === "wompi" && requirePayment
       ? requireValue(env, "WOMPI_INTEGRITY_SECRET", issues, "signature:integrity")
       : (env.WOMPI_INTEGRITY_SECRET?.trim() ?? "");
   const wompiEventsSecret =
-    paymentProvider === "wompi"
+    paymentProvider === "wompi" && requirePayment
       ? requireValue(
           env,
           "WOMPI_EVENTS_SECRET",
@@ -651,7 +686,7 @@ export function loadConfig(env: EnvRecord): BackendConfig {
         )
       : (env.WOMPI_EVENTS_SECRET?.trim() ?? "");
 
-  if (paymentProvider === "wompi") {
+  if (paymentProvider === "wompi" && requirePayment) {
     requirePrefix(
       wompiPublicKey,
       "WOMPI_PUBLIC_KEY",
@@ -704,7 +739,7 @@ export function loadConfig(env: EnvRecord): BackendConfig {
   const emailFrom = readString(env, "EMAIL_FROM");
   const emailReplyTo = readString(env, "EMAIL_REPLY_TO");
 
-  if (emailEnabled) {
+  if (emailEnabled && requireEmail) {
     if (resendApiKey === undefined) {
       issues.push("RESEND_API_KEY is required when EMAIL_ENABLED=true");
     } else if (!resendApiKey.startsWith("re_")) {
@@ -723,23 +758,40 @@ export function loadConfig(env: EnvRecord): BackendConfig {
   }
 
   // --- Public URLs --------------------------------------------------------
-  const publicWebBaseUrl = requireAbsoluteUrl(
-    requireValue(
-      env,
+  let publicWebBaseUrl = "";
+  if (requirePublicUrls) {
+    publicWebBaseUrl = requireAbsoluteUrl(
+      requireValue(
+        env,
+        "PUBLIC_WEB_BASE_URL",
+        issues,
+        "public site URL, for example https://evento.example",
+      ),
       "PUBLIC_WEB_BASE_URL",
+      { isDeployed },
       issues,
-      "public site URL, for example https://evento.example",
-    ),
-    "PUBLIC_WEB_BASE_URL",
-    { isDeployed },
-    issues,
-  );
-  const apiBaseUrl = requireAbsoluteUrl(
-    requireValue(env, "API_BASE_URL", issues, "Supabase project functions URL"),
-    "API_BASE_URL",
-    { isDeployed },
-    issues,
-  );
+    );
+  } else {
+    const raw = readString(env, "PUBLIC_WEB_BASE_URL");
+    if (raw !== undefined) {
+      publicWebBaseUrl = isHttpUrl(raw) ? raw.replace(/\/+$/, "") : "";
+    }
+  }
+
+  let apiBaseUrl = "";
+  if (requirePublicUrls) {
+    apiBaseUrl = requireAbsoluteUrl(
+      requireValue(env, "API_BASE_URL", issues, "Supabase project functions URL"),
+      "API_BASE_URL",
+      { isDeployed },
+      issues,
+    );
+  } else {
+    const raw = readString(env, "API_BASE_URL");
+    if (raw !== undefined) {
+      apiBaseUrl = isHttpUrl(raw) ? raw.replace(/\/+$/, "") : "";
+    }
+  }
 
   // --- Order reservation window -------------------------------------------
   // Technical default (15 minutes) until the client confirms the real value. Validated here
@@ -851,7 +903,7 @@ export function loadConfig(env: EnvRecord): BackendConfig {
   // Protects the reservation-expiry + outbox-retry endpoint. Required outside development
   // because it mutates orders and sends email.
   const maintenanceApiToken = readString(env, "MAINTENANCE_API_TOKEN");
-  if (isDeployed && maintenanceApiToken === undefined) {
+  if (isDeployed && requireMaintenanceToken && maintenanceApiToken === undefined) {
     issues.push("MAINTENANCE_API_TOKEN is required outside of development (>= 32 characters)");
   }
   if (maintenanceApiToken !== undefined && maintenanceApiToken.length < 32) {
@@ -883,7 +935,7 @@ export function loadConfig(env: EnvRecord): BackendConfig {
       issues.push("CORS_ALLOWED_ORIGINS must not include localhost outside of development");
     }
   }
-  if (isDeployed && corsAllowedOrigins.length === 0) {
+  if (isDeployed && requireCors && corsAllowedOrigins.length === 0) {
     issues.push(
       "CORS_ALLOWED_ORIGINS is required outside of development (comma-separated origins)",
     );
@@ -1020,4 +1072,75 @@ export function describeConfigForLogs(config: BackendConfig): Record<string, unk
     maintenanceApiToken: describeCredential(config.maintenanceApiToken),
     corsAllowedOrigins: config.corsAllowedOrigins,
   };
+}
+
+/**
+ * Loads configuration for public, read-only catalog endpoints (`events`, `tickets`, `checkin`).
+ * Does not require payment provider credentials, public website URLs, email or maintenance tokens.
+ */
+export function loadCatalogConfig(env: EnvRecord): BackendConfig {
+  return loadConfig(env, {
+    requirePayment: false,
+    requirePublicUrls: false,
+    requireEmail: false,
+    requireMaintenanceToken: false,
+    requireCors: false,
+  });
+}
+
+/**
+ * Loads configuration for order management and quoting (`orders`).
+ * Does not require payment provider credentials, public website URLs, email or maintenance tokens upfront.
+ * Payment-generating endpoints (create order, retry, payment-hint) strictly call `assertPaymentReady(config)`.
+ */
+export function loadOrderConfig(env: EnvRecord): BackendConfig {
+  return loadConfig(env, {
+    requirePayment: false,
+    requirePublicUrls: false,
+    requireEmail: false,
+    requireMaintenanceToken: false,
+    requireCors: false,
+  });
+}
+
+/**
+ * Asserts that the backend configuration has all credentials and settings required
+ * to create or verify payments with the configured payment provider.
+ * Throws ConfigError naming the missing variable(s).
+ */
+export function assertPaymentReady(config: BackendConfig): void {
+  const issues: string[] = [];
+  if (config.paymentProvider === "epayco") {
+    if (!config.epayco.publicKey) {
+      issues.push("EPAYCO_PUBLIC_KEY is required to process payments");
+    }
+    if (!config.epayco.privateKey) {
+      issues.push("EPAYCO_PRIVATE_KEY is required to process payments");
+    }
+    if (!config.epayco.pKey) {
+      issues.push("EPAYCO_P_KEY is required to process payments");
+    }
+    if (!config.epayco.custIdCliente) {
+      issues.push("EPAYCO_CUST_ID_CLIENTE is required to process payments");
+    }
+    if (!config.apiBaseUrl) {
+      issues.push("API_BASE_URL is required to generate payment confirmation callbacks");
+    }
+  } else {
+    if (!config.wompi.publicKey) {
+      issues.push("WOMPI_PUBLIC_KEY is required to process payments");
+    }
+    if (!config.wompi.privateKey) {
+      issues.push("WOMPI_PRIVATE_KEY is required to process payments");
+    }
+    if (!config.wompi.integritySecret) {
+      issues.push("WOMPI_INTEGRITY_SECRET is required to process payments");
+    }
+    if (!config.wompi.eventsSecret) {
+      issues.push("WOMPI_EVENTS_SECRET is required to process payments");
+    }
+  }
+  if (issues.length > 0) {
+    throw new ConfigError(issues);
+  }
 }

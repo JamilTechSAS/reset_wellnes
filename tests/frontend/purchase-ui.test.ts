@@ -149,8 +149,8 @@ describe("purchase step rendering", () => {
     // The estimate is derived from the public price the backend published, and is labelled.
     expect(step.body).toContain("$160.000 por entrada");
     expect(step.body).toContain("Precio estimado. El valor definitivo se confirma al continuar.");
-    expect(step.foot).toContain("Continuar al pago");
-    expect(step.foot).toContain("Wompi");
+    expect(step.foot).toContain("Continuar");
+    expect(step.foot).toContain("ePayco");
     expect(step.closable).toBe(true);
   });
 
@@ -754,30 +754,143 @@ describe("purchase dialog", () => {
     );
   });
 
-  it("keeps the buyer form visible with entered data and without requiring 'Editar datos' when an API error occurs", async () => {
+  it("does not show an anticipatory error banner upon opening even if background getEvent fails, but shows it when continuing fails", async () => {
     api.getEvent.mockRejectedValue(new NetworkError("Failed to fetch"));
-    const { controller, dialog } = openDialog();
+    api.quote.mockRejectedValue(new NetworkError("Backend unavailable"));
+    const { dialog } = openDialog();
     dialog.open();
     await flush();
 
-    // The form remains rendered and visible, not collapsed behind an error card
+    // The form opens clean without an anticipatory error banner
     expect(container.querySelector("#pf-first-name")).not.toBeNull();
     expect(container.querySelector("#pf-email")).not.toBeNull();
     expect(container.querySelector('[data-action="edit"]')).toBeNull();
+    expect(container.querySelector('[role="alert"]')).toBeNull();
 
-    // The problem alert banner is clearly displayed inside the form
-    const alertEl = container.querySelector('[role="alert"]');
-    expect(alertEl).not.toBeNull();
-    expect(alertEl?.textContent).toContain("Problema de conexión");
-
-    // The user can type their information and it is preserved
+    // The user can type their information
     const firstNameInput = container.querySelector<HTMLInputElement>("#pf-first-name")!;
     firstNameInput.focus();
     firstNameInput.value = "Carlos";
     firstNameInput.dispatchEvent(new Event("input", { bubbles: true }));
 
-    expect(controller.getState().participant.firstName).toBe("Carlos");
+    const lastNameInput = container.querySelector<HTMLInputElement>("#pf-last-name")!;
+    lastNameInput.value = "Gómez";
+    lastNameInput.dispatchEvent(new Event("input", { bubbles: true }));
+
+    const idInput = container.querySelector<HTMLInputElement>("#pf-national-id")!;
+    idInput.value = "1023456789";
+    idInput.dispatchEvent(new Event("input", { bubbles: true }));
+
+    const emailInput = container.querySelector<HTMLInputElement>("#pf-email")!;
+    emailInput.value = "carlos@example.com";
+    emailInput.dispatchEvent(new Event("input", { bubbles: true }));
+
+    const phoneInput = container.querySelector<HTMLInputElement>("#pf-phone")!;
+    phoneInput.value = "3001234567";
+    phoneInput.dispatchEvent(new Event("input", { bubbles: true }));
+
+    const cityInput = container.querySelector<HTMLInputElement>("#pf-city")!;
+    cityInput.value = "Bogotá";
+    cityInput.dispatchEvent(new Event("input", { bubbles: true }));
+
+    const consent = container.querySelector<HTMLInputElement>("#pf-consent-data")!;
+    consent.checked = true;
+    consent.dispatchEvent(new Event("change", { bubbles: true }));
+
+    // When the user clicks Continuar, quoting is attempted
+    container.querySelector<HTMLButtonElement>('[data-action="quote"]')?.click();
+    await flush();
+
+    // The backend failure is reported at this necessary moment, clearly and visibly
+    const alertEl = container.querySelector('[role="alert"]');
+    expect(alertEl).not.toBeNull();
+    expect(alertEl?.textContent).toContain("Problema de conexión");
+
+    // All entered data is preserved
     expect(container.querySelector<HTMLInputElement>("#pf-first-name")?.value).toBe("Carlos");
+    expect(container.querySelector<HTMLInputElement>("#pf-email")?.value).toBe(
+      "carlos@example.com",
+    );
+    expect(container.querySelector<HTMLInputElement>("#pf-city")?.value).toBe("Bogotá");
+  });
+
+  it("renders validation errors and focuses first invalid field when continuing with missing fields", async () => {
+    const { controller, dialog } = openDialog();
+    dialog.open();
+    await flush();
+
+    // Click Continuar without filling anything
+    container.querySelector<HTMLButtonElement>('[data-action="quote"]')?.click();
+    await flush();
+
+    // Errors are displayed on invalid fields
+    expect(container.querySelectorAll(".field.has-error").length).toBeGreaterThan(0);
+    expect(container.querySelector("#pf-first-name-error")).not.toBeNull();
+    expect(container.querySelector("#pf-consent-data-error")).not.toBeNull();
+    expect(document.activeElement?.id).toBe("pf-first-name");
+    expect(controller.getState().step).toBe("form");
+  });
+
+  it("advances to review step when all mandatory fields are valid and consent is accepted", async () => {
+    const { controller, dialog } = openDialog();
+    dialog.open({ acceptedTerms: true });
+    await flush();
+
+    controller.setField("firstName", "Ana");
+    controller.setField("lastName", "Pérez");
+    controller.setField("nationalId", "1023456789");
+    controller.setField("email", "ana@example.com");
+    controller.setField("phone", "3001234567");
+    controller.setField("city", "Bogotá");
+
+    container.querySelector<HTMLButtonElement>('[data-action="quote"]')?.click();
+    await flush();
+
+    expect(controller.getState().step).toBe("review");
+    expect(container.querySelector("#purchase-body")?.textContent).toContain(
+      "Resumen de tu compra",
+    );
+    expect(container.querySelector('[data-action="submit"]')).not.toBeNull();
+  });
+
+  it("formats celular without hint and instagram with label 'Usuario Instagram' and placeholder '@reset.wll'", async () => {
+    const { dialog } = openDialog();
+    dialog.open();
+    await flush();
+
+    expect(container.querySelector("#pf-phone-hint")).toBeNull();
+
+    const instagramLabel = container.querySelector('label[for="pf-instagram"]');
+    expect(instagramLabel?.textContent).toContain("Usuario Instagram");
+
+    const instagramInput = container.querySelector<HTMLInputElement>("#pf-instagram");
+    expect(instagramInput?.placeholder).toBe("@reset.wll");
+  });
+
+  it("keeps consent checkbox independent from clicking its legal hyperlinks", async () => {
+    const { controller, dialog } = openDialog();
+    dialog.open();
+    await flush();
+
+    const consentInput = container.querySelector<HTMLInputElement>("#pf-consent-data")!;
+    expect(consentInput.checked).toBe(false);
+
+    const legalLink = container.querySelector<HTMLAnchorElement>(
+      ".consent-row a[data-legal-tab='participantes']",
+    )!;
+    expect(legalLink).not.toBeNull();
+    expect(legalLink.getAttribute("href")).toContain("terminos-y-condiciones.html");
+    expect(legalLink.getAttribute("target")).toBe("_blank");
+
+    // Clicking the link does NOT check the box
+    legalLink.click();
+    expect(consentInput.checked).toBe(false);
+    expect(controller.getState().participant.dataProcessing).toBe(false);
+
+    // Clicking the checkbox directly does toggle the box
+    consentInput.click();
+    expect(consentInput.checked).toBe(true);
+    expect(controller.getState().participant.dataProcessing).toBe(true);
   });
 
   it("preserves the email input element, value and focus while typing in email and text fields", async () => {

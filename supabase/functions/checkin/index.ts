@@ -27,7 +27,11 @@
  * reserved for transport-level failures (auth, rate limit, malformed body, upstream).
  */
 
-import { loadConfig, parseCorsAllowedOrigins, type BackendConfig } from "../_shared/config/env.ts";
+import {
+  loadCatalogConfig,
+  parseCorsAllowedOrigins,
+  type BackendConfig,
+} from "../_shared/config/env.ts";
 import { createServiceRoleClient } from "../_shared/db/client.ts";
 import { createOperatorGateway } from "../_shared/db/operators.ts";
 import { createCheckInGateway, type CheckInGateway } from "../_shared/db/checkin.ts";
@@ -102,7 +106,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
 
   let config: BackendConfig;
   try {
-    config = loadConfig(env);
+    config = loadCatalogConfig(env);
   } catch (error) {
     return errorResponse(error, {
       message: "La configuración del backend está incompleta.",

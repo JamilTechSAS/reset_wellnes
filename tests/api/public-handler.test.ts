@@ -113,6 +113,21 @@ describe("event code normalization", () => {
 });
 
 describe("public event projection", () => {
+  it("resolves the public event using catalog config without payment credentials", async () => {
+    const { loadCatalogConfig } = await import("@shared/config/env.ts");
+    const catalogConfig = loadCatalogConfig({
+      APP_ENV: "sandbox",
+      SUPABASE_URL: "https://abcdefghijklmnop.supabase.co",
+      SUPABASE_SECRET_KEY: `sb_secret_${"x".repeat(40)}`,
+    });
+
+    const { gateway: g, getPublicEvent } = gateway();
+    const result = await handleGetPublicEvent({ code: "tat-2026", gateway: g, logger });
+    expect(getPublicEvent).toHaveBeenCalledWith("TAT-2026");
+    expect(result.event.code).toBe("TAT-2026");
+    expect(catalogConfig.epayco.publicKey).toBe("");
+  });
+
   it("returns the SQL projection untouched", async () => {
     const { gateway: g } = gateway();
     const result = await handleGetPublicEvent({ code: "tat-2026", gateway: g, logger });

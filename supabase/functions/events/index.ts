@@ -17,7 +17,11 @@
  * `_shared/api/public-handler.ts` and serializes the `{ ok, data }` envelope.
  */
 
-import { loadConfig, parseCorsAllowedOrigins, type BackendConfig } from "../_shared/config/env.ts";
+import {
+  loadCatalogConfig,
+  parseCorsAllowedOrigins,
+  type BackendConfig,
+} from "../_shared/config/env.ts";
 import { createServiceRoleClient } from "../_shared/db/client.ts";
 import { createPublicGateway, type PublicGateway } from "../_shared/db/public.ts";
 import { createRateLimitGateway, type RateLimitGateway } from "../_shared/db/rate-limits.ts";
@@ -61,7 +65,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
 
   let config: BackendConfig;
   try {
-    config = loadConfig(env);
+    config = loadCatalogConfig(env);
   } catch (error) {
     return errorResponse(error, {
       message: "La configuración del backend está incompleta.",

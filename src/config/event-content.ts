@@ -340,7 +340,7 @@ export const EVENT_CONTENT_CONFIG: EventLandingConfig = {
       "La preventa está abierta. Las entradas se confirman contra la disponibilidad real del sistema al momento de la compra.",
     buttonText: "COMPRAR MI ENTRADA",
     trustBadges: [
-      "Pago procesado de forma segura por Wompi",
+      "Pago procesado de forma segura por ePayco",
       "Entrada digital con código QR enviada a tu correo",
       "Confirmación de la orden con su referencia de compra",
     ],

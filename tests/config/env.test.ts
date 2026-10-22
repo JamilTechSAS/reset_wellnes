@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  assertPaymentReady,
   ConfigError,
   describeConfigForLogs,
   describeCredential,
   detectSupabaseKeyKind,
+  loadCatalogConfig,
   loadConfig,
+  loadOrderConfig,
   parseCorsAllowedOrigins,
   WOMPI_ENVIRONMENT_DETAILS,
 } from "@shared/config/env.ts";
@@ -632,6 +635,92 @@ describe("ePayco configuration", () => {
     it("returns empty array when unconfigured in sandbox or production", () => {
       expect(parseCorsAllowedOrigins({ APP_ENV: "sandbox" })).toEqual([]);
       expect(parseCorsAllowedOrigins({ APP_ENV: "production" })).toEqual([]);
+    });
+  });
+
+  describe("decoupled configuration validation", () => {
+    const MINIMAL_DB_ENV: Record<string, string | undefined> = {
+      APP_ENV: "sandbox",
+      SUPABASE_URL: "https://abcdefghijklmnop.supabase.co",
+      SUPABASE_SECRET_KEY: SECRET_KEY,
+    };
+
+    it("loads catalog configuration cleanly without payment credentials or public URLs", () => {
+      const config = loadCatalogConfig(MINIMAL_DB_ENV);
+      expect(config.appEnv).toBe("sandbox");
+      expect(config.supabase.url).toBe("https://abcdefghijklmnop.supabase.co");
+      expect(config.epayco.publicKey).toBe("");
+      expect(config.wompi.publicKey).toBe("");
+      expect(config.publicWebBaseUrl).toBe("");
+      expect(config.apiBaseUrl).toBe("");
+    });
+
+    it("loads order configuration cleanly without payment credentials to allow quoting", () => {
+      const config = loadOrderConfig(MINIMAL_DB_ENV);
+      expect(config.orderReservationMinutes).toBe(15);
+      expect(config.epayco.publicKey).toBe("");
+      expect(config.wompi.publicKey).toBe("");
+    });
+
+    it("assertPaymentReady detects missing ePayco credentials and apiBaseUrl at payment time", () => {
+      const config = loadOrderConfig({
+        ...MINIMAL_DB_ENV,
+        PAYMENT_PROVIDER: "epayco",
+      });
+
+      expect(() => {
+        assertPaymentReady(config);
+      }).toThrow(ConfigError);
+      try {
+        assertPaymentReady(config);
+      } catch (error) {
+        expect(error).toBeInstanceOf(ConfigError);
+        const issues = (error as ConfigError).issues;
+        expect(issues.some((i) => i.includes("EPAYCO_PUBLIC_KEY"))).toBe(true);
+        expect(issues.some((i) => i.includes("EPAYCO_PRIVATE_KEY"))).toBe(true);
+        expect(issues.some((i) => i.includes("EPAYCO_P_KEY"))).toBe(true);
+        expect(issues.some((i) => i.includes("EPAYCO_CUST_ID_CLIENTE"))).toBe(true);
+        expect(issues.some((i) => i.includes("API_BASE_URL"))).toBe(true);
+        expect(issues.some((i) => i.includes("WOMPI_"))).toBe(false);
+      }
+    });
+
+    it("assertPaymentReady succeeds when ePayco credentials and apiBaseUrl are provided", () => {
+      const config = loadOrderConfig({
+        ...MINIMAL_DB_ENV,
+        PAYMENT_PROVIDER: "epayco",
+        EPAYCO_PUBLIC_KEY: "mock_pub_key",
+        EPAYCO_PRIVATE_KEY: "mock_prv_key",
+        EPAYCO_P_KEY: "mock_p_key",
+        EPAYCO_CUST_ID_CLIENTE: "123456",
+        API_BASE_URL: "https://abcdefghijklmnop.supabase.co/functions/v1",
+      });
+
+      expect(() => {
+        assertPaymentReady(config);
+      }).not.toThrow();
+    });
+
+    it("assertPaymentReady detects missing Wompi credentials when provider is wompi", () => {
+      const config = loadOrderConfig({
+        ...MINIMAL_DB_ENV,
+        PAYMENT_PROVIDER: "wompi",
+      });
+
+      expect(() => {
+        assertPaymentReady(config);
+      }).toThrow(ConfigError);
+      try {
+        assertPaymentReady(config);
+      } catch (error) {
+        expect(error).toBeInstanceOf(ConfigError);
+        const issues = (error as ConfigError).issues;
+        expect(issues.some((i) => i.includes("WOMPI_PUBLIC_KEY"))).toBe(true);
+        expect(issues.some((i) => i.includes("WOMPI_PRIVATE_KEY"))).toBe(true);
+        expect(issues.some((i) => i.includes("WOMPI_INTEGRITY_SECRET"))).toBe(true);
+        expect(issues.some((i) => i.includes("WOMPI_EVENTS_SECRET"))).toBe(true);
+        expect(issues.some((i) => i.includes("EPAYCO_"))).toBe(false);
+      }
     });
   });
 });

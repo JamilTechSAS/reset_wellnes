@@ -210,6 +210,27 @@ describe("handleQuote", () => {
     );
   });
 
+  it("quotes successfully with a configuration that lacks payment credentials and public URLs", async () => {
+    const { loadOrderConfig } = await import("@shared/config/env.ts");
+    const decoupledConfig = loadOrderConfig({
+      APP_ENV: "sandbox",
+      SUPABASE_URL: "https://abcdefghijklmnop.supabase.co",
+      SUPABASE_SECRET_KEY: fakeCredential("sb_secret_"),
+    });
+
+    const { gateway } = gatewayWith();
+    const result = await handleQuote({
+      rawBody: { eventCode: "tat-2026", ticketTypeCode: "general", quantity: 2 },
+      gateway,
+      config: decoupledConfig,
+      logger,
+    });
+
+    expect(result.totalInCents).toBe(19_000_000);
+    expect(result.quantity).toBe(2);
+    expect(decoupledConfig.epayco.publicKey).toBe("");
+  });
+
   it("refuses a quote whose numbers do not add up", async () => {
     const { gateway } = gatewayWith({
       quote: vi.fn().mockResolvedValue({ ...QUOTE, totalInCents: 1 }),

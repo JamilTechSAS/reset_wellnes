@@ -27,7 +27,13 @@
  * integrity signature only.
  */
 
-import { loadConfig, parseCorsAllowedOrigins, type BackendConfig } from "../_shared/config/env.ts";
+import {
+  assertPaymentReady,
+  ConfigError,
+  loadOrderConfig,
+  parseCorsAllowedOrigins,
+  type BackendConfig,
+} from "../_shared/config/env.ts";
 import { createServiceRoleClient } from "../_shared/db/client.ts";
 import {
   createOrderStatusGateway,
@@ -120,7 +126,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
 
   let config: BackendConfig;
   try {
-    config = loadConfig(env);
+    config = loadOrderConfig(env);
   } catch (error) {
     return errorResponse(error, {
       message: "La configuración del backend está incompleta.",
@@ -208,6 +214,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
     // POST /orders/{reference}/retry
     // -----------------------------------------------------------------------
     if (retryMatch?.[1] !== undefined) {
+      assertPaymentReady(context.config);
       await limit("orders:retry", retryMatch[1]);
       const body = await readJsonBody(request, MAX_BODY_BYTES);
       // The email may travel in the header or the body; the header wins, because the body
@@ -229,6 +236,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
     // POST /orders/{reference}/payment-hint
     // -----------------------------------------------------------------------
     if (hintMatch?.[1] !== undefined) {
+      assertPaymentReady(context.config);
       await limit("orders:hint", hintMatch[1]);
       const body = await readJsonBody(request, MAX_BODY_BYTES);
       const data = await handlePaymentHint({
@@ -304,6 +312,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
       return successResponse(data, { headers: corsHeaders });
     }
 
+    assertPaymentReady(context.config);
     const idempotencyKey = parseIdempotencyKey(request.headers.get("idempotency-key"));
     const data = await handleCreateOrder({
       rawBody: body,
@@ -323,8 +332,12 @@ Deno.serve(async (request: Request): Promise<Response> => {
       code: appError.code,
       detail: appError.context.detail ?? null,
     });
-    const details = participantErrorDetails(error);
+    const isConfig = error instanceof ConfigError;
+    const configIssues =
+      isConfig && context.config.appEnv !== "production" ? { issues: error.issues } : undefined;
+    const details = participantErrorDetails(error) ?? configIssues;
     return errorResponse(appError, {
+      ...(isConfig ? { message: "La configuración del backend está incompleta." } : {}),
       ...(details === undefined ? {} : { details }),
       headers: corsHeaders,
     });
