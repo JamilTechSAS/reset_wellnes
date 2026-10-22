@@ -90,7 +90,9 @@ export const DISCOUNT_CODE_REASONS = [
   "EXPIRED",
   "EXHAUSTED",
   "WRONG_TICKET_TYPE",
+  "WRONG_SALES_STAGE",
   "MIN_QUANTITY",
+  "WRONG_QUANTITY",
   "OK",
 ] as const;
 

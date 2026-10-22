@@ -354,6 +354,12 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
     return Math.max(1, selectTicketType(state.event, config.ticketTypeCode)?.minPerOrder ?? 1);
   }
 
+  function eligibleDiscountCode(): string | undefined {
+    const ticketType = selectTicketType(state.event, config.ticketTypeCode);
+    if (state.quantity !== 1 || ticketType?.currentTier?.name !== "General") return undefined;
+    return state.discountCode.length === 0 ? undefined : state.discountCode;
+  }
+
   // -------------------------------------------------------------------------
   // Loading
   // -------------------------------------------------------------------------
@@ -361,6 +367,7 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
   async function start(): Promise<void> {
     const draft = loadDraft(store);
     const quantity = clamp(draft?.quantity ?? state.quantity, 1, MAX_QUANTITY_FALLBACK);
+    const savedDiscountCode = quantity === 1 ? (draft?.discountCode ?? state.discountCode) : "";
     const participant = {
       ...participantFromDraft(draft, state.participant),
       ...(state.participant.dataProcessing ? { dataProcessing: true } : {}),
@@ -373,7 +380,7 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
       busy: false,
       problem: null,
       quantity,
-      discountCode: draft?.discountCode ?? state.discountCode,
+      discountCode: savedDiscountCode,
       participant,
     });
 
@@ -382,6 +389,7 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
       const event = await api.getEvent(config.eventCode, signal);
       const ticketType = selectTicketType(event, config.ticketTypeCode);
       const availability = ticketType?.availability ?? event.sales.availability;
+      const discountCode = quantity === 1 && ticketType?.currentTier?.name === "General" ? savedDiscountCode : "";
       const purchasable =
         event.sales.salesOpen &&
         ticketType !== undefined &&
@@ -392,7 +400,7 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
         event,
         availability,
         quantity,
-        discountCode: draft?.discountCode ?? state.discountCode,
+        discountCode,
         participant,
         busy: false,
         step: purchasable ? "form" : "closed",
@@ -448,7 +456,7 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
 
   function setQuantity(quantity: number): void {
     const next = clamp(Math.trunc(quantity) || minQuantity(), minQuantity(), maxQuantity());
-    emit({ quantity: next, quote: null });
+    emit({ quantity: next, quote: null, discountCode: next === 1 ? state.discountCode : "" });
     persistDraft();
   }
 
@@ -479,7 +487,7 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
           eventCode: config.eventCode,
           ticketTypeCode: config.ticketTypeCode,
           quantity: state.quantity,
-          ...(state.discountCode.length === 0 ? {} : { discountCode: state.discountCode }),
+          ...(eligibleDiscountCode() === undefined ? {} : { discountCode: eligibleDiscountCode() }),
         },
         signal,
       );
@@ -539,7 +547,7 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
           eventCode: config.eventCode,
           ticketTypeCode: config.ticketTypeCode,
           quantity: state.quantity,
-          ...(state.discountCode.length === 0 ? {} : { discountCode: state.discountCode }),
+          ...(eligibleDiscountCode() === undefined ? {} : { discountCode: eligibleDiscountCode() }),
           buyer: {
             email: buyerEmail,
             fullName: `${state.participant.firstName} ${state.participant.lastName}`.trim(),

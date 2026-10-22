@@ -162,10 +162,11 @@ function summaryRow(
 function quoteSummary(quote: Quote): string {
   // The product name comes from the backend quote, never from a hardcoded label: the event
   // sells three products and only the server knows which one priced this order.
+  const isTwoPersonPackage = quote.quantity === 2 && quote.pricingTier.name === "General" && quote.quantityDiscountInCents > 0;
   const rows = [
-    summaryRow(`${quote.ticketType.name} × ${quote.quantity}`, quote.subtotalInCents),
+    summaryRow(isTwoPersonPackage ? "Comparte esta experiencia (2 entradas)" : `${quote.ticketType.name} × ${quote.quantity}`, quote.subtotalInCents),
     quote.quantityDiscountInCents > 0
-      ? summaryRow("Descuento por cantidad", -quote.quantityDiscountInCents, { muted: true })
+      ? summaryRow(isTwoPersonPackage ? "Descuento del paquete" : "Descuento por cantidad", -quote.quantityDiscountInCents, { muted: true })
       : "",
     quote.discountCodeInCents > 0
       ? summaryRow(`Código ${quote.discountCode.code ?? ""}`.trim(), -quote.discountCodeInCents, {
@@ -194,7 +195,9 @@ function discountNotice(quote: Quote): string {
     EXPIRED: "Ese código venció. Puedes continuar sin él.",
     EXHAUSTED: "Ese código alcanzó su límite de usos. Puedes continuar sin él.",
     WRONG_TICKET_TYPE: "Ese código no aplica a esta entrada. Puedes continuar sin él.",
+    WRONG_SALES_STAGE: "Los códigos de descuento solo funcionan en la etapa General.",
     MIN_QUANTITY: "Ese código requiere una cantidad mayor de entradas.",
+    WRONG_QUANTITY: "Los códigos solo aplican a una entrada General, no al paquete para dos.",
     NOT_SUPPLIED: "",
   };
   const message = reasonCopy[discountCode.reason] ?? "Ese código no se pudo aplicar.";
@@ -247,6 +250,9 @@ function renderForm(state: PurchaseState, ctx: PurchaseDialogContext, showProble
   const ticketType = selectTicketType(event, ctx.config.ticketTypeCode);
   const unit = previewUnitPrice(event, ctx.config.ticketTypeCode);
   const previewTotal = unit === null ? null : unit * state.quantity;
+  const currentTierName = ticketType?.currentTier?.name;
+  const isGeneralStage = currentTierName === "General";
+  const showDiscountCode = isGeneralStage && state.quantity === 1;
   const max = Math.max(1, Math.min(ticketType?.maxPerOrder ?? 4, 10));
   const p = state.participant;
 
@@ -291,6 +297,15 @@ function renderForm(state: PurchaseState, ctx: PurchaseDialogContext, showProble
                 : ` · ${escapeHtml(ticketType.currentTier.name)}`
             }</p>`
       }
+      ${
+        currentTierName === "Preventa"
+          ? `<p class="purchase-section-note">El paquete para dos personas y los cupones estarán disponibles durante la etapa General, al terminar la preventa.</p>`
+          : isGeneralStage && state.quantity === 2
+            ? `<p class="purchase-section-note">Comparte esta experiencia incluye dos entradas. Los cupones no aplican al paquete.</p>`
+            : isGeneralStage
+              ? `<p class="purchase-section-note">Los cupones de descuento solo aplican a una entrada General.</p>`
+              : ""
+      }
     </section>
 
     <section class="purchase-section" aria-labelledby="purchase-data-title">
@@ -332,20 +347,14 @@ function renderForm(state: PurchaseState, ctx: PurchaseDialogContext, showProble
         </div>
       </div>
 
-      <div class="field">
-        <label class="field-label" for="pf-discount">Código de descuento</label>
-        <input
-          class="field-input"
-          id="pf-discount"
-          name="discountCode"
-          data-discount="true"
-          autocapitalize="characters"
-          autocomplete="off"
-          maxlength="64"
-          value="${escapeHtml(state.discountCode)}"
-          placeholder="Opcional"
-        />
-      </div>
+      ${
+        showDiscountCode
+          ? `<div class="field">
+              <label class="field-label" for="pf-discount">Código de descuento</label>
+              <input class="field-input" id="pf-discount" name="discountCode" data-discount="true" autocapitalize="characters" autocomplete="off" maxlength="64" value="${escapeHtml(state.discountCode)}" placeholder="Opcional" />
+            </div>`
+          : ""
+      }
     </section>
 
     ${

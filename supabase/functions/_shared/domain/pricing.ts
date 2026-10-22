@@ -118,7 +118,9 @@ export const DISCOUNT_CODE_REASONS = [
   "EXPIRED",
   "EXHAUSTED",
   "WRONG_TICKET_TYPE",
+  "WRONG_SALES_STAGE",
   "MIN_QUANTITY",
+  "WRONG_QUANTITY",
   "OK",
 ] as const;
 
@@ -140,7 +142,9 @@ export const DISCOUNT_CODE_REASON_LABELS_ES: Record<DiscountCodeReason, string> 
   EXPIRED: "Ese código ya venció.",
   EXHAUSTED: "Ese código alcanzó su límite de usos.",
   WRONG_TICKET_TYPE: "Ese código no aplica al tipo de entrada seleccionado.",
+  WRONG_SALES_STAGE: "Ese código solo aplica durante la etapa General.",
   MIN_QUANTITY: "Ese código requiere comprar más entradas.",
+  WRONG_QUANTITY: "Los códigos solo aplican a una entrada General, no al paquete para dos.",
   OK: "Código aplicado.",
 };
 

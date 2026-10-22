@@ -78,6 +78,7 @@ describe("schema constraints", () => {
         "consents.event_id->events",
         "consents.participant_id->participants",
         "discount_codes.event_id->events",
+        "discount_codes.pricing_tier_id->pricing_tiers",
         "discount_codes.ticket_type_id->ticket_types",
         "discount_redemptions.discount_code_id->discount_codes",
         "discount_redemptions.order_id->orders",
@@ -93,6 +94,7 @@ describe("schema constraints", () => {
         "payment_events.payment_id->payments",
         "payments.order_id->orders",
         "pricing_tiers.ticket_type_id->ticket_types",
+        "quantity_discounts.pricing_tier_id->pricing_tiers",
         "quantity_discounts.ticket_type_id->ticket_types",
         // Phase 5 outbox: a projection row belongs to exactly one ticket and event.
         "sheets_projections.event_id->events",
