@@ -173,6 +173,44 @@ describe("purchase step rendering", () => {
     expect(bundle.body).toContain("Doble experiencia es un producto separado.");
   });
 
+  it("shows the fixed Doble experiencia total without a quantity discount", () => {
+    const event = makeEvent();
+    const generalEvent = {
+      ...event,
+      sales: {
+        ...event.sales,
+        ticketTypes: event.sales.ticketTypes.map((ticket) => ({
+          ...ticket,
+          currentTier: { name: "General", sequence: 2, priceInCents: 20_000_000 },
+        })),
+      },
+    };
+    const quote = makeQuote({
+      quantity: 2,
+      ticketType: { code: "GENERAL", name: "Entrada general" },
+      pricingTier: { name: "General", sequence: 2, unitPriceInCents: 17_000_000 },
+      subtotalInCents: 34_000_000,
+      quantityDiscount: { applies: false, percentBps: 0, amountInCents: 0 },
+      quantityDiscountInCents: 0,
+      totalDiscountInCents: 0,
+      totalInCents: 34_000_000,
+    });
+    const step = renderPurchaseStep(
+      makeState({
+        step: "review",
+        event: generalEvent,
+        quantity: 2,
+        bundleCode: "DOUBLE_EXPERIENCE",
+        quote,
+      }),
+      CONTEXT,
+    );
+
+    expect(step.body).toContain("Doble experiencia");
+    expect(step.body).toContain("$340.000");
+    expect(step.body).not.toContain("Descuento por cantidad");
+  });
+
   it("shows a field error against the field and wires it for assistive technology", () => {
     const step = renderPurchaseStep(
       makeState({
