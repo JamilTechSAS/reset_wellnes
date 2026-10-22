@@ -234,6 +234,7 @@ describe("pricing: stage selection and parity", () => {
     expect(q.totalInCents).toBe(resolved.total);
     // 3 x 9.5M = 28.5M; quantity 10% = 2.85M; code 25% = 7.125M -> code wins.
     expect(q.totalInCents).toBe(25_875_000);
+    await db.exec("update public.pricing_tiers set quantity_sold = 0 where sequence = 1");
   });
 
   it("switches to STACK when the policy row says so", async () => {
@@ -253,7 +254,7 @@ describe("pricing: stage selection and parity", () => {
       expect(q.totalInCents).toBe(resolved.total);
       expect(q.totalInCents).toBe(22_425_000);
     } finally {
-      await db.exec(`update public.pricing_policy set discount_combination = 'BEST_SINGLE'`);
+      await db.exec(`update public.pricing_policy set discount_combination = 'BEST_SINGLE'; update public.pricing_tiers set quantity_sold = 0 where sequence = 1`);
     }
   });
 
