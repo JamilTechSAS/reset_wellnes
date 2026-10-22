@@ -100,6 +100,11 @@ BEGIN
       USING errcode = 'PT409', detail = 'BUNDLE_QUANTITY_INVALID';
   END IF;
 
+  IF nullif(btrim(coalesce(p_discount_code, '')), '') IS NOT NULL THEN
+    RAISE EXCEPTION 'Promo codes cannot be combined with a named bundle'
+      USING errcode = 'PT409', detail = 'BUNDLE_DISCOUNT_UNSUPPORTED';
+  END IF;
+
   v_quote := public.quote_order_price(
     p_event_code,
     p_ticket_type_code,
@@ -120,7 +125,7 @@ BEGIN
   END IF;
 
   RETURN v_quote || jsonb_build_object(
-    'ticketType', jsonb_build_object('code', v_bundle.code, 'name', v_bundle.name),
+    'ticketType', jsonb_build_object('code', v_quote #>> '{ticketType,code}', 'name', v_bundle.name),
     'bundleCode', v_bundle.code,
     'quantity', v_bundle.included_admissions,
     'pricingTier', jsonb_build_object(
