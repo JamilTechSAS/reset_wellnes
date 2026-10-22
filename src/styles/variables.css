@@ -1,0 +1,157 @@
+/**
+ * Design System Tokens (Phase 6A tokens, Phase 6C palette)
+ *
+ * The palette is the client's own, taken from `css/reset.css` in the handover ZIP:
+ *
+ *   --cafe   #513229  "Mother Earth"    primary brown — buttons, headings, dark bands
+ *   --beige  #F4F1E2  "Lucky Dice"      page base
+ *   --vinnie #D7D4B1  "Walking Vinnie"  muted green-beige accent
+ *   --bay    #FCE6B7  "The Bay"         soft yellow accent
+ *
+ * A fifth swatch (light blue) appears in the brand manual board but the client supplied no name
+ * and no hex for it, so it is deliberately NOT part of the system: inventing an official value
+ * for a brand colour is not ours to do.
+ *
+ * Contrast (WCAG 2.1): every text colour below is verified against its background.
+ *   brown #513229 on beige #F4F1E2 ........ 10.1:1  (AAA, body text)
+ *   brown #6B4A3E on beige ................  6.9:1  (AAA, secondary text)
+ *   brown #7A5A4C on beige ................  5.5:1  (AA, muted text)
+ *   beige #F4F1E2 on brown #513229 ....... 10.1:1  (AAA, button/band text)
+ *   brown #513229 on vinnie #D7D4B1 .......  7.4:1  (AAA, badge text)
+ *
+ * Typography: the official brand faces were not delivered (see index.html), so display text uses
+ * Fraunces and body text Questrial — the two substitutes the client's own site declares as its
+ * fallback — with local system fonts behind them.
+ */
+
+:root {
+  /* ========================================================================
+     Colour Palette (Reset Wellness Club)
+     ======================================================================== */
+  --color-bg-base: #f4f1e2; /* beige */
+  --color-bg-surface: #fffdf7;
+  --color-bg-surface-hover: #faf6ea;
+  --color-bg-elevated: #fffdf7;
+  --color-bg-muted: #ece8d6;
+  --color-bg-glass: rgba(255, 253, 247, 0.92);
+  --color-bg-glass-subtle: rgba(81, 50, 41, 0.04);
+
+  /* Primary brand colour: Mother Earth brown */
+  --color-primary: #513229;
+  --color-primary-hover: #3f2720;
+  --color-primary-active: #34201a;
+  --color-primary-subtle: rgba(81, 50, 41, 0.08);
+  --color-primary-contrast: #f4f1e2;
+
+  /* Secondary accents straight from the palette */
+  --color-accent: #d7d4b1; /* vinnie */
+  --color-accent-strong: #b9b58c;
+  --color-accent-subtle: rgba(215, 212, 177, 0.45);
+  --color-highlight: #fce6b7; /* bay */
+  --color-highlight-subtle: rgba(252, 230, 183, 0.5);
+
+  /* State colours (used by the purchase flow) */
+  --color-success: #3f6b4a;
+  --color-success-subtle: rgba(63, 107, 74, 0.12);
+  --color-warning: #8a6516;
+  --color-warning-subtle: rgba(252, 230, 183, 0.55);
+  --color-danger: #a6402f;
+  --color-danger-subtle: rgba(166, 64, 47, 0.12);
+
+  /* Text colours */
+  --color-text-primary: #513229;
+  --color-text-secondary: #6b4a3e;
+  --color-text-muted: #7a5a4c;
+  --color-text-subtle: #8c7266;
+
+  /* Borders & Dividers */
+  --color-border: rgba(81, 50, 41, 0.16);
+  --color-border-hover: rgba(81, 50, 41, 0.3);
+  --color-border-accent: rgba(81, 50, 41, 0.35);
+
+  /* Focus Indicator for Accessibility (brown on beige = 10.1:1) */
+  --color-focus: #513229;
+  --focus-ring: 0 0 0 3px rgba(81, 50, 41, 0.28);
+
+  /* ========================================================================
+     Typography
+     ======================================================================== */
+  --font-family-sans:
+    "Questrial", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    sans-serif;
+  --font-family-display: "Fraunces", "Cooper Light BT", Georgia, "Times New Roman", serif;
+
+  --font-size-xs: 0.75rem; /* 12px */
+  --font-size-sm: 0.875rem; /* 14px */
+  --font-size-base: 1rem; /* 16px */
+  --font-size-lg: 1.125rem; /* 18px */
+  --font-size-xl: 1.25rem; /* 20px */
+  --font-size-2xl: 1.5rem; /* 24px */
+  --font-size-3xl: 1.875rem; /* 30px */
+  --font-size-4xl: 2.25rem; /* 36px */
+  --font-size-5xl: clamp(2.5rem, 5vw + 1rem, 3.75rem); /* Fluid display */
+
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --font-weight-extrabold: 800;
+
+  --line-height-tight: 1.15;
+  --line-height-snug: 1.35;
+  --line-height-normal: 1.6;
+  --line-height-relaxed: 1.75;
+
+  /* ========================================================================
+     Spacing & Layout
+     ======================================================================== */
+  --space-0-5: 0.125rem; /* 2px */
+  --space-1: 0.25rem; /* 4px */
+  --space-2: 0.5rem; /* 8px */
+  --space-3: 0.75rem; /* 12px */
+  --space-4: 1rem; /* 16px */
+  --space-5: 1.25rem; /* 20px */
+  --space-6: 1.5rem; /* 24px */
+  --space-8: 2rem; /* 32px */
+  --space-10: 2.5rem; /* 40px */
+  --space-12: 3rem; /* 48px */
+  --space-16: 4rem; /* 64px */
+  --space-20: 5rem; /* 80px */
+  --space-24: 6rem; /* 96px */
+
+  --container-max-width: 1160px;
+  --container-padding: 1.25rem;
+
+  /* ========================================================================
+     Border Radius
+     ======================================================================== */
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 22px;
+  --radius-xl: 32px;
+  --radius-full: 9999px;
+
+  /* ========================================================================
+     Shadows & Elevation (warm, low-contrast: this is a daylight brand)
+     ======================================================================== */
+  --shadow-sm: 0 1px 2px 0 rgba(81, 50, 41, 0.08);
+  --shadow-md: 0 6px 16px -4px rgba(81, 50, 41, 0.14);
+  --shadow-lg: 0 18px 40px -12px rgba(81, 50, 41, 0.22);
+  --shadow-glow: 0 0 0 1px rgba(81, 50, 41, 0.08);
+  --shadow-accent-glow: 0 0 0 1px rgba(215, 212, 177, 0.9);
+
+  /* ========================================================================
+     Transitions & Motion
+     ======================================================================== */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-base: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-smooth: 350ms cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Z-index layering */
+  --z-base: 1;
+  --z-sticky-bar: 50;
+  --z-header: 100;
+  --z-modal-backdrop: 200;
+  --z-modal: 210;
+}

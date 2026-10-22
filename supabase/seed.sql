@@ -1,0 +1,89 @@
+-- ---------------------------------------------------------------------------
+-- Local development seed
+--
+-- Intentionally empty of data. The event, ticket types, sales stages, inventory per stage and
+-- discount codes are business data owned by the client, and this project does NOT invent them.
+-- Phase 6C delivered the client's own material for `Re set Sunset Vol. 1`
+-- (Reset Wellness Club, Montería), so the CONFIRMED values are recorded below — but the seed
+-- still inserts nothing, because the values a working sale needs are exactly the ones the client
+-- has not supplied yet.
+--
+-- ===========================================================================
+-- CONFIRMED by the client (handover ZIP, 2026-10-07)
+-- ===========================================================================
+--   Event        : Re set Sunset — Vol. 1
+--   Organizer    : Reset Wellness Club (Montería, Córdoba, Colombia)
+--   Date         : Sunday 2026-11-15, 13:00–19:00 America/Bogota (UTC-5, no DST)
+--                  starts_at = 2026-11-15T18:00:00Z, ends_at = 2026-11-16T00:00:00Z
+--   Venue        : Terraza del hotel GHL, Montería (street address NOT supplied)
+--   Currency     : COP
+--   Sales phase  : preventa (open)
+--   Prices       : Preventa             $160.000  → 16_000_000 cents
+--                  Comparte esta experiencia (2 entradas) $340.000 → 34_000_000 cents
+--                  General              $200.000  → 20_000_000 cents
+--
+-- ===========================================================================
+-- STILL MISSING (do not invent: see docs/phases/phase-06c.md §5)
+-- ===========================================================================
+--   * total capacity                → events.capacity stays NULL (no global cap published)
+--   * inventory per tier            → pricing_tiers.quantity_limit stays NULL
+--   * exact sales-stage boundaries  → pricing_tiers.sales_starts_at / sales_ends_at stay NULL
+--   * whether the 2-ticket bundle runs alongside preventa or after it
+--   * discount codes                → discount_codes stays empty
+--   * street address / Maps URL     → not a database field; the page shows "por confirmar"
+--   * event code                    → operator's choice; it MUST equal the frontend's
+--                                     VITE_EVENT_CODE (`^[A-Z0-9][A-Z0-9_-]{1,31}$`), and the
+--                                     ticket-type codes must equal VITE_TICKET_TYPE_CODE.
+--                                     (`RESET-SUNSET-1` / `PREVENTA` below are a suggestion for
+--                                     the operator to accept or change, not client data.)
+--
+-- ---------------------------------------------------------------------------
+-- APPLYING THIS TEMPLATE AS-IS WOULD BE WRONG
+--
+-- Both `events.capacity` and every `pricing_tiers.quantity_limit` / `sales_*` column are
+-- nullable, so the statements below are *valid* SQL with the client's real prices. But an active
+-- tier with no window and no stock limit would make all three products sellable at once, with
+-- unbounded inventory — which is not the sale the client described. Fill in the inventory and the
+-- stage windows first, then uncomment, then run `npm run db:reset` (local) or a reviewed
+-- migration (hosted). The table/column names and constraints are in
+-- supabase/migrations/20261003210001_catalog.sql and 20261003210008_pricing.sql.
+-- ---------------------------------------------------------------------------
+--
+-- begin;
+--
+-- insert into public.events (code, name, venue_name, venue_address, city, starts_at, ends_at, currency, status, capacity)
+-- values (
+--   'RESET-SUNSET-1',                                    -- ← must match VITE_EVENT_CODE
+--   'Re set Sunset — Vol. 1',
+--   'Terraza del hotel GHL',
+--   null,                                                -- ← client has not supplied the address
+--   'Montería',
+--   timestamptz '2026-11-15 18:00:00+00',
+--   timestamptz '2026-11-16 00:00:00+00',
+--   'COP',
+--   'DRAFT',                                             -- ← DRAFT until inventory + windows exist
+--   null                                                 -- ← client has not supplied capacity
+-- );
+--
+-- insert into public.ticket_types (event_id, code, name, min_per_order, max_per_order)
+-- select id, 'PREVENTA', 'Preventa', 1, 4 from public.events where code = 'RESET-SUNSET-1'
+-- union all
+-- select id, 'DUO', 'Comparte esta experiencia', 1, 1 from public.events where code = 'RESET-SUNSET-1'
+-- union all
+-- select id, 'GENERAL', 'General', 1, 4 from public.events where code = 'RESET-SUNSET-1';
+--
+-- -- One tier per confirmed price. Windows and quantity_limit are deliberately absent: the client
+-- -- has not confirmed when each phase opens/closes nor how many tickets each phase holds.
+-- insert into public.pricing_tiers (ticket_type_id, sequence, name, price_cents)
+-- select id, 1, 'Preventa', 16_000_000 from public.ticket_types where code = 'PREVENTA'
+-- union all
+-- select id, 1, 'Comparte esta experiencia', 34_000_000 from public.ticket_types where code = 'DUO'
+-- union all
+-- select id, 1, 'General', 20_000_000 from public.ticket_types where code = 'GENERAL';
+--
+-- commit;
+--
+-- ---------------------------------------------------------------------------
+
+-- Keeps the file valid while it holds no data.
+select 1 as seed_placeholder;

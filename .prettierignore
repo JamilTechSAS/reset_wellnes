@@ -1,0 +1,10 @@
+node_modules
+coverage
+package-lock.json
+supabase/.temp
+supabase/functions/**/deno.lock
+supabase/functions/_shared/db/database.types.ts
+dist
+Reset-web-para-programador
+client-handover
+public

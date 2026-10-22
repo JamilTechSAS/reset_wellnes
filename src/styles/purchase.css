@@ -1,0 +1,874 @@
+/**
+ * Purchase flow styles (Phase 6B)
+ *
+ * The checkout surface. It extends the Phase 6A visual system (same tokens, same gold-on-navy
+ * identity) rather than introducing a new one, and it is built mobile-first: a bottom sheet
+ * that fills the screen on a phone and becomes a centred card on a desktop, with the primary
+ * action pinned so it never scrolls out of reach.
+ *
+ * Money is the trust anchor of this flow, so every figure is set in tabular numerals, the
+ * total is the only element allowed to be loud, and the digital ticket is the single
+ * deliberate flourish (a perforated receipt with the code stamped in brand gold).
+ *
+ * Colour is never the only signal: availability, errors and payment states always pair their
+ * colour with an icon and a sentence.
+ */
+
+/* ---------------------------------------------------------------------------
+   Overlay and panel
+   --------------------------------------------------------------------------- */
+
+.purchase-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal-backdrop);
+  display: none;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(52, 32, 26, 0.72);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.purchase-overlay:not([hidden]) {
+  display: flex;
+}
+
+.purchase-overlay.is-open {
+  animation: purchase-fade-in var(--transition-base) both;
+}
+
+@keyframes purchase-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.purchase-panel {
+  position: relative;
+  z-index: var(--z-modal);
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 560px;
+  max-height: 93vh;
+  max-height: 93dvh;
+  overflow: hidden;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-bottom: 0;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  box-shadow: var(--shadow-lg);
+  animation: purchase-sheet-in var(--transition-smooth) both;
+}
+
+/* A single gold hairline marks this as the checkout surface and nothing else. */
+.purchase-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--color-primary), transparent);
+  opacity: 0.75;
+}
+
+@keyframes purchase-sheet-in {
+  from {
+    transform: translateY(3%);
+    opacity: 0.5;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@media (min-width: 720px) {
+  .purchase-overlay {
+    align-items: center;
+    padding: var(--space-6);
+  }
+
+  .purchase-panel {
+    max-height: min(88vh, 880px);
+    border-bottom: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    animation-name: purchase-card-in;
+  }
+
+  @keyframes purchase-card-in {
+    from {
+      transform: translateY(12px) scale(0.985);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0) scale(1);
+      opacity: 1;
+    }
+  }
+}
+
+/* Every icon inside the panel gets a size; the surrounding context only scales it. */
+.purchase-panel .icon {
+  width: 1.15em;
+  height: 1.15em;
+  flex: 0 0 auto;
+}
+
+/* ---------------------------------------------------------------------------
+   Head
+   --------------------------------------------------------------------------- */
+
+.purchase-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex: 0 0 auto;
+  padding: var(--space-5) var(--space-5) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.purchase-head-text {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.purchase-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: start;
+  padding: 3px 10px;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-primary);
+  background: var(--color-primary-subtle);
+  border-radius: var(--radius-full);
+}
+
+.purchase-title {
+  font-size: var(--font-size-2xl);
+  line-height: var(--line-height-tight);
+  letter-spacing: -0.01em;
+}
+
+.purchase-title:focus {
+  outline: none;
+}
+
+.purchase-close {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  margin: -6px -6px 0 0;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.purchase-close:hover {
+  color: var(--color-text-primary);
+  border-color: var(--color-border-hover);
+}
+
+/* ---------------------------------------------------------------------------
+   Body and footer
+   --------------------------------------------------------------------------- */
+
+.purchase-body {
+  display: grid;
+  align-content: start;
+  gap: var(--space-5);
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: var(--space-5);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.purchase-foot {
+  flex: 0 0 auto;
+  padding: var(--space-4) var(--space-5);
+  padding-bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
+}
+
+.purchase-foot[hidden] {
+  display: none;
+}
+
+.purchase-foot-inner {
+  display: grid;
+  gap: var(--space-2);
+}
+
+/* Long labels ("Creando tu reserva…") must wrap instead of overflowing a narrow phone. */
+.purchase-foot .btn {
+  white-space: normal;
+  min-height: 52px;
+}
+
+.purchase-foot-note {
+  margin-top: var(--space-4);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.purchase-trust {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.btn-link {
+  appearance: none;
+  min-height: 44px;
+  padding: var(--space-2);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+  background: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+
+.btn-link:hover {
+  color: var(--color-primary);
+}
+
+/* ---------------------------------------------------------------------------
+   Tone helpers (always paired with an icon and words, never colour alone)
+   --------------------------------------------------------------------------- */
+
+.tone-positive {
+  color: var(--color-success);
+}
+
+.tone-warning {
+  color: var(--color-primary);
+}
+
+.tone-negative {
+  color: var(--color-danger);
+}
+
+.tone-neutral {
+  color: var(--color-text-secondary);
+}
+
+/* ---------------------------------------------------------------------------
+   Availability + sections
+   --------------------------------------------------------------------------- */
+
+.purchase-availability {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  justify-self: start;
+  padding: 5px 12px;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+}
+
+.purchase-availability .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.purchase-section {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.purchase-section-title {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-snug);
+}
+
+.purchase-section-note {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+/* ---------------------------------------------------------------------------
+   Quantity
+   --------------------------------------------------------------------------- */
+
+.qty-stepper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-glass-subtle);
+}
+
+.qty-btn {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  flex: 0 0 auto;
+  color: var(--color-text-primary);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.qty-btn:hover:not([disabled]) {
+  color: var(--color-primary);
+  border-color: var(--color-border-accent);
+}
+
+.qty-btn[disabled] {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.qty-value {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.qty-value-number {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  font-variant-numeric: tabular-nums;
+}
+
+.qty-value-label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.qty-unit {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------------------
+   Fields
+   --------------------------------------------------------------------------- */
+
+.field-grid {
+  display: grid;
+  gap: var(--space-4);
+}
+
+@media (min-width: 480px) {
+  .field-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  /* Instagram closes the grid, so it spans both columns. */
+  .field-grid > :last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+}
+
+.field-label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+}
+
+.field-label span {
+  color: var(--color-primary);
+}
+
+.field-input {
+  width: 100%;
+  min-height: 48px;
+  padding: 0.7rem 0.875rem;
+  font-family: inherit;
+  /* 16px keeps iOS Safari from zooming the viewport when a field is focused. */
+  font-size: 16px;
+  line-height: 1.35;
+  color: var(--color-text-primary);
+  background: var(--color-bg-glass-subtle);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  transition:
+    border-color var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.field-input::placeholder {
+  color: var(--color-text-subtle);
+}
+
+.field-input:hover {
+  border-color: var(--color-border-hover);
+}
+
+.field-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-subtle);
+}
+
+.field.has-error .field-input {
+  border-color: var(--color-danger);
+  background: var(--color-danger-subtle);
+}
+
+.field.has-error .field-input:focus {
+  box-shadow: 0 0 0 3px var(--color-danger-subtle);
+}
+
+.field-hint {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-subtle);
+}
+
+.field-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: var(--font-size-xs);
+  color: var(--color-danger);
+}
+
+.field-error .icon {
+  margin-top: 2px;
+}
+
+/* ---------------------------------------------------------------------------
+   Consent
+   --------------------------------------------------------------------------- */
+
+.consent-list {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.consent-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-snug);
+  color: var(--color-text-secondary);
+  background: var(--color-bg-glass-subtle);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.consent-row:hover {
+  border-color: var(--color-border-hover);
+}
+
+.consent-row input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  margin-top: 1px;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
+.consent-row strong {
+  color: var(--color-text-primary);
+}
+
+.consent-row em {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--font-size-xs);
+  font-style: normal;
+  color: var(--color-text-muted);
+}
+
+/* ---------------------------------------------------------------------------
+   Summary (always the backend's numbers, only ever formatted here)
+   --------------------------------------------------------------------------- */
+
+.summary {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--color-bg-glass-subtle);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.summary-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.summary-row.is-muted {
+  color: var(--color-text-muted);
+}
+
+.summary-row.is-total {
+  margin-top: var(--space-2);
+  padding-top: var(--space-3);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-primary);
+  border-top: 1px solid var(--color-border);
+}
+
+.summary.preview {
+  gap: var(--space-1);
+  border-style: dashed;
+}
+
+.summary-caption {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.review-lines {
+  display: grid;
+  gap: var(--space-2);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.review-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  font-size: var(--font-size-sm);
+}
+
+.review-line span {
+  color: var(--color-text-muted);
+}
+
+.review-line strong {
+  font-weight: var(--font-weight-semibold);
+  text-align: right;
+}
+
+.reservation-note {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.purchase-reference {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.purchase-reference strong {
+  color: var(--color-text-primary);
+}
+
+/* ---------------------------------------------------------------------------
+   Inline notes
+   --------------------------------------------------------------------------- */
+
+.inline-note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--font-size-sm);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+}
+
+.inline-note.tone-positive {
+  color: var(--color-success);
+  background: var(--color-success-subtle);
+  border-color: rgba(63, 107, 74, 0.35);
+}
+
+.inline-note.tone-warning {
+  color: var(--color-primary);
+  background: var(--color-warning-subtle);
+  border-color: rgba(138, 101, 22, 0.3);
+}
+
+.inline-note.tone-negative {
+  color: var(--color-danger);
+  background: var(--color-danger-subtle);
+  border-color: rgba(166, 64, 47, 0.32);
+}
+
+.inline-note.tone-neutral {
+  color: var(--color-text-secondary);
+  background: var(--color-bg-glass-subtle);
+  border-color: var(--color-border);
+}
+
+/* ---------------------------------------------------------------------------
+   Full-panel states (loading, closed, verifying, pending, confirmed, problem)
+   --------------------------------------------------------------------------- */
+
+.purchase-state {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-2);
+  text-align: center;
+}
+
+.purchase-state-icon {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-glass-subtle);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+}
+
+.purchase-state-icon .icon {
+  width: 30px;
+  height: 30px;
+}
+
+.purchase-state-icon.tone-positive {
+  background: var(--color-success-subtle);
+  border-color: rgba(63, 107, 74, 0.35);
+}
+
+.purchase-state-icon.tone-warning {
+  background: var(--color-warning-subtle);
+  border-color: rgba(138, 101, 22, 0.3);
+}
+
+.purchase-state-icon.tone-negative {
+  background: var(--color-danger-subtle);
+  border-color: rgba(166, 64, 47, 0.32);
+}
+
+.purchase-state-title {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-snug);
+}
+
+.purchase-state-text {
+  max-width: 44ch;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.purchase-instructions ul {
+  display: grid;
+  gap: var(--space-2);
+  padding-left: var(--space-5);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  list-style: disc;
+}
+
+/* ---------------------------------------------------------------------------
+   Digital ticket — the one flourish: a perforated receipt with the code in gold
+   --------------------------------------------------------------------------- */
+
+.ticket-stack {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.ticket-card {
+  position: relative;
+  display: grid;
+  overflow: visible;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-accent);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+
+.ticket-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-4) var(--space-3);
+}
+
+.ticket-card-event {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-snug);
+}
+
+.ticket-card-meta,
+.ticket-card-venue {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.ticket-card-venue {
+  margin-top: 2px;
+}
+
+.ticket-card-status {
+  flex: 0 0 auto;
+  padding: 3px 10px;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+}
+
+.ticket-card-status[data-status="active"] {
+  color: var(--color-success);
+  background: var(--color-success-subtle);
+  border-color: rgba(63, 107, 74, 0.35);
+}
+
+.ticket-card-status[data-status="cancelled"],
+.ticket-card-status[data-status="refunded"] {
+  color: var(--color-danger);
+  background: var(--color-danger-subtle);
+  border-color: rgba(166, 64, 47, 0.32);
+}
+
+/* The stub line: a dashed rule with the two punched notches sitting exactly on it. */
+.ticket-card-body {
+  position: relative;
+  display: grid;
+  grid-template-columns: 116px 1fr;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border-top: 1px dashed var(--color-border-hover);
+}
+
+.ticket-card-body::before,
+.ticket-card-body::after {
+  content: "";
+  position: absolute;
+  top: -9px;
+  width: 16px;
+  height: 16px;
+  background: var(--color-bg-surface);
+  border-radius: 50%;
+}
+
+.ticket-card-body::before {
+  left: -9px;
+}
+
+.ticket-card-body::after {
+  right: -9px;
+}
+
+/* The QR must be dark-on-light to scan reliably, whatever the theme. */
+.ticket-card-qr {
+  padding: var(--space-2);
+  background: #ffffff;
+  border-radius: var(--radius-sm);
+}
+
+.ticket-card-qr svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.ticket-card-facts {
+  display: grid;
+  align-content: start;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.ticket-card-facts dt {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.ticket-card-facts dd {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+.ticket-code {
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  color: var(--color-primary);
+  overflow-wrap: anywhere;
+}
+
+.ticket-card-note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  border-top: 1px solid var(--color-border);
+}
+
+/* ---------------------------------------------------------------------------
+   Motion
+   --------------------------------------------------------------------------- */
+
+.icon-spin {
+  animation: purchase-spin 900ms linear infinite;
+}
+
+@keyframes purchase-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .purchase-overlay.is-open,
+  .purchase-panel,
+  .icon-spin {
+    animation: none;
+  }
+}

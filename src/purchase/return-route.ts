@@ -1,0 +1,54 @@
+/**
+ * Payment-return URL parsing (Phase 6B).
+ *
+ * Wompi sends the buyer back to the configured redirect URL with its own query parameters,
+ * most importantly `id` — the Wompi transaction id. That id is a HINT: the frontend posts it
+ * to `POST /orders/{reference}/payment-hint`, which re-reads the transaction with the private
+ * key before anything happens. Nothing in the URL is ever treated as proof of payment.
+ *
+ * The order reference is not added by Wompi, so it comes from the (optional) `ref` parameter
+ * when present and otherwise from the session's stored pending order.
+ */
+
+export type ReturnContext = {
+  /** True when the current URL looks like a checkout return rather than a fresh visit. */
+  readonly isReturn: boolean;
+  readonly transactionId: string | undefined;
+  readonly reference: string | undefined;
+};
+
+const REFERENCE_PATTERN = /^EVT-[0-9]{4}-[0-9]{6,}(-[0-9]+)?$/;
+const RETURN_PATH = "/gracias";
+
+function firstNonEmpty(...values: readonly (string | null | undefined)[]): string | undefined {
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (trimmed !== undefined && trimmed.length > 0) {
+      return trimmed;
+    }
+  }
+  return undefined;
+}
+
+export function parseReturnContext(url: URL): ReturnContext {
+  const pathname = url.pathname.replace(/\/+$/, "").toLowerCase();
+  const transactionId = firstNonEmpty(
+    url.searchParams.get("id"),
+    url.searchParams.get("transaction-id"),
+    url.searchParams.get("ref_payco"),
+    url.searchParams.get("x_ref_payco"),
+  );
+  const rawReference = firstNonEmpty(
+    url.searchParams.get("ref"),
+    url.searchParams.get("reference"),
+  );
+  const reference =
+    rawReference !== undefined && REFERENCE_PATTERN.test(rawReference.toUpperCase())
+      ? rawReference.toUpperCase()
+      : undefined;
+
+  const isReturn =
+    pathname.endsWith(RETURN_PATH) || transactionId !== undefined || reference !== undefined;
+
+  return { isReturn, transactionId, reference };
+}

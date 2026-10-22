@@ -1,0 +1,22 @@
+{
+  "//": [
+    "Dependency mapping used when this function is bundled and deployed.",
+    "It intentionally duplicates supabase/functions/_shared/deno.json: the Supabase CLI resolves",
+    "imports from the function directory, so every bare specifier used anywhere in the function's",
+    "import graph must be mapped here. tests/tooling/dependency-parity.test.ts enforces the match."
+  ],
+  "imports": {
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@2.117.2",
+    "zod": "npm:zod@4.6.5"
+  },
+  "compilerOptions": {
+    "lib": ["deno.ns", "deno.window", "esnext"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "verbatimModuleSyntax": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
+  }
+}

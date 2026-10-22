@@ -1,0 +1,10 @@
+TIPOGRAFÍAS DE RESET (según el manual de marca)
+Guarda aquí las fuentes en formato .woff2, con estos nombres exactos
+(ya están declaradas con @font-face al inicio de css/reset.css):
+
+  ed-lavonia.woff2            -> logo / acentos script
+  cooper-light-bt.woff2       -> títulos serif, precios, preguntas frecuentes
+  glacial-indifference.woff2  -> textos, menú, botones
+
+Mientras no estén, la web usa Fraunces y Questrial (Google Fonts) como respaldo.
+Confirmar que la licencia de cada fuente permite uso web.

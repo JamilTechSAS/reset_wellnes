@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Reset Wellness Club · Montería</title>
+    <meta
+      name="description"
+      content="Creamos espacios para detenerte, respirar, moverte, conectar y volver a ti. Experiencias de bienestar en Montería."
+    />
+    <meta name="theme-color" content="#513229" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,300,100&family=Questrial&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/src/styles/main.css" />
+  </head>
+  <body>
+    <!-- ================= ENCABEZADO ================= -->
+    <header class="header">
+      <a class="header-logo" href="#inicio" aria-label="Reset, inicio"
+        ><span class="logo logo-full" role="img" aria-label="Reset Wellness Club"></span
+      ></a>
+      <nav class="nav" aria-label="Principal">
+        <button
+          class="nav-toggle"
+          id="nav-toggle"
+          type="button"
+          aria-expanded="false"
+          aria-controls="nav-menu"
+        >
+          Menú
+        </button>
+        <div class="nav-menu" id="nav-menu">
+          <a href="nosotros.html">Nosotros</a>
+          <a href="entradas.html">Entradas</a>
+          <a href="marca-y-colaboracion.html">Marca y colaboración</a>
+          <a href="preguntas-frecuentes.html">Preguntas frecuentes</a>
+        </div>
+      </nav>
+    </header>
+
+    <main>
+      <!-- ================= INICIO ================= -->
+      <section class="hero" id="inicio">
+        <!-- VIDEO DE FONDO -->
+        <video class="hero-video" autoplay muted loop playsinline>
+          <source src="/assets/video/inicio.mov" type="video/mp4" />
+          <source src="/assets/video/inicio.mov" type="video/quicktime" />
+        </video>
+        <div class="hero-shade"></div>
+
+        <div class="hero-content">
+          <h1 class="hero-logo">
+            <span class="logo logo-full" role="img" aria-label="Reset Wellness Club"></span>
+          </h1>
+          <p class="hero-frase">
+            <span>Creamos espacios para detenerte, respirar, moverte, conectar y</span>
+            <span>volver a ti. Experiencias que despiertan tus sentidos, reúnen</span>
+            <span>personas y convierten el bienestar en una forma de vivir.</span>
+          </p>
+          <a class="hero-cta" id="hero-buy-btn" data-buy-source="hero" href="entradas.html"
+            >Regálate este momento · Comprar entrada</a
+          >
+        </div>
+      </section>
+
+      <!-- ================= VIVE CON INTENCIÓN ================= -->
+      <section class="intencion" id="nosotros" aria-labelledby="intencion-title">
+        <!-- Cinta de palabras: el segundo grupo es copia del primero para que el giro sea continuo -->
+        <div
+          class="cinta"
+          aria-label="Activación de marcas, wellness food, conectar, experiencias, inspiración, movimiento, bienestar"
+        >
+          <div class="cinta-track" aria-hidden="true">
+            <div class="cinta-grupo">
+              <span>Activación de marcas</span><span>Wellness food</span><span>Conectar</span
+              ><span>Experiencias</span><span>Inspiración</span><span>Movimiento</span
+              ><span>Bienestar</span>
+            </div>
+            <div class="cinta-grupo">
+              <span>Activación de marcas</span><span>Wellness food</span><span>Conectar</span
+              ><span>Experiencias</span><span>Inspiración</span><span>Movimiento</span
+              ><span>Bienestar</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="intencion-inner">
+          <h2 class="intencion-etiqueta" id="intencion-title">Vive con intención</h2>
+          <div class="intencion-texto" data-reveal>
+            <p>
+              El bienestar puede encontrarse en muchos lugares. En descubrir nuevas prácticas,
+              encontrar lo que nos mueve y darle espacio a aquello que suma a nuestra vida.
+            </p>
+            <p>
+              Re set reúne todo eso en un mismo lugar y, sobre todo, reúne personas: una comunidad
+              que comparte, explora y experimenta diferentes caminos hacia el bienestar.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= ALIADOS ================= -->
+      <section class="aliados" id="aliados" aria-labelledby="aliados-titulo">
+        <div class="aliados-grid">
+          <!-- VIDEO: cuando lo tengas, guárdalo en assets/video/ y reemplaza el <div class="ph"> por:
+        <video src="assets/video/aliados.mp4" autoplay muted loop playsinline poster="assets/img/aliados-poster.webp"></video> -->
+          <div class="aliados-media">
+            <div class="ph">
+              <span>(video vertical 9:16: clase en grupo al aire libre, sin audio)</span>
+            </div>
+          </div>
+
+          <div class="aliados-texto">
+            <p class="aliados-etiqueta">Marcas &amp; Alianzas</p>
+            <h2 class="aliados-titulo" id="aliados-titulo">
+              <span>Las marcas que hacen parte</span> <span><em>de la experiencia.</em></span>
+            </h2>
+            <p>
+              En Re set nos unimos a marcas que comparten nuestra forma de entender el bienestar.
+              Belleza, gastronomía saludable, movimiento, cuidado personal y lifestyle se encuentran
+              para crear una experiencia que va mucho más allá de un evento.
+            </p>
+            <p>
+              Buscamos marcas con productos increíbles, una estética cuidada y una identidad que
+              conecte con nuestra comunidad.
+            </p>
+            <p>Si tu marca vibra con Re set, creemos algo increíble juntos.</p>
+            <a class="aliados-btn" href="marca-y-colaboracion.html">Postula tu marca</a>
+
+            <!-- LOGOS: reemplaza cada <span class="slot"> por el logo con el enlace a la página de la marca:
+          <a href="https://pagina-de-la-marca.com" target="_blank" rel="noopener"><img src="assets/img/logo-marca.png" alt="Nombre de la marca"></a> -->
+            <ul class="aliados-logos" aria-label="Marcas aliadas">
+              <li>
+                <a
+                  href="https://www.ghlhoteles.com/es/"
+                  target="_blank"
+                  rel="noopener"
+                  aria-label="GHL Hoteles (abre su página oficial)"
+                  ><img
+                    src="/assets/img/logo-ghl.png"
+                    alt="GHL Hoteles"
+                    width="600"
+                    height="234"
+                    loading="lazy"
+                /></a>
+              </li>
+              <li><span class="slot">(logo aliado)</span></li>
+              <li><span class="slot">(logo aliado)</span></li>
+              <li><span class="slot">(logo aliado)</span></li>
+              <li><span class="slot">(logo aliado)</span></li>
+              <li><span class="slot">(logo aliado)</span></li>
+              <li><span class="slot">(logo aliado)</span></li>
+              <li><span class="slot">(logo aliado)</span></li>
+              <li><span class="slot">(logo aliado)</span></li>
+              <li><span class="slot">(logo aliado)</span></li>
+              <li><span class="slot">(logo aliado)</span></li>
+              <li><span class="slot">(logo aliado)</span></li>
+            </ul>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- ================= PIE DE PÁGINA (igual en todas las páginas) ================= -->
+    <footer class="footer">
+      <div class="footer-inner">
+        <a class="footer-logo" href="index.html" aria-label="Reset Wellness Club, inicio"
+          ><span class="logo logo-full" role="img" aria-label="Reset Wellness Club"></span
+        ></a>
+
+        <nav class="footer-col" aria-labelledby="footer-explora">
+          <p class="footer-titulo" id="footer-explora">Explora</p>
+          <ul>
+            <li><a href="nosotros.html">Nosotros</a></li>
+            <li><a href="marca-y-colaboracion.html">Marcas aliadas</a></li>
+            <li><a href="terminos-y-condiciones.html">Términos y condiciones</a></li>
+            <li><a href="terminos-y-condiciones.html#reembolsos">Política de reembolsos</a></li>
+            <li><a href="terminos-y-condiciones.html#privacidad">Política de privacidad</a></li>
+            <li><a href="#consultar" data-action="lookup">Consultar mi compra</a></li>
+          </ul>
+        </nav>
+
+        <nav class="footer-col" aria-labelledby="footer-comunidad">
+          <p class="footer-titulo" id="footer-comunidad">Comunidad</p>
+          <ul>
+            <li><a href="eventos.html">Eventos</a></li>
+            <li><a href="preguntas-frecuentes.html">Preguntas frecuentes</a></li>
+            <li><a href="mailto:reset.wellness@gmail.com">Contacto</a></li>
+            <li>
+              <a href="https://instagram.com/reset.wll" target="_blank" rel="noopener">Instagram</a>
+            </li>
+            <!-- PENDIENTE: pega aquí el link de TikTok -->
+            <li>
+              <a href="#" data-pendiente>TikTok</a> <span class="pendiente">(pendiente)</span>
+            </li>
+          </ul>
+        </nav>
+      </div>
+
+      <div class="footer-legal">
+        <p>© 2026 Reset Wellness Club. Todos los derechos reservados.</p>
+      </div>
+    </footer>
+
+    <!-- ================= BOTÓN FLOTANTE: abre el pop-up de comunidad ================= -->
+    <button class="faq-float" id="community-open" type="button" aria-controls="community">
+      <span>Haz parte de nuestra comunidad</span>
+    </button>
+
+    <!-- ================= POP-UP COMUNIDAD ================= -->
+    <div
+      class="community"
+      id="community"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="community-title"
+    >
+      <div class="community-overlay" data-close></div>
+
+      <div class="community-card">
+        <button class="community-close" type="button" aria-label="Cerrar" data-close>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+            aria-hidden="true"
+          >
+            <path d="M5 5l14 14M19 5L5 19" />
+          </svg>
+        </button>
+
+        <div class="community-text">
+          <h2 class="community-title" id="community-title">
+            <span>Haz parte de</span> <span>nuestra comunidad</span>
+          </h2>
+          <p class="community-copy">
+            Recibe acceso anticipado a los eventos de Reset antes de que se agoten. 💌<br />Cupos
+            limitados. Solo buena energía.
+          </p>
+
+          <form class="community-form" id="community-form" novalidate>
+            <label for="community-email">Correo electrónico</label>
+            <input
+              id="community-email"
+              name="email"
+              type="email"
+              inputmode="email"
+              autocomplete="email"
+              placeholder="Escribe tu correo"
+              required
+            />
+            <button type="submit">Continuar</button>
+          </form>
+          <p class="community-msg" id="community-msg" aria-live="polite"></p>
+          <p class="form-legal">
+            Al continuar, autorizas el tratamiento de tus datos según nuestra
+            <a href="terminos-y-condiciones.html#privacidad">política de privacidad</a>.
+          </p>
+        </div>
+
+        <!-- IMAGEN: reemplaza el <div class="ph"> por <img src="assets/img/comunidad.webp" alt="Asistentes de Reset en clase al aire libre"> -->
+        <div class="community-media">
+          <img src="/assets/img/comunidad.jpg" alt="Comunidad Reset Wellness" />
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

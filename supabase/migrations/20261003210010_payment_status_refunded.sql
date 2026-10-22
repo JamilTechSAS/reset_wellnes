@@ -1,0 +1,68 @@
+-- ---------------------------------------------------------------------------
+-- Migration 20261003210010_payment_confirmation
+-- Phase 4 / part 1 of 1: the payment confirmation pipeline.
+--
+-- This migration adds the database half of the Phase 4 flow:
+--
+--   Wompi event -> authenticate -> dedupe (claim) -> private transaction lookup
+--   -> confirm_payment (payment + order + tickets, ONE transaction)
+--   -> queue_ticket_emails (idempotent outbox)
+--
+-- Decisions documented here:
+--
+--   * EVERY multi-table write stays inside a SQL function, for the same reason as
+--     Phase 3: PostgREST cannot run multi-statement transactions, so a partially
+--     applied confirmation would be possible in TypeScript but impossible here.
+--
+--   * `payment_events` gains no columns. It already had exactly what is needed:
+--     `dedupe_key` (unique) as the idempotency gate and `result` as the outcome.
+--     Phase 4 adds the atomic CLAIM/FINALIZE functions that use them, plus a
+--     partial index for the stuck-event reconciliation query.
+--
+--   * Money comparison is integer-to-integer (`bigint` centavos vs Wompi
+--     `amount_in_cents`). No numeric, no float, no tolerance: a mismatch of one
+--     centavo is a mismatch.
+--
+--   * An APPROVED payment for an order that is no longer payable is NOT silently
+--     revived and NOT refunded (refunds are a business process, not a code path).
+--     It is recorded, the event is marked APPLIED with
+--     `reconciliationRequired = true`, and `payments.status_message` explains why.
+--
+--   * Ticket issuance is derived from the order line, not from a counter: the ticket
+--     count for a line is `order_items.quantity`, and `tickets_order_item_idx`
+--     (added below) makes the "how many are already issued" check exact. The
+--     uniqueness that actually prevents duplicates is `tickets.participant_id`
+--     (unique) together with the fact that a ticket is only ever created for a
+--     participant of that order line - see the long note on `confirm_payment`.
+--
+--   * `email_deliveries` is the outbox. Rows are inserted inside the confirmation
+--     transaction (so a rolled-back confirmation leaves no email), and the send
+--     happens after the commit. `idempotency_key` remains the deduplication
+--     guarantee: `ticket:<ticketId>:TICKET_CONFIRMATION`.
+--
+--   * `payment_status` gains `refunded` because the Phase 1 model already reserves
+--     the concept and a VOIDED payment that was previously approved IS a refund
+--     from the buyer's point of view. No refund flow is implemented.
+-- ---------------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------------
+-- 1. payment_status gains `refunded`
+-- ---------------------------------------------------------------------------
+-- Wompi VOIDED on a card transaction means the money was returned. Recording it as
+-- `voided` would conflate "never charged" with "charged and returned", so an
+-- approved-then-voided attempt becomes `refunded`.
+--
+-- NOTE: `alter type ... add value` cannot be used in the same transaction that
+-- consumes the new value (PostgreSQL restriction on enum values added inside a
+-- transaction block). The value is therefore added here, at the top of the file,
+-- and is only ever WRITTEN by `confirm_payment`, which lives in a later migration
+-- file (20261003210011). Reading/comparing it is safe in both.
+alter type public.payment_status add value if not exists 'refunded';
+
+-- ---------------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------------
+-- Everything else in Phase 4 lives in 20261003210011_payment_confirmation.sql.
+-- It is a separate file only because PostgreSQL cannot consume an enum value in the
+-- same transaction that adds it, and the migration runner wraps each file.
+-- ---------------------------------------------------------------------------

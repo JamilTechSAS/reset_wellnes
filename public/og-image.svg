@@ -1,0 +1,48 @@
+<!--
+  Re set Sunset Vol. 1 · Reset Wellness Club — social sharing card (1200×630).
+
+  PENDING CLIENT ASSET: the client delivered no event photography, and Open Graph crawlers do not
+  render SVG, so this file is a branded stand-in built ONLY from confirmed facts (real brand
+  colours, real event name, real date, real venue). Replace it with a photographic
+  1200×630 PNG/JPEG before launch and update `meta.ogImageUrl` in src/config/event-content.ts.
+-->
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="1200"
+  height="630"
+  viewBox="0 0 1200 630"
+  role="img"
+  aria-label="Re set Sunset Vol. 1 — Reset Wellness Club. Domingo 15 de noviembre de 2026, 1:00 p.m. a 7:00 p.m. Terraza del hotel GHL, Montería."
+>
+  <rect width="1200" height="630" fill="#F4F1E2" />
+
+  <!-- Brown band bottom -->
+  <rect y="470" width="1200" height="160" fill="#513229" />
+
+  <!-- Vinnie and Bay accents from the client palette -->
+  <circle cx="1080" cy="120" r="150" fill="#D7D4B1" opacity="0.55" />
+  <circle cx="150" cy="520" r="110" fill="#FCE6B7" opacity="0.35" />
+
+  <g font-family="Georgia, 'Times New Roman', serif" fill="#513229">
+    <text x="80" y="150" font-size="30" letter-spacing="6" fill="#7A5A4C">RESET WELLNESS CLUB</text>
+    <text x="80" y="300" font-size="96" font-weight="bold">Re set Sunset</text>
+    <text x="80" y="380" font-size="54" fill="#7A5A4C">Vol. 1</text>
+  </g>
+
+  <g font-family="'Helvetica Neue', Arial, sans-serif" fill="#F4F1E2">
+    <text x="80" y="530" font-size="34">Domingo 15 de noviembre de 2026</text>
+    <text x="80" y="578" font-size="34" fill="#FCE6B7">1:00 p.m. – 7:00 p.m. · Terraza del hotel GHL, Montería</text>
+  </g>
+
+  <text
+    x="1120"
+    y="150"
+    text-anchor="end"
+    font-family="'Helvetica Neue', Arial, sans-serif"
+    font-size="26"
+    letter-spacing="4"
+    fill="#513229"
+  >
+    PREVENTA
+  </text>
+</svg>

@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Eventos · Reset Wellness Club</title>
+    <meta
+      name="description"
+      content="Todos los eventos de Reset Wellness Club en un solo lugar: Re set Sunset Vol. 1 y los que vienen."
+    />
+    <meta name="theme-color" content="#513229" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,300,100&family=Questrial&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/src/styles/main.css" />
+  </head>
+  <body data-popup="off">
+    <!-- ================= ENCABEZADO ================= -->
+    <header class="header is-solid">
+      <a class="header-logo" href="index.html" aria-label="Reset, inicio"
+        ><span class="logo logo-full" role="img" aria-label="Reset Wellness Club"></span
+      ></a>
+      <nav class="nav" aria-label="Principal">
+        <button
+          class="nav-toggle"
+          id="nav-toggle"
+          type="button"
+          aria-expanded="false"
+          aria-controls="nav-menu"
+        >
+          Menú
+        </button>
+        <div class="nav-menu" id="nav-menu">
+          <a href="nosotros.html">Nosotros</a>
+          <a href="entradas.html">Entradas</a>
+          <a href="marca-y-colaboracion.html">Marca y colaboración</a>
+          <a href="preguntas-frecuentes.html">Preguntas frecuentes</a>
+        </div>
+      </nav>
+    </header>
+
+    <main>
+      <section class="legal-hero pf-hero" aria-labelledby="ev-titulo">
+        <h1 class="legal-titulo" id="ev-titulo">Eventos</h1>
+        <p class="legal-marca">Reset Wellness Club</p>
+      </section>
+
+      <!-- ================= LISTA DE EVENTOS (archivo de eventos realizados) ================= -->
+      <!-- Para agregar un evento nuevo: copia el bloque <article> completo, cambia el volumen, nombre, texto, foto y el enlace a su galería -->
+      <section class="eventos" aria-label="Eventos de Reset">
+        <div class="eventos-lista">
+          <article class="evento evento-fila">
+            <!-- FOTO: reemplaza el <div class="ph"> por <img src="assets/img/sunset-vol1.webp" alt="..."> -->
+            <div class="evento-media">
+              <div class="ph"><span>(foto principal de Re set Sunset Vol. 1)</span></div>
+            </div>
+            <div class="evento-info">
+              <p class="evento-vol">Vol. 1</p>
+              <h2 class="evento-titulo">Re set Sunset</h2>
+              <p class="evento-desc">
+                Una tarde de bienestar para moverte, cuidarte, conectar y hacer re set. Por primera
+                vez en Montería, inmersión en hielo.
+              </p>
+              <a class="evento-btn evento-btn-linea" href="#galeria-sunset-vol1">Ver fotos</a>
+            </div>
+          </article>
+
+          <!-- PRÓXIMO EVENTO: cuando se anuncie, reemplaza este bloque por el del nuevo evento -->
+          <article class="evento evento-fila evento-fila-espejo evento-proximo">
+            <div class="evento-media evento-media-proximo">
+              <span class="evento-proximo-texto">Muy pronto</span>
+            </div>
+            <div class="evento-info">
+              <p class="evento-vol">Vol. 2</p>
+              <h2 class="evento-titulo">Próximo evento</h2>
+              <p class="evento-desc">
+                Nuevas actividades y nuevas experiencias. Lo anunciaremos con tiempo.
+              </p>
+              <a class="evento-btn evento-btn-linea" href="#" data-abrir-comunidad
+                >Avísame primero</a
+              >
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <!-- ================= GALERÍA ================= -->
+      <section class="galeria" id="galeria-sunset-vol1" aria-labelledby="galeria-titulo">
+        <div class="galeria-inner">
+          <p class="vision-etiqueta">Galería</p>
+          <h2 class="galeria-titulo" id="galeria-titulo">Re set Sunset Vol. 1</h2>
+          <p class="galeria-nota">
+            Así se vivió.
+            <span class="pendiente">(fotos pendientes: se agregan después del evento)</span>
+          </p>
+          <!-- FOTOS: reemplaza cada <div class="ph"> por <img src="assets/img/galeria-1.webp" alt="..."> -->
+          <div class="galeria-grid">
+            <div class="galeria-item galeria-alta">
+              <div class="ph"><span>(foto del evento 1)</span></div>
+            </div>
+            <div class="galeria-item">
+              <div class="ph"><span>(foto del evento 2)</span></div>
+            </div>
+            <div class="galeria-item">
+              <div class="ph"><span>(foto del evento 3)</span></div>
+            </div>
+            <div class="galeria-item galeria-ancha">
+              <div class="ph"><span>(foto del evento 4)</span></div>
+            </div>
+            <div class="galeria-item galeria-ancha">
+              <div class="ph"><span>(foto del evento 5)</span></div>
+            </div>
+            <div class="galeria-item">
+              <div class="ph"><span>(foto del evento 6)</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- ================= PIE DE PÁGINA (igual en todas las páginas) ================= -->
+    <footer class="footer">
+      <div class="footer-inner">
+        <a class="footer-logo" href="index.html" aria-label="Reset Wellness Club, inicio"
+          ><span class="logo logo-full" role="img" aria-label="Reset Wellness Club"></span
+        ></a>
+
+        <nav class="footer-col" aria-labelledby="footer-explora">
+          <p class="footer-titulo" id="footer-explora">Explora</p>
+          <ul>
+            <li><a href="nosotros.html">Nosotros</a></li>
+            <li><a href="marca-y-colaboracion.html">Marcas aliadas</a></li>
+            <!-- PENDIENTE: crear estas páginas -->
+            <li><a href="terminos-y-condiciones.html">Términos y condiciones</a></li>
+            <li><a href="terminos-y-condiciones.html#reembolsos">Política de reembolsos</a></li>
+            <li><a href="terminos-y-condiciones.html#privacidad">Política de privacidad</a></li>
+            <li><a href="#consultar" data-action="lookup">Consultar mi compra</a></li>
+          </ul>
+        </nav>
+
+        <nav class="footer-col" aria-labelledby="footer-comunidad">
+          <p class="footer-titulo" id="footer-comunidad">Comunidad</p>
+          <ul>
+            <li><a href="eventos.html">Eventos</a></li>
+            <li><a href="preguntas-frecuentes.html">Preguntas frecuentes</a></li>
+            <li><a href="mailto:reset.wellness@gmail.com">Contacto</a></li>
+            <li>
+              <a href="https://instagram.com/reset.wll" target="_blank" rel="noopener">Instagram</a>
+            </li>
+            <!-- PENDIENTE: pega aquí el link de TikTok -->
+            <li>
+              <a href="#" data-pendiente>TikTok</a> <span class="pendiente">(pendiente)</span>
+            </li>
+          </ul>
+        </nav>
+      </div>
+
+      <div class="footer-legal">
+        <p>© 2026 Reset Wellness Club. Todos los derechos reservados.</p>
+      </div>
+    </footer>
+
+    <!-- ================= BOTÓN FLOTANTE: abre el pop-up de comunidad ================= -->
+    <button class="faq-float" id="community-open" type="button" aria-controls="community">
+      <span>Haz parte de nuestra comunidad</span>
+    </button>
+
+    <!-- ================= POP-UP COMUNIDAD ================= -->
+    <div
+      class="community"
+      id="community"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="community-title"
+    >
+      <div class="community-overlay" data-close></div>
+
+      <div class="community-card">
+        <button class="community-close" type="button" aria-label="Cerrar" data-close>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+            aria-hidden="true"
+          >
+            <path d="M5 5l14 14M19 5L5 19" />
+          </svg>
+        </button>
+
+        <div class="community-text">
+          <h2 class="community-title" id="community-title">
+            <span>Haz parte de</span> <span>nuestra comunidad</span>
+          </h2>
+          <p class="community-copy">
+            Recibe acceso anticipado a los eventos de Reset antes de que se agoten. 💌<br />Cupos
+            limitados. Solo buena energía.
+          </p>
+
+          <form class="community-form" id="community-form" novalidate>
+            <label for="community-email">Correo electrónico</label>
+            <input
+              id="community-email"
+              name="email"
+              type="email"
+              inputmode="email"
+              autocomplete="email"
+              placeholder="Escribe tu correo"
+              required
+            />
+            <button type="submit">Continuar</button>
+          </form>
+          <p class="community-msg" id="community-msg" aria-live="polite"></p>
+          <p class="form-legal">
+            Al continuar, autorizas el tratamiento de tus datos según nuestra
+            <a href="terminos-y-condiciones.html#privacidad">política de privacidad</a>.
+          </p>
+        </div>
+
+        <!-- IMAGEN: reemplaza el <div class="ph"> por <img src="assets/img/comunidad.webp" alt="Asistentes de Reset en clase al aire libre"> -->
+        <div class="community-media">
+          <img src="/assets/img/comunidad.jpg" alt="Comunidad Reset Wellness" />
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

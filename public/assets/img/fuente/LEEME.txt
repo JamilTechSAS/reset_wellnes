@@ -1,0 +1,1 @@
+Archivos fuente del logo de Reset (PNG transparente). El logo ya va incrustado en css/reset.css como máscara (variables --logo-full y --logo-corto), así que estos archivos no los carga la web; sirven si se quiere reemplazar por SVG.

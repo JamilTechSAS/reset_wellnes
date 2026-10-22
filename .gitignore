@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Test / coverage artifacts
+coverage/
+.vitest/
+
+# Secrets and local environment files. NEVER commit real credentials.
+.env
+.env.*
+!.env.example
+!.env.staging.example
+
+# Supabase CLI local state
+supabase/.temp/
+supabase/.branches/
+supabase/.env
+
+# Deno dependency lock files created by local checks
+# (Supabase deploys resolve their own dependency graph; the CLI lock file is not authoritative)
+supabase/functions/**/deno.lock
+
+# Editor / OS noise
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Local tool state
+.freebuff/
+
+# Legacy website copies; current Vite application is in the repository root
+Reset-web-para-programador/
+client-handover/

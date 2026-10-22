@@ -1,0 +1,22 @@
+{
+  "//": [
+    "Deno configuration for the portable backend core (local development and `deno check`).",
+    "Versions MUST match package.json: tests/tooling/dependency-parity.test.ts fails the build if they drift.",
+    "Each Edge Function keeps its own deno.json with the same mappings; the Supabase deployer reads",
+    "the function-level file, this one exists so `deno check` can type check shared code directly."
+  ],
+  "imports": {
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@2.117.2",
+    "zod": "npm:zod@4.6.5"
+  },
+  "compilerOptions": {
+    "lib": ["deno.ns", "deno.window", "esnext"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "verbatimModuleSyntax": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
+  }
+}
