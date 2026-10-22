@@ -6,7 +6,6 @@ DECLARE
   v_event_id uuid;
   v_ticket_type_id uuid;
   v_preventa_tier_id uuid;
-  v_general_tier_id uuid;
 BEGIN
   INSERT INTO public.events (
     code, name, venue_name, venue_address, city, starts_at, ends_at, timezone,
@@ -81,8 +80,7 @@ BEGIN
     quantity_limit = EXCLUDED.quantity_limit,
     sales_starts_at = EXCLUDED.sales_starts_at,
     sales_ends_at = EXCLUDED.sales_ends_at,
-    is_active = true
-  RETURNING id INTO v_general_tier_id;
+    is_active = true;
 
 END
 $$;
