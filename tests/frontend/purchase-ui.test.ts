@@ -154,7 +154,7 @@ describe("purchase step rendering", () => {
     expect(step.closable).toBe(true);
   });
 
-  it("shows a coupon only for one General ticket and hides it for the two-person package", () => {
+  it("shows coupons only for a single General ticket and keeps the named bundle separate", () => {
     const event = makeEvent();
     const generalEvent = {
       ...event,
