@@ -84,17 +84,5 @@ BEGIN
     is_active = true
   RETURNING id INTO v_general_tier_id;
 
-  -- Two General admissions receive 15% off ($400,000 -> $340,000).
-  -- This is a quantity discount, not a reusable coupon, and is unavailable in preventa.
-  INSERT INTO public.quantity_discounts (
-    ticket_type_id, pricing_tier_id, min_quantity, max_quantity, percent_bps, is_active
-  ) VALUES (
-    v_ticket_type_id, v_general_tier_id, 2, 2, 1500, true
-  )
-  ON CONFLICT (ticket_type_id, min_quantity) DO UPDATE SET
-    pricing_tier_id = EXCLUDED.pricing_tier_id,
-    max_quantity = EXCLUDED.max_quantity,
-    percent_bps = EXCLUDED.percent_bps,
-    is_active = true;
 END
 $$;
