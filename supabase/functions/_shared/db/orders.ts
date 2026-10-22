@@ -104,6 +104,7 @@ export type QuoteRequest = {
   readonly eventCode: string;
   readonly ticketTypeCode: string;
   readonly quantity: number;
+  readonly bundleCode: "DOUBLE_EXPERIENCE" | undefined;
   readonly discountCode: string | undefined;
   readonly reservationMinutes: number;
 };
@@ -193,13 +194,26 @@ export type OrderGateway = {
 export function createOrderGateway(client: DbClient): OrderGateway {
   return {
     async quote(request: QuoteRequest): Promise<QuoteResult> {
+      if (request.bundleCode !== undefined) {
+        const { data, error } = await client.rpc("quote_bundle_order_price", {
+          p_event_code: request.eventCode,
+          p_ticket_type_code: request.ticketTypeCode,
+          p_quantity: request.quantity,
+          p_reservation_minutes: request.reservationMinutes,
+          p_bundle_code: request.bundleCode,
+          ...(request.discountCode === undefined ? {} : { p_discount_code: request.discountCode }),
+        });
+        if (error !== null) {
+          throw mapSqlErrorToAppError(error);
+        }
+        return data as QuoteResult;
+      }
+
       const { data, error } = await client.rpc("quote_order_price", {
         p_event_code: request.eventCode,
         p_ticket_type_code: request.ticketTypeCode,
         p_quantity: request.quantity,
         p_reservation_minutes: request.reservationMinutes,
-        // Omitted rather than sent as null: the SQL parameter is optional, and `undefined`
-        // is what the generated types model.
         ...(request.discountCode === undefined ? {} : { p_discount_code: request.discountCode }),
       });
       if (error !== null) {
@@ -209,7 +223,7 @@ export function createOrderGateway(client: DbClient): OrderGateway {
     },
 
     async createOrder(request: CreateOrderRequest): Promise<CreateOrderResult> {
-      const { data, error } = await client.rpc("create_order", {
+      const rpcArgs = {
         p_event_code: request.eventCode,
         p_ticket_type_code: request.ticketTypeCode,
         p_quantity: request.quantity,
@@ -219,12 +233,18 @@ export function createOrderGateway(client: DbClient): OrderGateway {
         p_buyer_phone: request.buyerPhone,
         p_participant: request.participant,
         ...(request.discountCode === undefined ? {} : { p_discount_code: request.discountCode }),
-        ...(request.idempotencyKey === undefined
-          ? {}
-          : { p_idempotency_key: request.idempotencyKey }),
+        ...(request.idempotencyKey === undefined ? {} : { p_idempotency_key: request.idempotencyKey }),
         ...(request.ipAddress === undefined ? {} : { p_ip_address: request.ipAddress }),
         ...(request.userAgent === undefined ? {} : { p_user_agent: request.userAgent }),
-      });
+      };
+
+      const { data, error } =
+        request.bundleCode === undefined
+          ? await client.rpc("create_order", rpcArgs)
+          : await client.rpc("create_bundle_order", {
+              ...rpcArgs,
+              p_bundle_code: request.bundleCode,
+            });
       if (error !== null) {
         throw mapSqlErrorToAppError(error);
       }
