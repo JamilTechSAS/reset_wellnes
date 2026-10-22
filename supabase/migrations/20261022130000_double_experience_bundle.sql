@@ -240,15 +240,16 @@ BEGIN
       RAISE EXCEPTION 'Idempotency key belongs to another product'
         USING errcode = 'PT409', detail = 'IDEMPOTENCY_KEY_CONFLICT';
     END IF;
+    SELECT o.* INTO v_order FROM public.orders o WHERE o.id = v_order_id;
     SELECT t.* INTO v_tier FROM public.pricing_tiers t WHERE t.id = v_item.pricing_tier_id;
     RETURN v_result || jsonb_build_object(
-      'unitPriceInCents', v_bundle.price_cents / v_bundle.included_admissions,
+      'unitPriceInCents', v_item.unit_price_cents,
       'pricingTierName', v_tier.name,
-      'subtotalInCents', v_bundle.price_cents,
-      'quantityDiscountInCents', 0,
-      'discountCodeInCents', 0,
-      'totalDiscountInCents', 0,
-      'totalInCents', v_bundle.price_cents
+      'subtotalInCents', v_order.subtotal_cents,
+      'quantityDiscountInCents', v_order.quantity_discount_cents,
+      'discountCodeInCents', v_order.discount_code_cents,
+      'totalDiscountInCents', v_order.quantity_discount_cents + v_order.discount_code_cents,
+      'totalInCents', v_order.total_cents
     );
   END IF;
 
