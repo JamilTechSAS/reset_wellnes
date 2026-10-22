@@ -582,7 +582,7 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
             const card = document.querySelector<HTMLElement>(`.tipo[data-tipo="${tier}"]`);
             const radio = card?.querySelector<HTMLInputElement>("input");
             const note = card?.querySelector<HTMLElement>("[data-nota]");
-            if (card !== null && card !== undefined) {
+            if (card !== null) {
               card.classList.toggle("is-off", !enabled);
             }
             if (radio !== null && radio !== undefined) {
@@ -609,7 +609,7 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
               const fallbackRadio = document.querySelector<HTMLInputElement>(
                 `.tipo[data-tipo="${fallbackTier}"] input`,
               );
-              if (fallbackRadio !== null && fallbackRadio !== undefined) {
+              if (fallbackRadio !== null) {
                 fallbackRadio.checked = true;
               }
             }
