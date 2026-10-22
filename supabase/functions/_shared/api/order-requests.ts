@@ -72,7 +72,7 @@ export type ParsedQuoteRequest = {
   readonly eventCode: string;
   readonly ticketTypeCode: string;
   readonly quantity: number;
-  readonly bundleCode: "DOUBLE_EXPERIENCE" | undefined;
+  readonly bundleCode?: "DOUBLE_EXPERIENCE";
   readonly discountCode: string | undefined;
 };
 
@@ -115,7 +115,7 @@ export function parseQuoteRequest(raw: unknown): ParsedQuoteRequest {
     eventCode: data.eventCode.toUpperCase(),
     ticketTypeCode: data.ticketTypeCode.toUpperCase(),
     quantity: data.quantity,
-    bundleCode: data.bundleCode,
+    ...(data.bundleCode === undefined ? {} : { bundleCode: data.bundleCode }),
     discountCode:
       data.discountCode === undefined || data.discountCode === "" ? undefined : data.discountCode,
   };
@@ -149,7 +149,7 @@ export function parseCreateOrderRequest(raw: unknown): ParsedCreateOrderRequest 
     eventCode: data.eventCode.toUpperCase(),
     ticketTypeCode: data.ticketTypeCode.toUpperCase(),
     quantity: data.quantity,
-    bundleCode: data.bundleCode,
+    ...(data.bundleCode === undefined ? {} : { bundleCode: data.bundleCode }),
     discountCode:
       data.discountCode === undefined || data.discountCode === "" ? undefined : data.discountCode,
     buyer: {
