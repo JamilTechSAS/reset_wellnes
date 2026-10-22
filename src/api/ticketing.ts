@@ -42,6 +42,7 @@ export type CreateOrderInput = {
   readonly eventCode: string;
   readonly ticketTypeCode: string;
   readonly quantity: number;
+  readonly bundleCode?: "DOUBLE_EXPERIENCE" | undefined;
   readonly discountCode?: string | undefined;
   readonly buyer: { readonly email: string; readonly fullName: string; readonly phone: string };
   readonly participant: ParticipantPayload;
@@ -63,6 +64,7 @@ export type TicketingApi = {
       readonly eventCode: string;
       readonly ticketTypeCode: string;
       readonly quantity: number;
+      readonly bundleCode?: "DOUBLE_EXPERIENCE" | undefined;
       readonly discountCode?: string | undefined;
     },
     signal?: AbortSignal,
@@ -105,6 +107,7 @@ export function createTicketingApi(client: ApiClient): TicketingApi {
         readonly eventCode: string;
         readonly ticketTypeCode: string;
         readonly quantity: number;
+        readonly bundleCode?: "DOUBLE_EXPERIENCE" | undefined;
         readonly discountCode?: string | undefined;
       },
       signal?: AbortSignal,
@@ -116,6 +119,7 @@ export function createTicketingApi(client: ApiClient): TicketingApi {
           eventCode: input.eventCode,
           ticketTypeCode: input.ticketTypeCode,
           quantity: input.quantity,
+          ...(input.bundleCode === undefined ? {} : { bundleCode: input.bundleCode }),
           ...(input.discountCode === undefined ? {} : { discountCode: input.discountCode }),
         },
         ...(signal === undefined ? {} : { signal }),
@@ -130,6 +134,7 @@ export function createTicketingApi(client: ApiClient): TicketingApi {
           eventCode: input.eventCode,
           ticketTypeCode: input.ticketTypeCode,
           quantity: input.quantity,
+          ...(input.bundleCode === undefined ? {} : { bundleCode: input.bundleCode }),
           ...(input.discountCode === undefined ? {} : { discountCode: input.discountCode }),
           buyer: input.buyer,
           participant: {
