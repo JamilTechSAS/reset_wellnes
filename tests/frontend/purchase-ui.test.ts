@@ -133,7 +133,6 @@ describe("purchase step rendering", () => {
       "pf-phone",
       "pf-city",
       "pf-instagram",
-      "pf-discount",
     ]) {
       expect(step.body).toContain(`id="${id}"`);
       expect(step.body).toContain(`for="${id}"`);
@@ -152,6 +151,16 @@ describe("purchase step rendering", () => {
     expect(step.foot).toContain("Continuar");
     expect(step.foot).toContain("ePayco");
     expect(step.closable).toBe(true);
+  });
+
+  it("shows a coupon only for one General ticket and hides it for the two-person package", () => {
+    const event = makeEvent();
+    const generalEvent = { ...event, sales: { ...event.sales, ticketTypes: event.sales.ticketTypes.map(ticket => ({ ...ticket, currentTier: { name: "General", sequence: 2, priceInCents: 20_000_000 } })) } };
+    const single = renderPurchaseStep(makeState({ step: "form", quantity: 1, event: generalEvent }), CONTEXT);
+    expect(single.body).toContain('id="pf-discount"');
+    const bundle = renderPurchaseStep(makeState({ step: "form", quantity: 2, event: generalEvent }), CONTEXT);
+    expect(bundle.body).not.toContain('id="pf-discount"');
+    expect(bundle.body).toContain("Los cupones no aplican al paquete.");
   });
 
   it("shows a field error against the field and wires it for assistive technology", () => {
@@ -559,12 +568,9 @@ describe("purchase dialog", () => {
     }
     expect(controller.getState().participant.dataProcessing).toBe(true);
 
-    const discount = container.querySelector<HTMLInputElement>("#pf-discount");
-    if (discount !== null) {
-      discount.value = "verano";
-      discount.dispatchEvent(new Event("input", { bubbles: true }));
-    }
-    expect(controller.getState().discountCode).toBe("VERANO");
+    // Coupons are hidden during Preventa.
+    expect(container.querySelector<HTMLInputElement>("#pf-discount")).toBeNull();
+    expect(controller.getState().discountCode).toBe("");
   });
 
   it("keeps the caret in the field while the buyer types", async () => {
