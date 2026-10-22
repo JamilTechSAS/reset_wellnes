@@ -280,7 +280,7 @@ BEGIN
     v_reason := 'WRONG_SALES_STAGE';
   ELSIF p_quantity < v_row.min_quantity THEN
     v_reason := 'MIN_QUANTITY';
-  ELSIF p_quantity > v_row.max_quantity THEN
+  ELSIF p_quantity <> 1 OR p_quantity > v_row.max_quantity THEN
     v_reason := 'WRONG_QUANTITY';
   ELSE
     v_reason := 'OK';
