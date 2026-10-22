@@ -64,6 +64,7 @@ function makeState(overrides: Partial<PurchaseState> = {}): PurchaseState {
     event: null,
     availability: "AVAILABLE",
     quantity: 1,
+    bundleCode: null,
     discountCode: "",
     participant: FILLED_PARTICIPANT,
     issues: [],
@@ -169,7 +170,7 @@ describe("purchase step rendering", () => {
     expect(single.body).toContain('id="pf-discount"');
     const bundle = renderPurchaseStep(makeState({ step: "form", quantity: 2, event: generalEvent }), CONTEXT);
     expect(bundle.body).not.toContain('id="pf-discount"');
-    expect(bundle.body).toContain("Los cupones no aplican al paquete.");
+    expect(bundle.body).toContain("Doble experiencia es un producto separado.");
   });
 
   it("shows a field error against the field and wires it for assistive technology", () => {
