@@ -1,6 +1,5 @@
 -- Confirmed business catalog for Re set Sunset — Vol. 1.
 -- All timestamps are UTC; the event and sale windows use America/Bogota (UTC-5).
--- Sales close exactly when the event starts: 2026-11-15 13:00 Colombia time.
 
 DO $$
 DECLARE
@@ -54,7 +53,7 @@ BEGIN
   ) VALUES (
     v_ticket_type_id, 'Preventa', 1, 16000000, 30,
     timestamptz '2026-10-24 15:00:00+00',
-    timestamptz '2026-11-15 18:00:00+00',
+    timestamptz '2026-11-14 05:00:00+00',
     true
   )
   ON CONFLICT (ticket_type_id, sequence) DO UPDATE SET
@@ -72,7 +71,7 @@ BEGIN
   ) VALUES (
     v_ticket_type_id, 'General', 2, 20000000, 70,
     timestamptz '2026-10-24 15:00:00+00',
-    timestamptz '2026-11-15 18:00:00+00',
+    timestamptz '2026-11-14 05:00:00+00',
     true
   )
   ON CONFLICT (ticket_type_id, sequence) DO UPDATE SET
