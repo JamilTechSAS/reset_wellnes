@@ -503,6 +503,68 @@ describe("order creation", () => {
     expect(order.unitPriceInCents).toBe(11_500_000);
   });
 
+  it("creates Doble experiencia for $340,000 and reserves exactly two General admissions", async () => {
+    const before = await db.query<{ quantity_reserved: number }>(
+      `select quantity_reserved from public.pricing_tiers where sequence = 2`,
+    );
+    const order = await createOrder(db, {
+      quantity: 2,
+      bundleCode: "DOUBLE_EXPERIENCE",
+      key: "idem-double-experience-01",
+    });
+
+    expect(order.replayed).toBe(false);
+    expect(order.pricingTierName).toBe("General");
+    expect(order.quantity).toBe(2);
+    expect(order.unitPriceInCents).toBe(17_000_000);
+    expect(order.subtotalInCents).toBe(34_000_000);
+    expect(order.quantityDiscountInCents).toBe(0);
+    expect(order.discountCodeInCents).toBe(0);
+    expect(order.totalInCents).toBe(34_000_000);
+
+    const stored = await db.query<{
+      bundle_id: string | null;
+      quantity: number;
+      unit_price_cents: number;
+      line_total_cents: number;
+      subtotal_cents: number;
+      total_cents: number;
+      amount_cents: number;
+    }>(
+      `select oi.bundle_id, oi.quantity, oi.unit_price_cents, oi.line_total_cents,
+              o.subtotal_cents, o.total_cents, p.amount_cents
+         from public.orders o
+         join public.order_items oi on oi.order_id = o.id
+         join public.payments p on p.order_id = o.id
+        where o.id = $1`,
+      [order.orderId],
+    );
+    expect(stored.rows[0]?.bundle_id).not.toBeNull();
+    expect(stored.rows[0]?.quantity).toBe(2);
+    expect(stored.rows[0]?.unit_price_cents).toBe(17_000_000);
+    expect(stored.rows[0]?.line_total_cents).toBe(34_000_000);
+    expect(stored.rows[0]?.subtotal_cents).toBe(34_000_000);
+    expect(stored.rows[0]?.total_cents).toBe(34_000_000);
+    expect(stored.rows[0]?.amount_cents).toBe(34_000_000);
+
+    const after = await db.query<{ quantity_reserved: number }>(
+      `select quantity_reserved from public.pricing_tiers where sequence = 2`,
+    );
+    expect(after.rows[0]?.quantity_reserved).toBe((before.rows[0]?.quantity_reserved ?? 0) + 2);
+
+    const replay = await createOrder(db, {
+      quantity: 2,
+      bundleCode: "DOUBLE_EXPERIENCE",
+      key: "idem-double-experience-01",
+    });
+    expect(replay.replayed).toBe(true);
+    expect(replay.totalInCents).toBe(34_000_000);
+    const afterReplay = await db.query<{ quantity_reserved: number }>(
+      `select quantity_reserved from public.pricing_tiers where sequence = 2`,
+    );
+    expect(afterReplay.rows[0]?.quantity_reserved).toBe(after.rows[0]?.quantity_reserved);
+  });
+
   it("replays the same order for a repeated idempotency key and does not reserve twice", async () => {
     const first = await createOrder(db, { quantity: 1, key: "idem-replay-00000001" });
     const reservedBefore = await db.query<{ total: number }>(
