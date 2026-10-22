@@ -269,6 +269,17 @@ describe("server-side quote", () => {
 
   it("sends the discount code and surfaces the backend's verdict on it", async () => {
     const api = createFakeApi();
+    const event = makeEvent();
+    api.getEvent.mockResolvedValue({
+      ...event,
+      sales: {
+        ...event.sales,
+        ticketTypes: event.sales.ticketTypes.map((ticketType) => ({
+          ...ticketType,
+          currentTier: { name: "General", sequence: 2, priceInCents: 20_000_000 },
+        })),
+      },
+    });
     api.quote.mockResolvedValue(
       makeQuote({
         discountCode: {
