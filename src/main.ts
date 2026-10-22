@@ -200,6 +200,11 @@ export function bootstrap(): { cleanup: () => void } {
 
   // Initialize client-delivered page interactions (menu, modal, reveal, form, tickets)
   const clientCleanup = initClientInteractions({
+    salesConfig: {
+      apiBaseUrl: FRONTEND_CONFIG.apiBaseUrl,
+      eventCode: FRONTEND_CONFIG.eventCode,
+      ticketTypeCode: FRONTEND_CONFIG.ticketTypeCode,
+    },
     openPurchase: (_source, details) => {
       dialog.open(details);
     },
