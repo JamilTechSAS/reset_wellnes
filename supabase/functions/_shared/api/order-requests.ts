@@ -34,6 +34,7 @@ export const quoteRequestSchema = z.object({
   eventCode: codeField,
   ticketTypeCode: codeField,
   quantity: z.number().int().min(1).max(MAX_ORDER_QUANTITY),
+  bundleCode: z.enum(["DOUBLE_EXPERIENCE"]).optional(),
   discountCode: z.string().trim().max(64).optional(),
 });
 
@@ -54,6 +55,7 @@ export const createOrderRequestSchema = z.object({
   eventCode: codeField,
   ticketTypeCode: codeField,
   quantity: z.number().int().min(1).max(MAX_ORDER_QUANTITY),
+  bundleCode: z.enum(["DOUBLE_EXPERIENCE"]).optional(),
   discountCode: z.string().trim().max(64).optional(),
   buyer: buyerSchema,
   /**
@@ -70,6 +72,7 @@ export type ParsedQuoteRequest = {
   readonly eventCode: string;
   readonly ticketTypeCode: string;
   readonly quantity: number;
+  readonly bundleCode: "DOUBLE_EXPERIENCE" | undefined;
   readonly discountCode: string | undefined;
 };
 
@@ -112,6 +115,7 @@ export function parseQuoteRequest(raw: unknown): ParsedQuoteRequest {
     eventCode: data.eventCode.toUpperCase(),
     ticketTypeCode: data.ticketTypeCode.toUpperCase(),
     quantity: data.quantity,
+    bundleCode: data.bundleCode,
     discountCode:
       data.discountCode === undefined || data.discountCode === "" ? undefined : data.discountCode,
   };
@@ -145,6 +149,7 @@ export function parseCreateOrderRequest(raw: unknown): ParsedCreateOrderRequest 
     eventCode: data.eventCode.toUpperCase(),
     ticketTypeCode: data.ticketTypeCode.toUpperCase(),
     quantity: data.quantity,
+    bundleCode: data.bundleCode,
     discountCode:
       data.discountCode === undefined || data.discountCode === "" ? undefined : data.discountCode,
     buyer: {
