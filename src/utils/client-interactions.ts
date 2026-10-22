@@ -23,6 +23,11 @@ export type ClientInteractionsOptions = {
   ) => void;
   readonly openLookup?: () => void;
   readonly openLegal?: (tab: string) => void;
+  readonly salesConfig?: {
+    readonly apiBaseUrl: string;
+    readonly eventCode: string;
+    readonly ticketTypeCode: string;
+  };
 };
 
 const COMMUNITY_STORAGE_KEY = "reset-comunidad";
@@ -441,7 +446,7 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
       general: "$200.000",
     };
 
-    // Client active sales phase: "preventa" (general & duo available after preventa)
+    // General and Doble experiencia stay disabled until the public catalog confirms General is active.
     const disabledTiers = ["general", "duo"];
 
     disabledTiers.forEach((tier) => {
@@ -452,7 +457,7 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
         if (radio) radio.disabled = true;
         const note = tierCard.querySelector("[data-nota]");
         if (note) {
-          note.textContent = "Disponible cuando termine la preventa";
+          note.textContent = "Disponible al iniciar la etapa General";
         }
       }
     });
@@ -520,6 +525,101 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
     });
 
     updateTicketState();
+
+    if (options.salesConfig !== undefined) {
+      const { apiBaseUrl, eventCode, ticketTypeCode } = options.salesConfig;
+      const endpoint = `${apiBaseUrl.replace(/\\/+$/, "")}/events/${encodeURIComponent(eventCode)}`;
+      void fetch(endpoint)
+        .then(async (response) => {
+          if (!response.ok) {
+            throw new Error(`Public event lookup failed: ${response.status}`);
+          }
+          const envelope = (await response.json()) as {
+            readonly ok?: boolean;
+            readonly data?: {
+              readonly found?: boolean;
+              readonly sales?: {
+                readonly salesOpen?: boolean;
+                readonly ticketTypes?: readonly {
+                  readonly code: string;
+                  readonly salesOpen: boolean;
+                  readonly availability: string;
+                  readonly currentTier: { readonly name: string } | null;
+                }[];
+              };
+            };
+          };
+          const sales = envelope.data?.sales;
+          const ticketType = sales?.ticketTypes?.find(
+            (candidate) => candidate.code === ticketTypeCode,
+          );
+          if (
+            envelope.ok !== true ||
+            envelope.data?.found !== true ||
+            sales === undefined ||
+            ticketType === undefined
+          ) {
+            throw new Error("Public event lookup returned no ticket type");
+          }
+
+          const preventaOpen =
+            sales.salesOpen === true &&
+            ticketType.salesOpen &&
+            ticketType.currentTier?.name === "Preventa" &&
+            ticketType.availability !== "SOLD_OUT";
+          const generalOpen =
+            sales.salesOpen === true &&
+            ticketType.salesOpen &&
+            ticketType.currentTier?.name === "General" &&
+            ticketType.availability !== "SOLD_OUT";
+
+          const enabledByTier: Record<string, boolean> = {
+            preventa: preventaOpen,
+            general: generalOpen,
+            duo: generalOpen,
+          };
+          Object.entries(enabledByTier).forEach(([tier, enabled]) => {
+            const card = document.querySelector<HTMLElement>(`.tipo[data-tipo="${tier}"]`);
+            const radio = card?.querySelector<HTMLInputElement>("input");
+            const note = card?.querySelector<HTMLElement>("[data-nota]");
+            if (card !== null && card !== undefined) {
+              card.classList.toggle("is-off", !enabled);
+            }
+            if (radio !== null && radio !== undefined) {
+              radio.disabled = !enabled;
+            }
+            if (note !== null && note !== undefined) {
+              if (!enabled && (tier === "general" || tier === "duo")) {
+                note.textContent = "Disponible al iniciar la etapa General";
+              } else if (!enabled && tier === "preventa") {
+                note.textContent = "Preventa no disponible";
+              } else if (tier === "duo") {
+                note.textContent = "$170.000 por persona";
+              } else {
+                note.textContent = "";
+              }
+            }
+          });
+
+          const selected = document.querySelector<HTMLInputElement>(".tipo input:checked");
+          const selectedValue = selected?.value ?? defaultTier;
+          if (enabledByTier[selectedValue] !== true) {
+            const fallbackTier = generalOpen ? "general" : preventaOpen ? "preventa" : undefined;
+            if (fallbackTier !== undefined) {
+              const fallbackRadio = document.querySelector<HTMLInputElement>(
+                `.tipo[data-tipo="${fallbackTier}"] input`,
+              );
+              if (fallbackRadio !== null && fallbackRadio !== undefined) {
+                fallbackRadio.checked = true;
+              }
+            }
+          }
+          updateTicketState();
+        })
+        .catch(() => {
+          // General and Doble experiencia remain unavailable without a confirmed public sales stage.
+        });
+    }
   }
 
   // ---------------------------------------------------------------------------
