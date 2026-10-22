@@ -383,6 +383,37 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"ticket_bundles": {
+                  Row: {
+                    "code": string,"created_at": string,"event_id": string,"id": string,"included_admissions": number,"is_active": boolean,"name": string,"price_cents": number,"pricing_tier_id": string,"ticket_type_id": string,"updated_at": string
+                  }
+                  Insert: {
+                    "code": string,"created_at"?: string,"event_id": string,"id"?: string,"included_admissions": number,"is_active"?: boolean,"name": string,"price_cents": number,"pricing_tier_id": string,"ticket_type_id": string,"updated_at"?: string
+                  }
+                  Update: {
+                    "code"?: string,"created_at"?: string,"event_id"?: string,"id"?: string,"included_admissions"?: number,"is_active"?: boolean,"name"?: string,"price_cents"?: number,"pricing_tier_id"?: string,"ticket_type_id"?: string,"updated_at"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "ticket_bundles_event_id_fkey"
+      columns: ["event_id"]
+isOneToOne: false
+      referencedRelation: "events"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "ticket_bundles_stage_ticket_type_fk"
+      columns: ["pricing_tier_id","ticket_type_id"]
+isOneToOne: false
+      referencedRelation: "pricing_tiers"
+      referencedColumns: ["id","ticket_type_id"]
+    },{
+      foreignKeyName: "ticket_bundles_ticket_type_id_fkey"
+      columns: ["ticket_type_id"]
+isOneToOne: false
+      referencedRelation: "ticket_types"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"tickets": {
                   Row: {
                     "cancelled_at": string | null,"created_at": string,"event_id": string,"id": string,"issued_at": string,"order_id": string,"order_item_id": string,"order_item_seq": number,"participant_id": string | null,"price_paid_cents": number,"status": Database["public"]['Enums']["ticket_status"],"ticket_type_id": string,"token": string,"updated_at": string
