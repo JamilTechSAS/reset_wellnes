@@ -131,7 +131,7 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
         const submitBtn = communityForm.querySelector("button");
         if (submitBtn) {
           submitBtn.disabled = true;
-          submitBtn.textContent = "Enviandoâ€¦";
+          submitBtn.textContent = "Enviando…";
         }
         if (communityMsg) communityMsg.textContent = "";
 
@@ -150,7 +150,7 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
             communityForm.hidden = true;
             if (communityMsg) {
               communityMsg.textContent =
-                "Listo, ya estÃ¡s dentro. Te escribiremos antes que a nadie.";
+                "Listo, ya estás dentro. Te escribiremos antes que a nadie.";
             }
             setTimeout(closeCommunityModal, 3200);
           })
@@ -160,7 +160,7 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
               submitBtn.textContent = "Continuar";
             }
             if (communityMsg) {
-              communityMsg.textContent = "No se pudo enviar. IntÃ©ntalo de nuevo en un momento.";
+              communityMsg.textContent = "No se pudo enviar. Inténtalo de nuevo en un momento.";
             }
           });
       };
@@ -202,7 +202,7 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
     const handleToggleClick = (): void => {
       const isOpen = navMenu.classList.toggle("is-open");
       navToggle.setAttribute("aria-expanded", String(isOpen));
-      navToggle.textContent = isOpen ? "Cerrar" : "MenÃº";
+      navToggle.textContent = isOpen ? "Cerrar" : "Menú";
     };
     navToggle.addEventListener("click", handleToggleClick);
     disposers.push(() => {
@@ -213,7 +213,7 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
     const handleMenuLinkClick = (): void => {
       navMenu.classList.remove("is-open");
       navToggle.setAttribute("aria-expanded", "false");
-      navToggle.textContent = "MenÃº";
+      navToggle.textContent = "Menú";
     };
     menuLinks.forEach((link) => {
       link.addEventListener("click", handleMenuLinkClick);
@@ -278,7 +278,7 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
   }
 
   // ---------------------------------------------------------------------------
-  // 5. Marca y ColaboraciÃ³n Form
+  // 5. Marca y Colaboración Form
   // ---------------------------------------------------------------------------
   const marcaForm = document.getElementById("marca-form") as HTMLFormElement | null;
   if (marcaForm) {
@@ -312,7 +312,7 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
 
       if (!nombre || !mensaje || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
         if (marcaMsg) {
-          marcaMsg.textContent = "Completa tu nombre, un correo vÃ¡lido y tu mensaje.";
+          marcaMsg.textContent = "Completa tu nombre, un correo válido y tu mensaje.";
         }
         return;
       }
@@ -320,7 +320,7 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
       const submitBtn = marcaForm.querySelector("button");
       if (submitBtn) {
         submitBtn.disabled = true;
-        submitBtn.textContent = "Enviandoâ€¦";
+        submitBtn.textContent = "Enviando…";
       }
       if (marcaMsg) marcaMsg.textContent = "";
 
@@ -332,7 +332,7 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
           marca,
           email,
           mensaje,
-          _subject: "Nueva solicitud de marca Â· Reset",
+          _subject: "Nueva solicitud de marca · Reset",
         }),
       })
         .then((response) => {
@@ -353,7 +353,7 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
           }
           if (marcaMsg) {
             marcaMsg.textContent =
-              "No se pudo enviar. IntÃ©ntalo de nuevo o escrÃ­benos a reset.wellness@gmail.com.";
+              "No se pudo enviar. Inténtalo de nuevo o escríbenos a reset.wellness@gmail.com.";
           }
         });
     };
@@ -502,7 +502,7 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
       if (!termsCheckbox?.checked) {
         termsCheckbox?.focus();
         if (buyHelpText) {
-          buyHelpText.textContent = "Primero acepta los tÃ©rminos y condiciones.";
+          buyHelpText.textContent = "Primero acepta los términos y condiciones.";
         }
         return;
       }
