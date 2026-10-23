@@ -12,6 +12,12 @@
  * - Purchase CTA hooks wired to the approved purchase controller
  */
 
+import {
+  PRESALE_SCHEDULE_NOTE,
+  isPresaleOpen,
+  msUntilPresaleOpens,
+} from "../purchase/presale-schedule.ts";
+
 export type ClientInteractionsOptions = {
   readonly openPurchase?: (
     source: string,
@@ -462,6 +468,14 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
       }
     });
 
+    // Presale is time-locked until its scheduled opening (Colombia time); whether it is then
+    // actually buyable still comes from the backend availability response below.
+    const preventaCard = document.querySelector<HTMLElement>('.tipo[data-tipo="preventa"]');
+    const preventaRadio = preventaCard?.querySelector<HTMLInputElement>("input") ?? null;
+    const preventaNote = preventaCard?.querySelector<HTMLElement>("[data-nota]") ?? null;
+    // Optimistic until the public catalog answers (matches the prior default where presale was open).
+    let backendPreventaAllowed = true;
+
     const updateTicketState = (): void => {
       const selectedRadio = document.querySelector<HTMLInputElement>(".tipo input:checked");
       const tier = selectedRadio?.value ?? defaultTier;
@@ -469,7 +483,16 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
         buyPriceSpan.textContent = tierPrices[tier] ?? "$160.000";
       }
 
-      if (termsCheckbox?.checked) {
+      const selectionUnavailable = selectedRadio?.disabled === true;
+      if (selectionUnavailable) {
+        buyButton.setAttribute("aria-disabled", "true");
+        if (buyHelpText) {
+          buyHelpText.textContent =
+            tier === "preventa" && !isPresaleOpen()
+              ? PRESALE_SCHEDULE_NOTE
+              : "Esta entrada no está disponible por ahora.";
+        }
+      } else if (termsCheckbox?.checked) {
         buyButton.setAttribute("aria-disabled", "false");
         if (buyHelpText) {
           buyHelpText.textContent = "Haz clic para continuar con la compra segura.";
@@ -480,6 +503,44 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
           buyHelpText.textContent = "Marca la casilla para continuar con el pago.";
         }
       }
+    };
+
+    // Applies the presale time gate combined with the last known backend verdict.
+    const applyPreventaState = (): void => {
+      const timeOpen = isPresaleOpen();
+      const enabled = timeOpen && backendPreventaAllowed;
+      preventaCard?.classList.toggle("is-off", !enabled);
+      if (preventaRadio) preventaRadio.disabled = !enabled;
+      if (preventaNote) {
+        if (!timeOpen) {
+          preventaNote.textContent = PRESALE_SCHEDULE_NOTE;
+        } else if (!backendPreventaAllowed) {
+          preventaNote.textContent = "Preventa no disponible";
+        } else {
+          preventaNote.textContent = "";
+        }
+      }
+      // If presale was selected but is now locked, move the selection to an available tier.
+      if (!enabled) {
+        const selected = document.querySelector<HTMLInputElement>(".tipo input:checked");
+        if (selected?.value === "preventa") {
+          const fallback = document.querySelector<HTMLInputElement>(".tipo input:not(:disabled)");
+          if (fallback) fallback.checked = true;
+        }
+      }
+      updateTicketState();
+    };
+
+    // Auto-enable presale at the scheduled instant without a page reload.
+    const schedulePresaleOpen = (): void => {
+      if (isPresaleOpen()) return;
+      const delay = msUntilPresaleOpens();
+      const MAX_TIMEOUT = 2_147_483_647; // setTimeout's 32-bit ceiling (~24.8 days)
+      if (delay > MAX_TIMEOUT) return; // too far out; a later load re-evaluates the gate
+      const presaleTimer = setTimeout(applyPreventaState, delay + 50);
+      disposers.push(() => {
+        clearTimeout(presaleTimer);
+      });
     };
 
     const tierInputs = document.querySelectorAll(".tipo input");
@@ -508,7 +569,17 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
       }
 
       const selectedRadio = document.querySelector<HTMLInputElement>(".tipo input:checked");
-      const tier = selectedRadio?.value ?? defaultTier;
+      // Block checkout for a tier that is not currently purchasable (e.g. presale before it opens).
+      if (!selectedRadio || selectedRadio.disabled) {
+        if (buyHelpText) {
+          buyHelpText.textContent =
+            selectedRadio?.value === "preventa" && !isPresaleOpen()
+              ? PRESALE_SCHEDULE_NOTE
+              : "Esta entrada no está disponible por ahora.";
+        }
+        return;
+      }
+      const tier = selectedRadio.value;
       const quantity = tier === "duo" ? 2 : 1;
 
       // Enter the approved real backend purchase flow
@@ -524,7 +595,8 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
       buyButton.removeEventListener("click", handleBuyClick);
     });
 
-    updateTicketState();
+    applyPreventaState();
+    schedulePresaleOpen();
 
     if (options.salesConfig !== undefined) {
       const { apiBaseUrl, eventCode, ticketTypeCode } = options.salesConfig;
@@ -562,7 +634,8 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
             throw new Error("Public event lookup returned no ticket type");
           }
 
-          const preventaOpen =
+          // Backend's view of the presale stage (inventory/stage), independent of the time gate.
+          const preventaStageOpen =
             sales.salesOpen === true &&
             ticketType.salesOpen &&
             ticketType.currentTier?.name === "Preventa" &&
@@ -572,6 +645,10 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
             ticketType.salesOpen &&
             ticketType.currentTier?.name === "General" &&
             ticketType.availability !== "SOLD_OUT";
+
+          backendPreventaAllowed = preventaStageOpen;
+          // Presale is buyable only when the backend stage is open AND the scheduled time has arrived.
+          const preventaOpen = preventaStageOpen && isPresaleOpen();
 
           const enabledByTier: Record<string, boolean> = {
             preventa: preventaOpen,
@@ -592,7 +669,9 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
               if (!enabled && (tier === "general" || tier === "duo")) {
                 note.textContent = "Disponible al iniciar la etapa General";
               } else if (!enabled && tier === "preventa") {
-                note.textContent = "Preventa no disponible";
+                note.textContent = !isPresaleOpen()
+                  ? PRESALE_SCHEDULE_NOTE
+                  : "Preventa no disponible";
               } else if (tier === "duo") {
                 note.textContent = "$170.000 por persona";
               } else {
