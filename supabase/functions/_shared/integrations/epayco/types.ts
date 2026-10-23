@@ -61,13 +61,27 @@ export type EpaycoWebhookPayload = {
   readonly [key: string]: unknown;
 };
 
+/**
+ * Normalized ePayco transaction state (same mapping as `confirm_payment`, migration
+ * 20261023130000): 1 approved, 2 declined, 3/7/8 pending (Pendiente, Retenida, Iniciada),
+ * 4 error, 6 voided (Reversada), 9/10/11 declined (Expirada, Abandonada, Cancelada).
+ */
+export type EpaycoTransactionStatus =
+  "approved" | "declined" | "pending" | "error" | "voided" | "unknown";
+
 export type EpaycoTransactionData = {
   readonly id: string;
   readonly refPayco: string;
+  /** `x_ref_payco` exactly as the validation API echoed it; null when the field is absent. */
+  readonly responseRefPayco: string | null;
+  /** `x_amount` exactly as returned: the signature is computed over this text. */
+  readonly amountText: string;
+  /** Merchant id reported by ePayco (`x_cust_id_cliente`); null when absent. */
+  readonly custIdCliente: string | null;
   readonly reference: string;
   readonly invoice: string;
   readonly transactionId: string;
-  readonly status: "approved" | "declined" | "pending" | "error" | "unknown";
+  readonly status: EpaycoTransactionStatus;
   readonly rawStatus: string;
   readonly amount: number;
   readonly amountInCents: number;

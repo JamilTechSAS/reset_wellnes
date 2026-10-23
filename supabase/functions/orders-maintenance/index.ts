@@ -27,6 +27,8 @@ import {
 } from "../_shared/api/maintenance-handler.ts";
 import { createResendClient, type ResendClient } from "../_shared/integrations/resend/client.ts";
 import { createWompiClient } from "../_shared/integrations/wompi/client.ts";
+import { createEpaycoClient } from "../_shared/integrations/epayco/client.ts";
+import { createAlertGateway } from "../_shared/db/alerts.ts";
 import { createSheetsClient } from "../_shared/integrations/google/sheets-client.ts";
 import { errorResponse, jsonResponse, successResponse } from "../_shared/http/json.ts";
 import { createLogger } from "../_shared/logging/logger.ts";
@@ -79,6 +81,17 @@ async function run(config: BackendConfig, authorization: string | null): Promise
       baseUrl: config.wompi.baseUrl,
       privateKey: config.wompi.privateKey,
     }),
+    // ePayco attempts are reconciled only when the merchant credentials their records are
+    // verified against exist; otherwise they are retried, never sent to Wompi.
+    epayco:
+      config.epayco.custIdCliente.length > 0 && config.epayco.pKey.length > 0
+        ? createEpaycoClient({
+            baseUrl: config.epayco.baseUrl,
+            publicKey: config.epayco.publicKey,
+            privateKey: config.epayco.privateKey,
+          })
+        : undefined,
+    alerts: createAlertGateway(client),
     sheets: createSheetsGateway(client),
     sheetsClient,
     rateLimits: createRateLimitGateway(client),

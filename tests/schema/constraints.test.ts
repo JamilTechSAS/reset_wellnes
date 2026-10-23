@@ -83,6 +83,7 @@ describe("schema constraints", () => {
         "discount_redemptions.discount_code_id->discount_codes",
         "discount_redemptions.order_id->orders",
         "email_deliveries.ticket_id->tickets",
+        "operational_alerts.payment_id->payments",
         "order_items.bundle_id->ticket_bundles",
         "order_items.order_id->orders",
         "order_items.pricing_tier_id->pricing_tiers",

@@ -24,6 +24,8 @@ function claimed(overrides: Partial<ClaimedReconciliation> = {}): ClaimedReconci
     paymentId: "22222222-2222-4222-8222-222222222222",
     orderId: "33333333-3333-4333-8333-333333333333",
     paymentAttempt: 1,
+    paymentProvider: "wompi",
+    providerTransactionId: "1292-1602113476-10985",
     wompiReference: "EVT-2026-000001",
     wompiTransactionId: "1292-1602113476-10985",
     paymentStatus: "pending",
@@ -142,6 +144,8 @@ describe("reconciliation sweep", () => {
         wompiStatus: "APPROVED",
         amountCents: 9_500_000,
         currency: "COP",
+        // H15: the Wompi sweep declares its provider.
+        provider: "wompi",
       }),
     );
     expect(queueTicketEmails).toHaveBeenCalledWith("33333333-3333-4333-8333-333333333333");

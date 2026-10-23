@@ -246,6 +246,11 @@ Deno.serve(async (request: Request): Promise<Response> => {
         rawBody: body,
         gateway: context.payments,
         provider: context.config.paymentProvider,
+        epaycoTest: context.config.epayco.test,
+        epaycoCredentials: {
+          custIdCliente: context.config.epayco.custIdCliente,
+          pKey: context.config.epayco.pKey,
+        },
         epayco: createEpaycoClient({
           baseUrl: context.config.epayco.baseUrl,
           publicKey: context.config.epayco.publicKey,

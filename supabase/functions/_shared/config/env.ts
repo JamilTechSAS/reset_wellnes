@@ -150,6 +150,16 @@ export type BackendConfig = {
    */
   readonly paymentReturnUrl: string | undefined;
   /**
+   * Operators who receive the payment-alert digest (H8), from `ALERT_EMAIL_TO` (comma list,
+   * at most 5). Empty: alerts are still recorded and logged, but no email is sent.
+   */
+  readonly alertRecipients: readonly string[];
+  /**
+   * Why some `ALERT_EMAIL_TO` entries were ignored (invalid or beyond the cap); undefined when
+   * all were accepted. Never a configuration error: alerting must not block payments.
+   */
+  readonly alertRecipientIssue: string | undefined;
+  /**
    * Optional base URL for the public ticket page linked from the confirmation email.
    * The page itself is a later frontend deliverable, so the link is omitted when this is
    * not configured rather than shipping a link to a 404.
@@ -243,6 +253,9 @@ function isValidTimeZone(value: string): boolean {
 }
 
 /** Minimal, pragmatic email shape check (full validation happens at sign-up/checkout). */
+/** Upper bound on alert digest recipients; more are ignored, never an error. */
+export const MAX_ALERT_RECIPIENTS = 5;
+
 function looksLikeEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
@@ -645,6 +658,12 @@ export function loadConfig(env: EnvRecord, options: LoadConfigOptions = {}): Bac
         )
       : (env.EPAYCO_CUST_ID_CLIENTE?.trim() ?? "");
   const epaycoTest = readBoolean(env, "EPAYCO_TEST", appEnv !== "production", issues);
+  // Test mode makes the webhook and the payment hint accept ePayco sandbox transactions, so in
+  // production it would let a test payment settle a real order. Checked for every provider
+  // because the ePayco webhook stays reachable even when Wompi is the active provider.
+  if (appEnv === "production" && epaycoTest) {
+    issues.push("EPAYCO_TEST must be false when APP_ENV=production");
+  }
   const epaycoBaseUrlRaw = readString(env, "EPAYCO_BASE_URL");
   let epaycoBaseUrl = "https://secure.epayco.co/validation/v1/reference";
   if (epaycoBaseUrlRaw !== undefined) {
@@ -760,6 +779,23 @@ export function loadConfig(env: EnvRecord, options: LoadConfigOptions = {}): Bac
   if (emailReplyTo !== undefined && !looksLikeEmail(emailReplyTo)) {
     issues.push("EMAIL_REPLY_TO must be a valid email address");
   }
+
+  // Alerting is an operational side channel: a bad ALERT_EMAIL_TO must never become a config
+  // error, because every function (orders, webhooks) shares this loader and a payment must not
+  // be refused over it. Invalid entries are dropped and reported on `alertRecipientIssue`, which
+  // the maintenance run logs and returns.
+  const alertCandidates = (readString(env, "ALERT_EMAIL_TO") ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+  const validAlertRecipients = alertCandidates.filter((value) => looksLikeEmail(value));
+  const alertRecipients = validAlertRecipients.slice(0, MAX_ALERT_RECIPIENTS);
+  const alertRecipientIssue =
+    validAlertRecipients.length < alertCandidates.length
+      ? `ALERT_EMAIL_TO has ${String(alertCandidates.length - validAlertRecipients.length)} invalid address(es)`
+      : validAlertRecipients.length > MAX_ALERT_RECIPIENTS
+        ? `ALERT_EMAIL_TO accepts at most ${String(MAX_ALERT_RECIPIENTS)} addresses; the rest are ignored`
+        : undefined;
 
   // --- Public URLs --------------------------------------------------------
   let publicWebBaseUrl = "";
@@ -1014,6 +1050,8 @@ export function loadConfig(env: EnvRecord, options: LoadConfigOptions = {}): Bac
     googleSheets,
     orderReservationMinutes,
     paymentReturnUrl,
+    alertRecipients,
+    alertRecipientIssue,
     ticketBaseUrl,
     emailDispatchBatchSize,
     maintenanceApiToken,
@@ -1080,6 +1118,9 @@ export function describeConfigForLogs(config: BackendConfig): Record<string, unk
     },
     orderReservationMinutes: config.orderReservationMinutes,
     paymentReturnUrl: config.paymentReturnUrl ?? null,
+    // Count only: operator addresses are not needed in logs.
+    alertRecipients: config.alertRecipients.length,
+    alertRecipientIssue: config.alertRecipientIssue ?? null,
     ticketBaseUrl: config.ticketBaseUrl ?? null,
     emailDispatchBatchSize: config.emailDispatchBatchSize,
     maintenanceApiToken: describeCredential(config.maintenanceApiToken),

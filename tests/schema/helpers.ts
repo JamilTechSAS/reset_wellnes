@@ -19,6 +19,7 @@ export const MIGRATION_FILE_PATTERN = /^\d{14}_[a-z0-9_]+\.sql$/;
  * Every domain table the migrations must create (sorted, no views).
  * Phase 5 adds: `operators` (operator authorization), `rate_limit_counters`
  * (PostgreSQL fixed windows) and `sheets_projections` (Google Sheets outbox).
+ * H8 adds `operational_alerts` (deduplicated alerts for payments needing review).
  */
 export const DOMAIN_TABLES = [
   "attendance",
@@ -27,6 +28,7 @@ export const DOMAIN_TABLES = [
   "discount_redemptions",
   "email_deliveries",
   "events",
+  "operational_alerts",
   "operators",
   "order_items",
   "orders",

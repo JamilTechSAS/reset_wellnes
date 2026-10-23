@@ -8,6 +8,8 @@
 
 import { loadConfig, type BackendConfig } from "../_shared/config/env.ts";
 import { createServiceRoleClient } from "../_shared/db/client.ts";
+import { createAlertGateway } from "../_shared/db/alerts.ts";
+import { createAlertSink, type AlertSink } from "../_shared/api/alerts.ts";
 import {
   createOrderStatusGateway,
   createPaymentGateway,
@@ -27,6 +29,7 @@ type WebhookContext = {
   readonly config: BackendConfig;
   readonly payments: PaymentGateway;
   readonly epayco: EpaycoClient;
+  readonly alerts: AlertSink;
   readonly resend: ResendClient | undefined;
   readonly logger: Logger;
 };
@@ -76,10 +79,14 @@ function buildContext(config: BackendConfig, logger: Logger): WebhookContext {
   return {
     config,
     payments: createPaymentGateway(client),
+    alerts: createAlertSink(createAlertGateway(client), logger),
     epayco: createEpaycoClient({
       baseUrl: config.epayco.baseUrl,
       publicKey: config.epayco.publicKey,
       privateKey: config.epayco.privateKey,
+      // ePayco expects an answer within 30 s; keep the record lookup well inside that budget.
+      timeoutMs: 5_000,
+      retryDelaysMs: [300],
     }),
     resend,
     logger,
@@ -148,6 +155,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
       logger: context.logger,
       payments: context.payments,
       epayco: context.epayco,
+      alerts: context.alerts,
     });
 
     if (outcome.status === 200 && outcome.ticketsIssued > 0) {

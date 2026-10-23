@@ -224,6 +224,31 @@ describe("phase 5 schema", () => {
     expect(terminal.nextReconciliationAt).toBeNull();
   });
 
+  it("tells the sweep which provider owns each claimed attempt (migration 20261023120000)", async () => {
+    await db.query(
+      `insert into public.payments (order_id, attempt, wompi_reference, wompi_transaction_id, status, amount_cents, next_reconciliation_at)
+       values ($1, 40, 'EVT-2026-000001-40', '1292-0000000000-00040', 'pending', 9500000, now() - interval '1 minute')`,
+      [fixture.orderId],
+    );
+    await db.query(
+      `insert into public.payments (order_id, attempt, wompi_reference, payment_provider, provider_reference, provider_transaction_id, status, amount_cents, next_reconciliation_at)
+       values ($1, 41, 'EVT-2026-000001-41', 'epayco', 'EVT-2026-000001-41', '987654321', 'pending', 9500000, now() - interval '1 minute')`,
+      [fixture.orderId],
+    );
+
+    const claimed = await db.query<{ attempt: number; provider: string; tx: string }>(
+      `select (value->>'paymentAttempt')::int as attempt,
+              value->>'paymentProvider' as provider,
+              value->>'providerTransactionId' as tx
+         from public.claim_payment_reconciliations(10, 8, now()) as value
+        order by 1`,
+    );
+    expect(claimed.rows).toEqual([
+      { attempt: 40, provider: "wompi", tx: "1292-0000000000-00040" },
+      { attempt: 41, provider: "epayco", tx: "987654321" },
+    ]);
+  });
+
   it("excludes PAID orders from the sweep and enforces the attempt budget", async () => {
     // A paid order whose earlier attempt is still pending: approving again would violate
     // payments_one_approved_per_order_idx, so the sweep must not touch it.

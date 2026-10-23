@@ -182,7 +182,7 @@ async function confirm(args: {
        '${args.order.reference}','${reference}',
        ${transactionId === null ? "null" : `'${transactionId}'`},
        '${args.status}',${String(amount)},'${currencyValue}','CARD','Mensaje del proveedor',
-       '{"id":"x","reference":"${reference}"}'::jsonb
+       '{"id":"x","reference":"${reference}"}'::jsonb,'wompi'
      ) as r`,
   );
   const row = result.rows[0]?.r;
@@ -392,7 +392,7 @@ describe("confirm_payment replay and refusal", () => {
     const message = await rejection(
       db.query(
         `select public.confirm_payment('EVT-2026-000999','EVT-2026-000999','tx-x','APPROVED',
-           ${String(order.totalInCents)},'COP',null,null,null) as r`,
+           ${String(order.totalInCents)},'COP',null,null,null,'wompi') as r`,
       ),
     );
     expect(message).toContain("ORDER_NOT_FOUND");
@@ -730,12 +730,12 @@ describe("webhook event ledger", () => {
 
   it("claims an event once and reports the loser without throwing", async () => {
     const first = await db.query<{ c: { claimed: boolean; eventId: string } }>(
-      `select public.claim_webhook_event('${KEY}','transaction.updated','tx-ledger-1',true) as c`,
+      `select public.claim_webhook_event('${KEY}','transaction.updated','tx-ledger-1',true,'wompi') as c`,
     );
     expect(first.rows[0]?.c.claimed).toBe(true);
 
     const second = await db.query<{ c: { claimed: boolean; eventId: string } }>(
-      `select public.claim_webhook_event('${KEY}','transaction.updated','tx-ledger-1',true) as c`,
+      `select public.claim_webhook_event('${KEY}','transaction.updated','tx-ledger-1',true,'wompi') as c`,
     );
     expect(second.rows[0]?.c.claimed).toBe(false);
     expect(second.rows[0]?.c.eventId).toBe(first.rows[0]?.c.eventId);
@@ -743,7 +743,7 @@ describe("webhook event ledger", () => {
 
   it("finalizes once and refuses to overwrite the recorded outcome", async () => {
     const claim = await db.query<{ c: { eventId: string } }>(
-      `select public.claim_webhook_event('${"f".repeat(64)}','transaction.updated',null,true) as c`,
+      `select public.claim_webhook_event('${"f".repeat(64)}','transaction.updated',null,true,'wompi') as c`,
     );
     const eventId = claim.rows[0]?.c.eventId;
     expect(eventId).toBeDefined();
@@ -762,12 +762,12 @@ describe("webhook event ledger", () => {
 
   it("records a refused delivery in its own namespace", async () => {
     const result = await db.query<{ r: { eventId: string; recorded: boolean } }>(
-      `select public.record_webhook_rejection('${"a".repeat(64)}','transaction.updated',401,'CHECKSUM_MISMATCH') as r`,
+      `select public.record_webhook_rejection('${"a".repeat(64)}','transaction.updated',401,'CHECKSUM_MISMATCH','wompi') as r`,
     );
     expect(result.rows[0]?.r.recorded).toBe(true);
 
     const again = await db.query<{ r: { recorded: boolean } }>(
-      `select public.record_webhook_rejection('${"a".repeat(64)}','transaction.updated',401,'CHECKSUM_MISMATCH') as r`,
+      `select public.record_webhook_rejection('${"a".repeat(64)}','transaction.updated',401,'CHECKSUM_MISMATCH','wompi') as r`,
     );
     expect(again.rows[0]?.r.recorded).toBe(false);
 

@@ -12,7 +12,7 @@
 
 import { z } from "zod";
 import { AppError } from "../../domain/errors.ts";
-import type { EpaycoTransactionData } from "./types.ts";
+import type { EpaycoTransactionData, EpaycoTransactionStatus } from "./types.ts";
 
 export const DEFAULT_EPAYCO_VALIDATION_BASE_URL =
   "https://secure.epayco.co/validation/v1/reference";
@@ -32,6 +32,20 @@ function asString(val: unknown, fallback = ""): string {
   return fallback;
 }
 
+/**
+ * Converts an ePayco peso amount (`"10000"`, `"10000.5"`, `"10000.00"`) to integer centavos.
+ * Exact decimal parsing, no floating point: anything else (negative, exponent, more than two
+ * decimals, empty) is `null`, so a malformed amount can never be rounded into a match.
+ */
+export function parseEpaycoAmountToCents(text: string): number | null {
+  const match = /^(\d{1,15})(?:\.(\d{1,2}))?$/.exec(text.trim());
+  if (match?.[1] === undefined) {
+    return null;
+  }
+  const cents = Number(match[1]) * 100 + Number((match[2] ?? "").padEnd(2, "0"));
+  return Number.isSafeInteger(cents) ? cents : null;
+}
+
 function asNumber(val: unknown, fallback = 0): number {
   if (typeof val === "number") {
     return val;
@@ -41,6 +55,32 @@ function asNumber(val: unknown, fallback = 0): number {
     return Number.isNaN(parsed) ? fallback : parsed;
   }
   return fallback;
+}
+
+/**
+ * ePayco response code to normalized state. Must stay identical to the SQL mapping in
+ * `confirm_payment` (migration 20261023130000) so webhook, hint and reconciliation agree.
+ */
+export function epaycoStatusFromResponseCode(code: number): EpaycoTransactionStatus {
+  switch (code) {
+    case 1:
+      return "approved";
+    case 2:
+    case 9: // Expirada / Caducada
+    case 10: // Abandonada
+    case 11: // Cancelada
+      return "declined";
+    case 3:
+    case 7: // Retenida
+    case 8: // Iniciada
+      return "pending";
+    case 4:
+      return "error";
+    case 6: // Reversada
+      return "voided";
+    default:
+      return "unknown";
+  }
 }
 
 export class EpaycoApiError extends AppError {
@@ -181,8 +221,12 @@ export function createEpaycoClient(options: EpaycoClientOptions = {}): EpaycoCli
           const data = validation.data.data;
           const invoice = asString(data.x_id_invoice ?? data.x_id_factura).trim();
           const transactionId = asString(data.x_transaction_id).trim();
-          const numAmount = asNumber(data.x_amount ?? data.x_amount_ok, 0);
-          const currency = asString(data.x_currency_code, "COP").trim().toUpperCase();
+          const amountText = asString(data.x_amount ?? data.x_amount_ok).trim();
+          const amountInCents = parseEpaycoAmountToCents(amountText);
+          // No default: a record without a currency must fail verification, not become COP.
+          const currency = asString(data.x_currency_code).trim().toUpperCase();
+          const responseRefPayco = asString(data.x_ref_payco).trim();
+          const custIdCliente = asString(data.x_cust_id_cliente ?? data.p_cust_id_cliente).trim();
           const rawCode =
             data.x_cod_response ?? data.x_cod_respuesta ?? data.x_cod_transaction_state ?? 0;
           const responseCode = asNumber(rawCode, 0);
@@ -203,33 +247,27 @@ export function createEpaycoClient(options: EpaycoClientOptions = {}): EpaycoCli
           const isTest =
             data.x_test_request === true || asString(data.x_test_request).toLowerCase() === "true";
 
-          if (Number.isNaN(numAmount) || numAmount < 0) {
+          if (amountInCents === null) {
             throw new EpaycoApiError("ePayco response contains invalid amount", {
               context: { refPayco: cleanRef },
             });
           }
 
-          const normalizedStatus: "approved" | "declined" | "pending" | "error" | "unknown" =
-            responseCode === 1
-              ? "approved"
-              : responseCode === 2
-                ? "declined"
-                : responseCode === 3
-                  ? "pending"
-                  : responseCode === 4
-                    ? "error"
-                    : "unknown";
+          const normalizedStatus = epaycoStatusFromResponseCode(responseCode);
 
           return {
             id: cleanRef,
             refPayco: cleanRef,
+            responseRefPayco: responseRefPayco.length > 0 ? responseRefPayco : null,
+            amountText,
+            custIdCliente: custIdCliente.length > 0 ? custIdCliente : null,
             reference: invoice,
             invoice,
             transactionId,
             status: normalizedStatus,
             rawStatus: asString(rawCode),
-            amount: numAmount,
-            amountInCents: Math.round(numAmount * 100),
+            amount: amountInCents / 100,
+            amountInCents,
             currency,
             responseCode: Number.isNaN(responseCode) ? 0 : responseCode,
             responseText,

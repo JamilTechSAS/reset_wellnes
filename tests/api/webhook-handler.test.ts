@@ -168,6 +168,7 @@ type Stubs = {
     finalize: { result: string; errorCode?: string | undefined }[];
     claim: number;
     recordRejection: number;
+    providers: string[];
   };
 };
 
@@ -188,6 +189,8 @@ function stubs(
     finalize: [] as { result: string; errorCode?: string | undefined }[],
     claim: 0,
     recordRejection: 0,
+    /** Provider each gateway write declared (H15). */
+    providers: [] as string[],
   };
 
   let claimCount = 0;
@@ -198,9 +201,10 @@ function stubs(
     async findPaymentByTransactionId() {
       return options.paymentByTransactionId;
     },
-    async claimWebhookEvent(): Promise<ClaimWebhookEventResult> {
+    async claimWebhookEvent(input): Promise<ClaimWebhookEventResult> {
       claimCount += 1;
       calls.claim += 1;
+      calls.providers.push(`claim:${input.provider}`);
       return (
         options.claim?.(claimCount) ?? {
           claimed: true,
@@ -223,12 +227,14 @@ function stubs(
         processedAt: "2026-10-03T00:00:00.000Z",
       };
     },
-    async recordWebhookRejection() {
+    async recordWebhookRejection(input) {
       calls.recordRejection += 1;
+      calls.providers.push(`rejection:${input.provider}`);
       return { eventId: "44444444-4444-4444-8444-444444444444", recorded: true };
     },
-    async confirmPayment() {
+    async confirmPayment(input) {
       calls.confirmPayment += 1;
+      calls.providers.push(`confirm:${input.provider}`);
       return (
         options.confirmation ?? {
           ...APPLIED,
@@ -315,6 +321,8 @@ describe("webhook authenticity", () => {
     expect(outcome.ticketsIssued).toBe(3);
     expect(s.calls.confirmPayment).toBe(1);
     expect(s.calls.queueTicketEmails).toBe(1);
+    // H15: every write of the Wompi path declares Wompi.
+    expect(s.calls.providers).toEqual(["claim:wompi", "confirm:wompi"]);
   });
 
   it("accepts the checksum from the X-Event-Checksum header when the body omits it", async () => {
@@ -342,6 +350,7 @@ describe("webhook authenticity", () => {
     expect(s.calls.claim).toBe(0);
     // The refused delivery is recorded under its own namespace for forensics.
     expect(s.calls.recordRejection).toBe(1);
+    expect(s.calls.providers).toEqual(["rejection:wompi"]);
   });
 
   it("refuses a well-formed body with no signature at all", async () => {

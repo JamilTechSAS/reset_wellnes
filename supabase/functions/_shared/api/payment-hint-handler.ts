@@ -32,6 +32,7 @@ import {
 import { WOMPI_TRANSACTION_ID_PATTERN } from "../integrations/wompi/types.ts";
 import { WompiApiError } from "../integrations/wompi/client.ts";
 import { EpaycoApiError, type EpaycoClient } from "../integrations/epayco/client.ts";
+import { verifyEpaycoRecord } from "../integrations/epayco/verify.ts";
 import { buildProviderPayload } from "./payment-payload.ts";
 import { normalizeLookupEmail } from "./order-status-handler.ts";
 import type { WompiClient } from "../integrations/wompi/client.ts";
@@ -142,6 +143,17 @@ export async function handlePaymentHint(input: {
   readonly logger: Logger;
   readonly epayco?: EpaycoClient | undefined;
   readonly provider?: PaymentProvider | undefined;
+  /**
+   * `config.epayco.test`. Only `true` admits ePayco sandbox transactions; anything else is
+   * live mode, so a missing value can never let a test payment settle a real order.
+   */
+  readonly epaycoTest?: boolean | undefined;
+  /**
+   * Merchant credentials (`config.epayco.custIdCliente` / `pKey`). A hint carries nothing signed,
+   * so the record must prove it belongs to this merchant; without credentials it never can.
+   */
+  readonly epaycoCredentials?:
+    { readonly custIdCliente: string; readonly pKey: string } | undefined;
 }): Promise<PaymentHintResponse> {
   const reference = requireReference(input.reference);
   const parsed = parsePaymentHintRequest(input.rawBody);
@@ -182,9 +194,38 @@ export async function handlePaymentHint(input: {
     readonly rawResponse?: unknown;
   };
 
+  // H15: an ePayco attempt is only ever looked up at ePayco. Without an ePayco client it is
+  // not sent to Wompi instead; the hint fails (the webhook and the sweep still apply).
+  if (isEpayco && input.epayco === undefined) {
+    input.logger.error("payment hint for an epayco attempt but no epayco client", { reference });
+    throw new AppError("UPSTREAM_ERROR", "ePayco lookup is unavailable for the payment hint", {
+      context: { surface: "payment-hint" },
+    });
+  }
+
   if (isEpayco && input.epayco) {
     try {
       const epaycoTx = await input.epayco.getTransaction(parsed.transactionId);
+      // The buyer chooses the `ref_payco`, so the record must prove it is this merchant's
+      // transaction (C1b), echo the requested reference, and not be a sandbox transaction while
+      // the backend runs live (test and live share the merchant keys).
+      const problems =
+        input.epaycoCredentials === undefined
+          ? (["MERCHANT_UNVERIFIED"] as const)
+          : await verifyEpaycoRecord({
+              record: epaycoTx,
+              requestedRefPayco: parsed.transactionId,
+              credentials: input.epaycoCredentials,
+              testMode: input.epaycoTest === true,
+            });
+      if (problems.length > 0) {
+        input.logger.warn("payment hint epayco record failed verification", {
+          reference,
+          paymentId: found.paymentId,
+          problems: problems.join(","),
+        });
+        return lookupResponse(found, "MISMATCH");
+      }
       transaction = {
         id: epaycoTx.id,
         reference: epaycoTx.reference,
@@ -288,6 +329,7 @@ export async function handlePaymentHint(input: {
     providerPayload:
       (transaction.rawResponse as Json | undefined) ??
       buildProviderPayload(transaction as unknown as Parameters<typeof buildProviderPayload>[0]),
+    // The provider whose API was actually queried above (H15).
     provider: isEpayco ? "epayco" : "wompi",
   });
 

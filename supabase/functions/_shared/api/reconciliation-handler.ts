@@ -23,6 +23,8 @@
  */
 
 import { toAppError } from "../domain/errors.ts";
+import { REPEATED_FAILURE_THRESHOLD, type AlertInput } from "../domain/alerts.ts";
+import { raiseAlertSafely, type AlertSink } from "./alerts.ts";
 import {
   failureForResult,
   mapSweepOutcome,
@@ -37,7 +39,11 @@ import {
 } from "../domain/payment-confirmation.ts";
 import { WompiApiError } from "../integrations/wompi/client.ts";
 import { buildProviderPayload } from "./payment-payload.ts";
+import { normalizeEpaycoPayload } from "./epayco-webhook-handler.ts";
+import { verifyEpaycoRecord } from "../integrations/epayco/verify.ts";
 import type { WompiClient } from "../integrations/wompi/client.ts";
+import type { EpaycoClient } from "../integrations/epayco/client.ts";
+import type { EpaycoTransactionData } from "../integrations/epayco/types.ts";
 import type {
   ClaimedReconciliation,
   ConfirmPaymentResult,
@@ -75,12 +81,26 @@ export type ReconciliationSweepSummary = {
 export type RunReconciliationSweepInput = {
   readonly payments: ReconciliationGateway;
   readonly wompi: WompiClient;
+  /**
+   * ePayco validation client plus the merchant settings its records are verified against.
+   * Absent: ePayco attempts are not queried (retried later), and never sent to Wompi.
+   */
+  readonly epayco?: EpaycoReconciliationDeps | undefined;
+  /** Operational alerts (H8); best-effort, never changes a sweep outcome. */
+  readonly alerts?: AlertSink | undefined;
   readonly logger: Logger;
   readonly batchSize?: number;
   readonly maxAttempts?: number;
   readonly upstreamRetrySeconds?: number;
   /** Injected clock for deterministic retry timestamps. */
   readonly now?: () => Date;
+};
+
+export type EpaycoReconciliationDeps = {
+  readonly client: EpaycoClient;
+  readonly credentials: { readonly custIdCliente: string; readonly pKey: string };
+  /** `config.epayco.test`; only `true` admits sandbox transactions. */
+  readonly testMode: boolean;
 };
 
 type FinishInput = {
@@ -90,12 +110,226 @@ type FinishInput = {
   readonly nextAttemptAt?: string | undefined;
 };
 
-/** Sweeps one claimed attempt through the same pipeline the webhook uses. */
-async function sweepOne(input: {
+type SweepInput = {
   readonly claimed: ClaimedReconciliation;
   readonly deps: RunReconciliationSweepInput;
   readonly finish: (args: FinishInput) => Promise<void>;
-}): Promise<{ readonly result: ReconciliationResult; readonly emailsQueued: number }> {
+};
+
+type SweepOutcome = { readonly result: ReconciliationResult; readonly emailsQueued: number };
+
+/** Records a retryable failure: the attempt is swept again soon, within its budget. */
+async function retrySoon(input: SweepInput, failure: string): Promise<SweepOutcome> {
+  const { deps } = input;
+  const retryAt = new Date(
+    (deps.now?.() ?? new Date()).getTime() +
+      (deps.upstreamRetrySeconds ?? RECONCILIATION_DEFAULTS.upstreamRetryDelaySeconds) * 1000,
+  ).toISOString();
+  await input.finish({
+    paymentId: input.claimed.paymentId,
+    result: "UPSTREAM_ERROR",
+    failure,
+    nextAttemptAt: retryAt,
+  });
+  return { result: "UPSTREAM_ERROR", emailsQueued: 0 };
+}
+
+/**
+ * Routes one claimed attempt to its OWN provider. An attempt whose provider is unknown (the
+ * claim row predates migration 20261023120000) is queried nowhere: guessing could send one
+ * provider's transaction id to the other.
+ */
+async function sweepOne(input: SweepInput): Promise<SweepOutcome> {
+  const { claimed, deps } = input;
+  switch (claimed.paymentProvider) {
+    case "wompi":
+      return sweepWompi(input);
+    case "epayco":
+      if (deps.epayco === undefined) {
+        deps.logger.warn("reconciliation: ePayco attempt but no ePayco client configured", {
+          orderReference: claimed.orderReference,
+          paymentId: claimed.paymentId,
+        });
+        return retrySoon(input, "PROVIDER_CLIENT_UNAVAILABLE");
+      }
+      return sweepEpayco(input, deps.epayco);
+    default:
+      deps.logger.error("reconciliation: claimed attempt has no payment provider", {
+        orderReference: claimed.orderReference,
+        paymentId: claimed.paymentId,
+      });
+      return retrySoon(input, "PROVIDER_UNKNOWN");
+  }
+}
+
+/**
+ * ePayco attempt: re-reads the record by the recorded `ref_payco` and applies it through the
+ * same `confirm_payment` transaction as the webhook. Status, invoice, amount and currency come
+ * from the record and must match our payment and order; nothing is decided on our side.
+ */
+async function sweepEpayco(
+  input: SweepInput,
+  epayco: EpaycoReconciliationDeps,
+): Promise<SweepOutcome> {
+  const { claimed, deps } = input;
+  const logger = deps.logger;
+  const refPayco = claimed.providerTransactionId;
+
+  let record: EpaycoTransactionData;
+  try {
+    record = await epayco.client.getTransaction(refPayco);
+  } catch (error) {
+    // Unlike Wompi, a 404 is retried: the ref_payco was recorded from a verified delivery, so
+    // a missing record is provider lag, and an approved payment must not be given up early.
+    logger.warn("reconciliation: ePayco lookup failed", {
+      orderReference: claimed.orderReference,
+      paymentId: claimed.paymentId,
+      error: toAppError(error).code,
+    });
+    return retrySoon(input, "UPSTREAM_ERROR");
+  }
+
+  const recordProblems = await verifyEpaycoRecord({
+    record,
+    requestedRefPayco: refPayco,
+    credentials: epayco.credentials,
+    testMode: epayco.testMode,
+    referenceIsTrusted: true,
+  });
+  const paymentProblems = validateTransactionAgainstPayment({
+    transaction: {
+      id: record.responseRefPayco ?? refPayco,
+      reference: record.invoice,
+      status: record.status,
+      amountInCents: record.amountInCents,
+      currency: record.currency,
+      paymentMethodType: record.paymentMethodType ?? undefined,
+      statusMessage: record.statusMessage ?? undefined,
+      customerEmail: undefined,
+      createdAt: undefined,
+      finalizedAt: undefined,
+    },
+    eventTransactionId: refPayco,
+    eventReference: record.invoice,
+    payment: {
+      wompiReference: claimed.wompiReference,
+      wompiTransactionId: refPayco,
+      amountCents: claimed.amountCents,
+      currency: claimed.currency,
+    },
+    order: { totalInCents: claimed.orderTotalInCents, currency: claimed.orderCurrency },
+  });
+
+  if (recordProblems.length > 0 || paymentProblems.length > 0) {
+    logger.error("reconciliation: ePayco record does not match our record", {
+      orderReference: claimed.orderReference,
+      paymentId: claimed.paymentId,
+      problems: [...recordProblems, ...paymentProblems].join(","),
+    });
+    await input.finish({
+      paymentId: claimed.paymentId,
+      result: "MISMATCH",
+      failure: "VALIDATION_MISMATCH",
+    });
+    return { result: "MISMATCH", emailsQueued: 0 };
+  }
+
+  return confirmAndFinish(input, {
+    confirm: {
+      orderReference: claimed.orderReference,
+      wompiReference: claimed.wompiReference,
+      wompiTransactionId: refPayco,
+      // The raw ePayco code: `confirm_payment` maps 1/2/3/4 itself.
+      wompiStatus: record.rawStatus,
+      amountCents: record.amountInCents,
+      currency: record.currency,
+      paymentMethodType: record.paymentMethodType ?? undefined,
+      statusMessage: boundStatusMessage(record.statusMessage ?? undefined),
+      providerPayload: normalizeEpaycoPayload(record.rawPayload),
+      provider: "epayco",
+    },
+    // `mapSweepOutcome` speaks the Wompi status vocabulary.
+    providerStatus: record.status.toUpperCase(),
+  });
+}
+
+/**
+ * Applies a validated transaction through `confirm_payment` (the webhook's transaction),
+ * queues the confirmation emails of a recovery that reached PAID, and records the outcome.
+ * Shared by both providers so they can never disagree about what an approval means.
+ */
+async function confirmAndFinish(
+  input: SweepInput,
+  args: {
+    readonly confirm: Parameters<ReconciliationGateway["confirmPayment"]>[0];
+    readonly providerStatus: string;
+  },
+): Promise<SweepOutcome> {
+  const { claimed, deps } = input;
+  const logger = deps.logger;
+
+  let confirmation: AppliedConfirmation | undefined;
+  try {
+    // The attempt id travels with the reference/amount so `confirm_payment` can never attach
+    // this transaction to a different attempt.
+    const applied = await deps.payments.confirmPayment(args.confirm);
+    if (!isConfirmationResult(applied.result)) {
+      // The database function returns a closed set; anything else is a local bug, not a
+      // payment decision, so it is retried (and finally surfaced) rather than interpreted.
+      throw new Error("Unrecognized confirmation result");
+    }
+    // The spread keeps the narrowed result type: the property is a `ConfirmationResult`
+    // from here on, so `mapSweepOutcome` accepts it without a cast.
+    confirmation = { ...applied, result: applied.result };
+  } catch (error) {
+    // A local inconsistency (or a transient database failure) while applying a validated
+    // transaction: retry within the budget; the attempt stays visible after it is spent.
+    logger.error("reconciliation: confirmation failed", {
+      orderReference: claimed.orderReference,
+      paymentId: claimed.paymentId,
+      error: toAppError(error).code,
+    });
+    return retrySoon(input, "CONFIRMATION_FAILED");
+  }
+
+  let emailsQueued = 0;
+  if (confirmation.orderStatus === "PAID" && confirmation.ticketsExpected > 0) {
+    // A recovery that just moved the order to PAID must also queue the confirmation
+    // emails; the outbox function is idempotent, so a later webhook replay queues nothing.
+    const queued = await deps.payments.queueTicketEmails(confirmation.orderId);
+    emailsQueued = queued.queued;
+  }
+
+  const result = mapSweepOutcome({
+    providerStatus: args.providerStatus,
+    confirmation: confirmation.result,
+  });
+  const failure = failureForResult(result);
+
+  logger.info("reconciliation sweep applied", {
+    orderReference: claimed.orderReference,
+    paymentId: claimed.paymentId,
+    attempt: claimed.paymentAttempt,
+    provider: claimed.paymentProvider ?? null,
+    providerStatus: args.providerStatus,
+    confirmationResult: confirmation.result,
+    result,
+    orderStatus: confirmation.orderStatus,
+    ticketsIssued: confirmation.ticketsIssued,
+    ticketsExpected: confirmation.ticketsExpected,
+    emailsQueued,
+  });
+
+  await input.finish({
+    paymentId: claimed.paymentId,
+    result,
+    ...(failure === undefined ? {} : { failure }),
+  });
+  return { result, emailsQueued };
+}
+
+/** Wompi attempt: unchanged behaviour (private-key lookup by transaction id). */
+async function sweepWompi(input: SweepInput): Promise<SweepOutcome> {
   const { claimed, deps } = input;
   const logger = deps.logger;
 
@@ -124,17 +358,7 @@ async function sweepOne(input: {
       paymentId: claimed.paymentId,
       error: toAppError(error).code,
     });
-    const retryAt = new Date(
-      (deps.now?.() ?? new Date()).getTime() +
-        (deps.upstreamRetrySeconds ?? RECONCILIATION_DEFAULTS.upstreamRetryDelaySeconds) * 1000,
-    ).toISOString();
-    await input.finish({
-      paymentId: claimed.paymentId,
-      result: "UPSTREAM_ERROR",
-      failure: "UPSTREAM_ERROR",
-      nextAttemptAt: retryAt,
-    });
-    return { result: "UPSTREAM_ERROR", emailsQueued: 0 };
+    return retrySoon(input, "UPSTREAM_ERROR");
   }
 
   const problems = validateTransactionAgainstPayment({
@@ -166,12 +390,9 @@ async function sweepOne(input: {
     return { result: "MISMATCH", emailsQueued: 0 };
   }
 
-  let confirmation: AppliedConfirmation | undefined;
-  try {
-    // The SAME confirmation transaction as the webhook path. The attempt id travels with
-    // the reference/amount so `confirm_payment` can never attach this transaction to a
-    // different attempt.
-    const applied = await deps.payments.confirmPayment({
+  // The SAME confirmation transaction as the webhook path.
+  return confirmAndFinish(input, {
+    confirm: {
       orderReference: claimed.orderReference,
       wompiReference: claimed.wompiReference,
       wompiTransactionId: transaction.id,
@@ -181,69 +402,46 @@ async function sweepOne(input: {
       paymentMethodType: transaction.paymentMethodType,
       statusMessage: boundStatusMessage(transaction.statusMessage),
       providerPayload: buildProviderPayload(transaction),
-    });
-    if (!isConfirmationResult(applied.result)) {
-      // The database function returns a closed set; anything else is a local bug, not a
-      // payment decision, so it is retried (and finally surfaced) rather than interpreted.
-      throw new Error("Unrecognized confirmation result");
-    }
-    // The spread keeps the narrowed result type: the property is a `ConfirmationResult`
-    // from here on, so `mapSweepOutcome` accepts it without a cast.
-    confirmation = { ...applied, result: applied.result };
-  } catch (error) {
-    // A local inconsistency (or a transient database failure) while applying a validated
-    // transaction: retry within the budget; the attempt stays visible after it is spent.
-    logger.error("reconciliation: confirmation failed", {
-      orderReference: claimed.orderReference,
-      paymentId: claimed.paymentId,
-      error: toAppError(error).code,
-    });
-    const retryAt = new Date(
-      (deps.now?.() ?? new Date()).getTime() +
-        (deps.upstreamRetrySeconds ?? RECONCILIATION_DEFAULTS.upstreamRetryDelaySeconds) * 1000,
-    ).toISOString();
-    await input.finish({
-      paymentId: claimed.paymentId,
-      result: "UPSTREAM_ERROR",
-      failure: "CONFIRMATION_FAILED",
-      nextAttemptAt: retryAt,
-    });
-    return { result: "UPSTREAM_ERROR", emailsQueued: 0 };
-  }
-
-  let emailsQueued = 0;
-  if (confirmation.orderStatus === "PAID" && confirmation.ticketsExpected > 0) {
-    // A recovery that just moved the order to PAID must also queue the confirmation
-    // emails; the outbox function is idempotent, so a later webhook replay queues nothing.
-    const queued = await deps.payments.queueTicketEmails(confirmation.orderId);
-    emailsQueued = queued.queued;
-  }
-
-  const result = mapSweepOutcome({
+      provider: "wompi",
+    },
     providerStatus: transaction.status,
-    confirmation: confirmation.result,
   });
-  const failure = failureForResult(result);
+}
 
-  logger.info("reconciliation sweep applied", {
-    orderReference: claimed.orderReference,
-    paymentId: claimed.paymentId,
-    attempt: claimed.paymentAttempt,
-    providerStatus: transaction.status,
-    confirmationResult: confirmation.result,
-    result,
-    orderStatus: confirmation.orderStatus,
-    ticketsIssued: confirmation.ticketsIssued,
-    ticketsExpected: confirmation.ticketsExpected,
-    emailsQueued,
-  });
-
-  await input.finish({
-    paymentId: claimed.paymentId,
-    result,
-    ...(failure === undefined ? {} : { failure }),
-  });
-  return { result, emailsQueued };
+/**
+ * The alert a sweep outcome calls for, if any. Keys are per payment attempt, and a late approval
+ * uses the same key as the webhook path, so the two paths never double-report one situation.
+ */
+export function alertForSweepOutcome(
+  row: ClaimedReconciliation,
+  result: ReconciliationResult,
+): AlertInput | undefined {
+  const base = {
+    orderReference: row.orderReference,
+    paymentId: row.paymentId,
+    provider: row.paymentProvider,
+    detail: result,
+  };
+  switch (result) {
+    case "MISMATCH":
+      return {
+        ...base,
+        kind: "RECONCILIATION_MISMATCH",
+        dedupeKey: `recon-mismatch:${row.paymentId}`,
+      };
+    case "NOT_FOUND_AT_PROVIDER":
+      return { ...base, kind: "PROVIDER_NOT_FOUND", dedupeKey: `not-found:${row.paymentId}` };
+    case "RECONCILIATION_REQUIRED":
+      return { ...base, kind: "LATE_APPROVAL", dedupeKey: `late:${row.paymentId}` };
+    case "UPSTREAM_ERROR":
+      // The claim already counted this attempt; one alert per payment, later failures only
+      // add occurrences.
+      return row.reconciliationAttempts >= REPEATED_FAILURE_THRESHOLD
+        ? { ...base, kind: "REPEATED_PROVIDER_FAILURE", dedupeKey: `failing:${row.paymentId}` }
+        : undefined;
+    default:
+      return undefined;
+  }
 }
 
 /**
@@ -282,6 +480,10 @@ export async function runReconciliationSweep(
     try {
       const outcome = await sweepOne({ claimed: row, deps: input, finish });
       record(outcome.result);
+      const alert = alertForSweepOutcome(row, outcome.result);
+      if (alert !== undefined) {
+        await raiseAlertSafely(input.alerts, alert, input.logger);
+      }
       if (requiresReconciliationReview(outcome.result)) {
         reviewRequired.push(row.orderReference);
       }
@@ -296,6 +498,10 @@ export async function runReconciliationSweep(
         error: toAppError(error).code,
       });
       record("UPSTREAM_ERROR");
+      const alert = alertForSweepOutcome(row, "UPSTREAM_ERROR");
+      if (alert !== undefined) {
+        await raiseAlertSafely(input.alerts, alert, input.logger);
+      }
     }
   }
 

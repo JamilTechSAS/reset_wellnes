@@ -90,6 +90,37 @@ describe("configuration", () => {
     expect(production.wompi.baseUrl).toBe("https://production.wompi.co/v1");
   });
 
+  it("refuses ePayco test mode in production and keeps it available elsewhere", () => {
+    const productionEnv = {
+      ...VALID_SANDBOX_ENV,
+      APP_ENV: "production",
+      WOMPI_PUBLIC_KEY: "pub_prod_abc",
+      WOMPI_PRIVATE_KEY: "prv_prod_abc",
+      WOMPI_INTEGRITY_SECRET: "prod_integrity_abc",
+      WOMPI_EVENTS_SECRET: "prod_events_abc",
+    };
+    for (const paymentProvider of ["epayco", "wompi"]) {
+      const error = expectConfigError({
+        ...productionEnv,
+        PAYMENT_PROVIDER: paymentProvider,
+        EPAYCO_PUBLIC_KEY: "epayco_pub",
+        EPAYCO_PRIVATE_KEY: "epayco_prv",
+        EPAYCO_P_KEY: "epayco_pkey",
+        EPAYCO_CUST_ID_CLIENTE: "123456",
+        EPAYCO_TEST: "true",
+      });
+      expect(error.issues).toContain("EPAYCO_TEST must be false when APP_ENV=production");
+    }
+
+    // Production defaults to live mode; an explicit false is accepted.
+    expect(loadConfig(productionEnv).epayco.test).toBe(false);
+    expect(loadConfig({ ...productionEnv, EPAYCO_TEST: "false" }).epayco.test).toBe(false);
+    // Sandbox and development keep test mode (the default there, or explicit).
+    expect(loadConfig({ ...VALID_SANDBOX_ENV, EPAYCO_TEST: "true" }).epayco.test).toBe(true);
+    expect(loadConfig(VALID_SANDBOX_ENV).epayco.test).toBe(true);
+    expect(loadConfig(VALID_DEV_ENV).epayco.test).toBe(true);
+  });
+
   it("refuses to mix Wompi credentials between environments", () => {
     // Production keys in a sandbox deployment.
     const error = expectConfigError({
@@ -229,6 +260,40 @@ describe("configuration", () => {
     expect(describeConfigForLogs(config)).toMatchObject({
       paymentReturnUrl: "https://evento.example/gracias",
     });
+  });
+
+  it("never lets ALERT_EMAIL_TO block the configuration, and reports what it ignored", () => {
+    expect(loadConfig(VALID_SANDBOX_ENV)).toMatchObject({
+      alertRecipients: [],
+      alertRecipientIssue: undefined,
+    });
+    expect(
+      loadConfig({ ...VALID_SANDBOX_ENV, ALERT_EMAIL_TO: " ops@example.com , lead@example.com " }),
+    ).toMatchObject({
+      alertRecipients: ["ops@example.com", "lead@example.com"],
+      alertRecipientIssue: undefined,
+    });
+
+    // Invalid entries are dropped, never a ConfigError (every function shares this loader).
+    const mixed = loadConfig({
+      ...VALID_SANDBOX_ENV,
+      ALERT_EMAIL_TO: "ops@example.com,not-an-email",
+    });
+    expect(mixed.alertRecipients).toEqual(["ops@example.com"]);
+    expect(mixed.alertRecipientIssue).toBe("ALERT_EMAIL_TO has 1 invalid address(es)");
+    expect(
+      loadOrderConfig({ ...VALID_SANDBOX_ENV, ALERT_EMAIL_TO: "garbage" }).alertRecipients,
+    ).toEqual([]);
+
+    const many = loadConfig({
+      ...VALID_SANDBOX_ENV,
+      ALERT_EMAIL_TO: Array.from({ length: 7 }, (_, i) => `ops${String(i)}@example.com`).join(","),
+    });
+    expect(many.alertRecipients).toHaveLength(5);
+    expect(many.alertRecipientIssue).toMatch(/at most 5/);
+    // Operator addresses are not logged; only the count and the issue.
+    expect(describeConfigForLogs(many)).toMatchObject({ alertRecipients: 5 });
+    expect(JSON.stringify(describeConfigForLogs(many))).not.toContain("ops0@example.com");
   });
 
   it("requires the maintenance token outside development", () => {

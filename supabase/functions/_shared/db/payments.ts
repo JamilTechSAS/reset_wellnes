@@ -40,10 +40,21 @@ export type PaymentLookup = {
 // Phase 5: reconciliation sweep shapes
 // ---------------------------------------------------------------------------
 
+/** The two payment providers a payment row can belong to (`payments.payment_provider`). */
+export type PaymentProvider = "wompi" | "epayco";
+
 export type ClaimedReconciliation = {
   readonly paymentId: string;
   readonly orderId: string;
   readonly paymentAttempt: number;
+  /**
+   * Provider that owns the attempt (migration 20261023120000). `undefined` when the claim row
+   * does not carry it (that migration not applied yet): the sweep then queries nobody, so an
+   * attempt can never be sent to the wrong provider.
+   */
+  readonly paymentProvider: "wompi" | "epayco" | undefined;
+  /** Provider-neutral transaction id (ePayco: ref_payco); falls back to `wompiTransactionId`. */
+  readonly providerTransactionId: string;
   readonly wompiReference: string;
   readonly wompiTransactionId: string;
   readonly paymentStatus: string;
@@ -106,7 +117,15 @@ function toClaimedReconciliation(row: unknown): ClaimedReconciliation {
   ) {
     throw new AppError("INTERNAL_ERROR", "Reconciliation claim row is missing required fields");
   }
-  return value as unknown as ClaimedReconciliation;
+  const provider = value.paymentProvider;
+  return {
+    ...(value as unknown as ClaimedReconciliation),
+    paymentProvider: provider === "wompi" || provider === "epayco" ? provider : undefined,
+    providerTransactionId:
+      typeof value.providerTransactionId === "string" && value.providerTransactionId.length > 0
+        ? value.providerTransactionId
+        : value.wompiTransactionId,
+  };
 }
 
 type PaymentLookupRow = {
@@ -245,7 +264,8 @@ export type PaymentGateway = {
     readonly eventName: string;
     readonly transactionId: string | undefined;
     readonly checksumValid: boolean;
-    readonly provider?: string | undefined;
+    /** Required (H15): the SQL function refuses a missing provider instead of guessing. */
+    readonly provider: PaymentProvider;
   }): Promise<ClaimWebhookEventResult>;
   finalizeWebhookEvent(input: {
     readonly eventId: string;
@@ -260,7 +280,7 @@ export type PaymentGateway = {
     readonly eventName: string;
     readonly httpStatus: number;
     readonly errorCode: string;
-    readonly provider?: string | undefined;
+    readonly provider: PaymentProvider;
   }): Promise<{ readonly eventId: string; readonly recorded: boolean }>;
   confirmPayment(input: {
     readonly orderReference: string;
@@ -272,7 +292,8 @@ export type PaymentGateway = {
     readonly paymentMethodType: string | undefined;
     readonly statusMessage: string | undefined;
     readonly providerPayload: Json | undefined;
-    readonly provider?: string | undefined;
+    /** The provider that produced this transaction; never inferred (H15). */
+    readonly provider: PaymentProvider;
   }): Promise<ConfirmPaymentResult>;
   queueTicketEmails(orderId: string): Promise<QueueTicketEmailsResult>;
   expirePendingOrders(limit: number): Promise<ExpirePendingOrdersResult>;
@@ -433,7 +454,7 @@ export function createPaymentGateway(client: DbClient): PaymentGateway {
         ...(input.transactionId === undefined
           ? {}
           : { p_wompi_transaction_id: input.transactionId }),
-        ...(input.provider === undefined ? {} : { p_provider: input.provider }),
+        p_provider: input.provider,
       });
       if (error !== null) {
         throwMapped(error);
@@ -464,7 +485,7 @@ export function createPaymentGateway(client: DbClient): PaymentGateway {
         p_event_name: input.eventName,
         p_http_status: input.httpStatus,
         p_error_code: input.errorCode,
-        ...(input.provider === undefined ? {} : { p_provider: input.provider }),
+        p_provider: input.provider,
       });
       if (error !== null) {
         throwMapped(error);
@@ -487,7 +508,7 @@ export function createPaymentGateway(client: DbClient): PaymentGateway {
         ...(input.providerPayload === undefined
           ? {}
           : { p_provider_payload: input.providerPayload }),
-        ...(input.provider === undefined ? {} : { p_provider: input.provider }),
+        p_provider: input.provider,
       });
       if (error !== null) {
         throwMapped(error);

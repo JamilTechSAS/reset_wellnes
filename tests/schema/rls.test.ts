@@ -105,6 +105,42 @@ describe("row level security posture", () => {
     }
   });
 
+  it("keeps the operational alert ledger for the service role only (H8)", async () => {
+    for (const role of ["anon", "authenticated"]) {
+      try {
+        await db.exec(`set role ${role}`);
+        await expectRejection(
+          db.query("select count(*) from public.operational_alerts"),
+          /permission denied/,
+        );
+        await expectRejection(
+          db.query(
+            "select public.record_operational_alert('anon-probe-1','LATE_APPROVAL','critical')",
+          ),
+          /permission denied/,
+        );
+      } finally {
+        await db.exec("reset role");
+      }
+    }
+    const privileges = await db.query<{ role: string; can_read: boolean; can_record: boolean }>(
+      `select r as role,
+              has_table_privilege(r, 'public.operational_alerts', 'select') as can_read,
+              has_function_privilege(
+                r,
+                'public.record_operational_alert(text,text,text,text,uuid,text,text,timestamptz)',
+                'execute'
+              ) as can_record
+         from unnest(array['service_role', 'anon', 'authenticated']) as r
+        order by 1`,
+    );
+    expect(privileges.rows).toEqual([
+      { role: "anon", can_read: false, can_record: false },
+      { role: "authenticated", can_read: false, can_record: false },
+      { role: "service_role", can_read: true, can_record: true },
+    ]);
+  });
+
   it("leaves the browser-facing roles without EXECUTE on any backend function", async () => {
     const result = await db.query<{ signature: string }>(
       `select p.oid::regprocedure::text as signature

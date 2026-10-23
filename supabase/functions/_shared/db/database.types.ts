@@ -548,6 +548,18 @@ isOneToOne: false
 "finish_payment_reconciliation":
 { Args: { "p_failure"?: string,"p_next_attempt_at"?: string,"p_now"?: string,"p_payment_id": string,"p_result": string }; Returns: Json
                            },
+"claim_alert_notifications":
+{ Args: { "p_limit"?: number,"p_max_attempts"?: number,"p_now"?: string }; Returns: Json[]
+                           },
+"finish_alert_notifications":
+{ Args: { "p_alert_ids": string[],"p_now"?: string }; Returns: number
+                           },
+"raise_unresolved_payment_alerts":
+{ Args: { "p_max_attempts"?: number,"p_now"?: string }; Returns: number
+                           },
+"record_operational_alert":
+{ Args: { "p_dedupe_key": string,"p_detail"?: string,"p_kind": string,"p_now"?: string,"p_order_reference"?: string,"p_payment_id"?: string,"p_provider"?: string,"p_severity": string }; Returns: Json
+                           },
 "finish_sheet_projections":
 { Args: { "p_error"?: string,"p_next_attempt_at"?: string,"p_now"?: string,"p_status": Database["public"]['Enums']["sheets_projection_status"],"p_ticket_ids": (string)[] }; Returns: Json
                            },

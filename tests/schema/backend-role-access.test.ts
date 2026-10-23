@@ -144,7 +144,7 @@ describe("backend role access", () => {
       }>(
         `select public.confirm_payment(
            '${order.reference}','${order.wompiReference}','tx-rla-1','APPROVED',
-           ${String(order.totalInCents)},'COP','CARD','APROBADA','{"id":"tx-rla-1"}'::jsonb) as summary`,
+           ${String(order.totalInCents)},'COP','CARD','APROBADA','{"id":"tx-rla-1"}'::jsonb,'wompi') as summary`,
       );
       const summary = confirmation.rows[0]?.summary;
       expect(summary?.result).toBe("APPLIED");
@@ -209,7 +209,7 @@ describe("backend role access", () => {
       const confirmation = await db.query<{ result: string }>(
         `select public.confirm_payment(
            '${order.reference}','${order.wompiReference}','tx-rla-2','APPROVED',
-           ${String(order.totalInCents)},'COP','CARD','APROBADA','{"id":"tx-rla-2"}'::jsonb) ->> 'result' as result`,
+           ${String(order.totalInCents)},'COP','CARD','APROBADA','{"id":"tx-rla-2"}'::jsonb,'wompi') ->> 'result' as result`,
       );
       expect(confirmation.rows[0]?.result).toBe("APPLIED");
 

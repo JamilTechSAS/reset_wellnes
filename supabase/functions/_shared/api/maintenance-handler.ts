@@ -43,6 +43,10 @@ import type { RateLimitGateway } from "../db/rate-limits.ts";
 import type { SheetsGateway } from "../db/sheets.ts";
 import type { ResendClient } from "../integrations/resend/client.ts";
 import type { WompiClient } from "../integrations/wompi/client.ts";
+import type { EpaycoClient } from "../integrations/epayco/client.ts";
+import type { AlertGateway } from "../db/alerts.ts";
+import { createAlertSink, runAlertDigest, type AlertDigestSummary } from "./alerts.ts";
+import { RECONCILIATION_DEFAULTS } from "../domain/reconciliation.ts";
 import type { SheetsClient } from "../integrations/google/sheets-client.ts";
 
 export type MaintenanceResult = {
@@ -53,6 +57,8 @@ export type MaintenanceResult = {
   };
   readonly emails: DispatchSummary;
   readonly reconciliation: ReconciliationSweepSummary;
+  /** Operational alerts raised for unresolved payments and the digest sent this run (H8). */
+  readonly alerts: AlertDigestSummary;
   readonly sheetProjections: SheetsSyncSummary;
   readonly rateLimitCountersDeleted: number;
   /** Names of non-critical jobs that failed unexpectedly during this run. */
@@ -84,6 +90,13 @@ export type RunMaintenanceInput = {
   readonly orderStatus: OrderStatusGateway;
   readonly resend: ResendClient | undefined;
   readonly wompi: WompiClient;
+  /**
+   * ePayco validation client for reconciling ePayco attempts. Absent when the merchant
+   * credentials are not configured: those attempts are then retried, never sent to Wompi.
+   */
+  readonly epayco?: EpaycoClient | undefined;
+  /** Operational alert ledger (H8). Absent: no alerts are raised or sent by this run. */
+  readonly alerts?: AlertGateway | undefined;
   readonly sheets: SheetsGateway;
   /** `undefined` when Google credentials are not configured; the sync is then skipped. */
   readonly sheetsClient: SheetsClient | undefined;
@@ -148,8 +161,50 @@ export async function runMaintenance(input: RunMaintenanceInput): Promise<Mainte
       runReconciliationSweep({
         payments,
         wompi: input.wompi,
+        epayco:
+          input.epayco === undefined
+            ? undefined
+            : {
+                client: input.epayco,
+                credentials: {
+                  custIdCliente: config.epayco.custIdCliente,
+                  pKey: config.epayco.pKey,
+                },
+                testMode: config.epayco.test,
+              },
+        alerts: input.alerts === undefined ? undefined : createAlertSink(input.alerts, logger),
         logger,
       }),
+  );
+
+  // After the sweep, so attempts whose budget it just spent are alerted in the same run.
+  const alertGateway = input.alerts;
+  const alerts = await runJob<AlertDigestSummary>(
+    "alerts",
+    logger,
+    jobErrors,
+    { skipped: null, recipientIssue: null, unresolvedRaised: 0, claimed: 0, sent: 0, failed: true },
+    async () =>
+      alertGateway === undefined
+        ? {
+            skipped: "NOT_CONFIGURED",
+            recipientIssue: config.alertRecipientIssue ?? null,
+            unresolvedRaised: 0,
+            claimed: 0,
+            sent: 0,
+            failed: false,
+          }
+        : runAlertDigest({
+            alerts: alertGateway,
+            resend: input.resend,
+            recipients: config.alertRecipients,
+            recipientIssue: config.alertRecipientIssue,
+            from: config.email.enabled ? config.email.from : undefined,
+            serviceName: config.serviceName,
+            environment: config.appEnv,
+            reconciliationMaxAttempts: RECONCILIATION_DEFAULTS.maxAttempts,
+            logger,
+          }),
   );
 
   const rateLimitCountersDeleted = await runJob("rate-limit-cleanup", logger, jobErrors, 0, () =>
@@ -188,6 +243,7 @@ export async function runMaintenance(input: RunMaintenanceInput): Promise<Mainte
     },
     emails,
     reconciliation,
+    alerts,
     sheetProjections,
     rateLimitCountersDeleted,
     jobErrors,

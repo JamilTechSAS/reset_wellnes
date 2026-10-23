@@ -5,20 +5,29 @@
  *   1. Parse incoming body (handles JSON and URL-encoded key-value pairs).
  *   2. Authenticate the delivery using the documented ePayco signature:
  *        SHA-256(p_cust_id_cliente ^ p_key ^ x_ref_payco ^ x_transaction_id ^ x_amount ^ x_currency_code)
- *   3. Generate stable deduplication key and claim the event in the ledger (`payment_events`).
- *   4. Check idempotency: redeliveries of already finalized events return 200 without reprocessing.
- *   5. Perform server-side validation against order reference, amount and currency.
- *   6. Atomically confirm payment via `confirm_payment` in PostgreSQL.
+ *      That signature does NOT cover status, invoice or the test flag.
+ *   3. Read the authoritative record by `ref_payco` from ePayco's validation API and verify it
+ *      against the signed fields (`integrations/epayco/verify.ts`). Lookup failures and records
+ *      that still lag behind a final delivered state answer 503 so ePayco retries; records that
+ *      contradict the delivery are rejected. Status, invoice and amount come only from the record.
+ *   4. Claim the event in the ledger (`payment_events`) with a key derived from the record;
+ *      redeliveries of already finalized events return 200 without reprocessing.
+ *   5. Atomically confirm payment via `confirm_payment` in PostgreSQL, which re-checks order
+ *      reference, amount, currency and payment-state transitions.
  *   7. Queue ticket confirmation emails if paid.
  *   8. Finalize the event ledger row with the recorded outcome.
  */
 
 import { verifyEpaycoSignature } from "../integrations/epayco/signature.ts";
-import type { EpaycoClient } from "../integrations/epayco/client.ts";
+import { epaycoStatusFromCode, verifyEpaycoRecord } from "../integrations/epayco/verify.ts";
+import type { EpaycoTransactionData } from "../integrations/epayco/types.ts";
+import { EpaycoApiError, type EpaycoClient } from "../integrations/epayco/client.ts";
 import type { PaymentGateway } from "../db/payments.ts";
 import type { BackendConfig } from "../config/env.ts";
 import type { Logger } from "../logging/logger.ts";
 import { toAppError } from "../domain/errors.ts";
+import { alertForConfirmation } from "../domain/alerts.ts";
+import { raiseAlertSafely, type AlertSink } from "./alerts.ts";
 
 export type EpaycoWebhookOutcome = {
   readonly status: number;
@@ -38,6 +47,8 @@ export type HandleEpaycoWebhookInput = {
   readonly logger: Logger;
   readonly payments: PaymentGateway;
   readonly epayco?: EpaycoClient | undefined;
+  /** Operational alerts (H8); best-effort, never changes the response. */
+  readonly alerts?: AlertSink | undefined;
 };
 
 async function sha256Hex(value: string): Promise<string> {
@@ -67,6 +78,13 @@ export function resolveEpaycoReferences(invoice: string): {
   }
   return { orderReference: match[1], paymentReference: trimmed };
 }
+
+/** Error codes that mean `confirm_payment` itself refused the payment (see `mapSqlErrorToAppError`). */
+const PERMANENT_CONFIRMATION_ERRORS: ReadonlySet<string> = new Set([
+  "VALIDATION_ERROR",
+  "NOT_FOUND",
+  "CONFLICT",
+]);
 
 function isTruthyFlag(value: string | undefined): boolean {
   return value !== undefined && ["true", "1", "yes"].includes(value.trim().toLowerCase());
@@ -99,24 +117,22 @@ export async function handleEpaycoWebhook(
   const amountStr = payload.x_amount ?? payload.amount ?? "";
   const currency = (payload.x_currency_code ?? payload.currency ?? "COP").toUpperCase();
   const signature = payload.x_signature ?? payload.signature ?? "";
-  const invoice = payload.x_id_invoice ?? payload.x_id_factura ?? payload.invoice ?? "";
-  const { orderReference, paymentReference } = resolveEpaycoReferences(invoice);
+  // Unsigned delivery fields: used only for logging and to detect contradictions with the record.
+  const bodyInvoice = payload.x_id_invoice ?? payload.x_id_factura ?? payload.invoice ?? "";
+  const bodyOrderReference = resolveEpaycoReferences(bodyInvoice).orderReference;
   const codResponseStr = payload.x_cod_response ?? payload.x_cod_transaction_state ?? "";
-  const statusMessage = payload.x_response_reason_text ?? payload.x_response ?? undefined;
-  const paymentMethod = payload.x_franchise ?? payload.x_payment_method ?? undefined;
 
   // 1. Basic payload shape check
-  if (!refPayco || !signature || !orderReference) {
+  if (!refPayco || !signature) {
     logger.warn("epayco webhook payload missing required fields", {
       hasRefPayco: Boolean(refPayco),
       hasSignature: Boolean(signature),
-      hasOrderReference: Boolean(orderReference),
     });
     return {
       status: 400,
       outcome: "REJECTED",
       eventId: undefined,
-      orderReference: orderReference || undefined,
+      orderReference: bodyOrderReference || undefined,
       transactionId: refPayco || undefined,
       ticketsIssued: 0,
       reason: "MALFORMED_PAYLOAD",
@@ -143,7 +159,7 @@ export async function handleEpaycoWebhook(
 
   if (!isAuthentic) {
     logger.warn("epayco webhook signature mismatch", {
-      orderReference,
+      orderReference: bodyOrderReference,
       refPayco,
     });
     const rejDigest = await sha256Hex(`epayco:rej:${refPayco}:${signature}`);
@@ -163,7 +179,7 @@ export async function handleEpaycoWebhook(
       status: 401,
       outcome: "REJECTED",
       eventId: undefined,
-      orderReference,
+      orderReference: bodyOrderReference,
       transactionId: refPayco,
       ticketsIssued: 0,
       reason: "SIGNATURE_MISMATCH",
@@ -176,7 +192,7 @@ export async function handleEpaycoWebhook(
   //     alone cannot tell them apart.
   if (isTruthyFlag(payload.x_test_request) && !config.epayco.test) {
     logger.warn("epayco test transaction received while live mode is active", {
-      orderReference,
+      orderReference: bodyOrderReference,
       refPayco,
     });
     const testDigest = await sha256Hex(`epayco:test:${refPayco}:${transactionId}`);
@@ -196,7 +212,7 @@ export async function handleEpaycoWebhook(
       status: 200,
       outcome: "REJECTED",
       eventId: undefined,
-      orderReference,
+      orderReference: bodyOrderReference,
       transactionId: refPayco,
       ticketsIssued: 0,
       reason: "TEST_TRANSACTION_IN_LIVE_MODE",
@@ -204,9 +220,111 @@ export async function handleEpaycoWebhook(
     };
   }
 
-  // 3. Deduplication and idempotency claim
+  // 3. Authoritative record. The signature does not cover status, invoice or the test flag, so
+  //    those come only from ePayco's own record, fetched by the signed `ref_payco`.
+  const retry = (reason: string): EpaycoWebhookOutcome => ({
+    status: 503, // not 200: ePayco retries, and nothing has been claimed or confirmed yet
+    outcome: "RETRY",
+    eventId: undefined,
+    orderReference: bodyOrderReference || undefined,
+    transactionId: refPayco,
+    ticketsIssued: 0,
+    reason,
+    reviewRequired: false,
+  });
+
+  if (input.epayco === undefined) {
+    logger.error("epayco webhook has no validation client; refusing to confirm", { refPayco });
+    return retry("PROVIDER_CLIENT_UNAVAILABLE");
+  }
+
+  let record: EpaycoTransactionData;
+  try {
+    record = await input.epayco.getTransaction(refPayco);
+  } catch (error) {
+    const notFound = error instanceof EpaycoApiError && error.httpStatus === 404;
+    logger.warn("epayco webhook could not read the transaction record", {
+      refPayco,
+      notFound,
+      error: toAppError(error).code,
+    });
+    return retry(notFound ? "PROVIDER_RECORD_NOT_FOUND" : "PROVIDER_LOOKUP_FAILED");
+  }
+
+  const problems = await verifyEpaycoRecord({
+    record,
+    requestedRefPayco: refPayco,
+    credentials: { custIdCliente: config.epayco.custIdCliente, pKey: config.epayco.pKey },
+    testMode: config.epayco.test,
+    signed: { refPayco, transactionId, amountText: amountStr, currency, invoice: bodyInvoice },
+  });
+  const firstProblem = problems[0];
+  if (firstProblem !== undefined) {
+    logger.warn("epayco webhook delivery contradicts the provider record", {
+      refPayco,
+      problems: problems.join(","),
+    });
+    const mismatchDigest = await sha256Hex(`epayco:mismatch:${refPayco}:${problems.join(",")}`);
+    try {
+      await payments.recordWebhookRejection({
+        dedupeKey: `rej:epayco:${mismatchDigest.slice(0, 32)}`,
+        eventName: "epayco.confirmation",
+        httpStatus: 200,
+        errorCode: firstProblem,
+        provider: "epayco",
+      });
+    } catch (e) {
+      logger.error("failed to record webhook rejection", { error: toAppError(e).code });
+    }
+    await raiseAlertSafely(
+      input.alerts,
+      {
+        kind: "PROVIDER_RECORD_MISMATCH",
+        dedupeKey: `record-mismatch:${refPayco}:${firstProblem}`,
+        orderReference: bodyOrderReference,
+        provider: "epayco",
+        detail: problems.join(","),
+      },
+      logger,
+    );
+    // 200: the record will not change into a consistent one by retrying the same delivery.
+    return {
+      status: 200,
+      outcome: "REJECTED",
+      eventId: undefined,
+      orderReference: bodyOrderReference || undefined,
+      transactionId: refPayco,
+      ticketsIssued: 0,
+      reason: firstProblem,
+      reviewRequired: true,
+    };
+  }
+
+  // 3b. The record may lag behind the delivery (still pending while the delivery reports a
+  //     final state). Never apply the delivered status; ask ePayco to retry instead, so the
+  //     final state is applied once the record shows it.
+  const recordIsOpen = record.status === "pending" || record.status === "unknown";
+  const deliveredStatus = epaycoStatusFromCode(codResponseStr);
+  if (
+    recordIsOpen &&
+    deliveredStatus !== "pending" &&
+    deliveredStatus !== "unknown" &&
+    deliveredStatus !== record.status
+  ) {
+    logger.info("epayco record still open while the delivery reports a final state", {
+      refPayco,
+      recordStatus: record.status,
+      deliveredStatus,
+    });
+    return retry("PROVIDER_STATUS_NOT_SETTLED");
+  }
+
+  const { orderReference, paymentReference } = resolveEpaycoReferences(record.invoice);
+
+  // 4. Deduplication and idempotency claim, keyed on the record (never on unsigned fields), so a
+  //    tampered redelivery of the same transaction state is a duplicate.
   const eventDigest = await sha256Hex(
-    `epayco:${refPayco}:${transactionId}:${codResponseStr}:${paymentReference}`,
+    `epayco:${refPayco}:${record.transactionId}:${record.rawStatus}:${paymentReference}`,
   );
   const dedupeKey = `evt:epayco:${eventDigest.slice(0, 32)}`;
 
@@ -237,40 +355,50 @@ export async function handleEpaycoWebhook(
     };
   }
 
-  // 4. Amount parsing (ePayco sends pesos, database stores bigint centavos)
-  const amountNumeric = Number(amountStr);
-  if (Number.isNaN(amountNumeric) || amountNumeric < 0) {
-    return {
-      status: 400,
-      outcome: "REJECTED",
-      eventId: claim.eventId,
-      orderReference,
-      transactionId: refPayco,
-      ticketsIssued: 0,
-      reason: "INVALID_AMOUNT",
-      reviewRequired: true,
-    };
-  }
-  const amountInCents = Math.round(amountNumeric * 100);
-
-  // 5. Atomic confirmation in database
+  // 5. Atomic confirmation in database, from the verified record only. `confirm_payment` still
+  //    enforces reference, amount, currency and monotonic payment-state transitions.
   let confirmation;
   try {
     confirmation = await payments.confirmPayment({
       orderReference,
       wompiReference: paymentReference,
       wompiTransactionId: refPayco,
-      wompiStatus: codResponseStr,
-      amountCents: amountInCents,
-      currency,
-      paymentMethodType: paymentMethod,
-      statusMessage,
-      providerPayload: payload,
+      wompiStatus: record.rawStatus,
+      amountCents: record.amountInCents,
+      currency: record.currency,
+      paymentMethodType: record.paymentMethodType ?? undefined,
+      statusMessage: record.statusMessage ?? (record.responseText || undefined),
+      providerPayload: normalizeEpaycoPayload(record.rawPayload),
       provider: "epayco",
     });
   } catch (err) {
     const appError = toAppError(err);
-    logger.error("epayco confirm_payment rejected or failed", {
+
+    // Only the SQL function's own refusals (PT400/PT404/PT409 → VALIDATION_ERROR, NOT_FOUND,
+    // CONFLICT) are permanent. Anything else — connection loss, timeouts, deadlocks, PostgREST
+    // or platform failures — says nothing about the payment: the event stays unfinalized and the
+    // answer is 503, so ePayco's redelivery re-runs `confirm_payment`. That re-run is safe:
+    // the function is transactional and idempotent (a confirmation that committed before the
+    // failure comes back as DUPLICATE; tickets are unique per order item unit).
+    if (!PERMANENT_CONFIRMATION_ERRORS.has(appError.code)) {
+      logger.error("epayco confirm_payment failed transiently; asking ePayco to retry", {
+        orderReference,
+        refPayco,
+        code: appError.code,
+      });
+      return {
+        status: 503,
+        outcome: "RETRY",
+        eventId: claim.eventId,
+        orderReference,
+        transactionId: refPayco,
+        ticketsIssued: 0,
+        reason: "CONFIRMATION_TEMPORARILY_FAILED",
+        reviewRequired: false,
+      };
+    }
+
+    logger.error("epayco confirm_payment rejected the payment", {
       orderReference,
       refPayco,
       code: appError.code,
@@ -298,6 +426,18 @@ export async function handleEpaycoWebhook(
     };
   }
 
+  // Late approval or reversal after approval: a human must look at it (H8).
+  const confirmationAlert = alertForConfirmation({
+    result: confirmation.result,
+    reason: confirmation.reason,
+    orderReference: confirmation.orderReference,
+    paymentId: confirmation.paymentId,
+    provider: "epayco",
+  });
+  if (confirmationAlert !== undefined) {
+    await raiseAlertSafely(input.alerts, confirmationAlert, logger);
+  }
+
   // 6. Queue emails if paid
   if (confirmation.orderStatus === "PAID" && confirmation.ticketsExpected > 0) {
     try {
@@ -311,10 +451,16 @@ export async function handleEpaycoWebhook(
   }
 
   // 7. Finalize webhook event in ledger
+  // RECONCILIATION_REQUIRED (late approval, reversal after approval) WAS recorded by
+  // `confirm_payment`, so the ledger says APPLIED and keeps the reason as its error code for the
+  // audit trail; the outcome below still asks for review.
+  const needsReview = confirmation.result === "RECONCILIATION_REQUIRED";
   const outcomeResult =
     confirmation.result === "APPLIED" || confirmation.result === "DUPLICATE"
       ? confirmation.result
-      : "REJECTED";
+      : needsReview
+        ? "APPLIED"
+        : "REJECTED";
 
   if (claim.eventId) {
     await payments.finalizeWebhookEvent({
@@ -323,6 +469,7 @@ export async function handleEpaycoWebhook(
       httpStatus: 200,
       paymentId: confirmation.paymentId,
       transactionId: refPayco,
+      ...(needsReview ? { errorCode: confirmation.reason } : {}),
     });
   }
 

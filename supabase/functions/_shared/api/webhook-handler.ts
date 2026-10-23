@@ -186,6 +186,7 @@ export async function handleWompiWebhook(input: HandleWompiWebhookInput): Promis
     eventName: envelope.event,
     transactionId: transactionPayload?.id,
     checksumValid: true,
+    provider: "wompi",
   });
 
   if (!claim.claimed && claim.processedAt !== null) {
@@ -407,6 +408,7 @@ async function processClaimedEvent(args: {
     paymentMethodType: transaction.paymentMethodType,
     statusMessage,
     providerPayload: buildProviderPayload(transaction),
+    provider: "wompi",
   });
 
   if (!isConfirmationResult(confirmation.result)) {
@@ -566,6 +568,7 @@ async function recordRejectionSafely(
       eventName: parsed.envelope.event,
       httpStatus,
       errorCode: describeRejection(reason),
+      provider: "wompi",
     });
   } catch (error) {
     input.logger.error("could not record the refused webhook delivery", {
