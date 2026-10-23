@@ -39,6 +39,7 @@ function epaycoConfig(): BackendConfig {
     EPAYCO_P_KEY: fakeCredential("epayco_pkey_"),
     EPAYCO_CUST_ID_CLIENTE: "123456",
     EPAYCO_TEST: "true",
+    PAYMENT_RETURN_URL: "http://localhost:3000/gracias",
   });
 }
 
@@ -86,11 +87,13 @@ describe("payment retry with ePayco", () => {
     expect(checkout.provider).toBe("epayco");
     expect(checkout.sessionId).toBe("sess_retry_2");
     expect(checkout.reference).toBe("EVT-2026-000007-2");
+    expect(checkout.redirectUrl).toBe("http://localhost:3000/gracias");
     expect(apify.createSession).toHaveBeenCalledWith(
       expect.objectContaining({
         invoice: "EVT-2026-000007-2",
         amount: 10_000,
         ip: "203.0.113.10",
+        response: "http://localhost:3000/gracias",
       }),
     );
   });

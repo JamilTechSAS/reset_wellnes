@@ -143,8 +143,12 @@ export type BackendConfig = {
    * instead of a value baked into code.
    */
   readonly orderReservationMinutes: number;
-  /** Optional Wompi `redirect-url`; the return page is never proof of payment. */
-  readonly wompiRedirectUrl: string | undefined;
+  /**
+   * Optional page the buyer returns to after paying, for both providers: Wompi's
+   * `redirect-url` and ePayco's session `response`. Read from `PAYMENT_RETURN_URL`, falling back
+   * to the legacy `WOMPI_REDIRECT_URL`. The return page is never proof of payment.
+   */
+  readonly paymentReturnUrl: string | undefined;
   /**
    * Optional base URL for the public ticket page linked from the confirmation email.
    * The page itself is a later frontend deliverable, so the link is omitted when this is
@@ -807,12 +811,21 @@ export function loadConfig(env: EnvRecord, options: LoadConfigOptions = {}): Bac
     }
   }
 
-  const wompiRedirectUrlRaw = readString(env, "WOMPI_REDIRECT_URL");
-  let wompiRedirectUrl: string | undefined;
-  if (wompiRedirectUrlRaw !== undefined) {
-    wompiRedirectUrl = requireAbsoluteUrl(
-      wompiRedirectUrlRaw,
-      "WOMPI_REDIRECT_URL",
+  // PAYMENT_RETURN_URL is the provider-neutral name; WOMPI_REDIRECT_URL is the original one and
+  // stays accepted as a fallback so existing deployments keep their return URL.
+  const paymentReturnUrlRaw = readString(env, "PAYMENT_RETURN_URL");
+  const legacyRedirectUrlRaw = readString(env, "WOMPI_REDIRECT_URL");
+  const returnUrlSource =
+    paymentReturnUrlRaw !== undefined
+      ? { name: "PAYMENT_RETURN_URL", value: paymentReturnUrlRaw }
+      : legacyRedirectUrlRaw !== undefined
+        ? { name: "WOMPI_REDIRECT_URL", value: legacyRedirectUrlRaw }
+        : undefined;
+  let paymentReturnUrl: string | undefined;
+  if (returnUrlSource !== undefined) {
+    paymentReturnUrl = requireAbsoluteUrl(
+      returnUrlSource.value,
+      returnUrlSource.name,
       { isDeployed },
       issues,
     );
@@ -1000,7 +1013,7 @@ export function loadConfig(env: EnvRecord, options: LoadConfigOptions = {}): Bac
     rateLimitEnabled,
     googleSheets,
     orderReservationMinutes,
-    wompiRedirectUrl,
+    paymentReturnUrl,
     ticketBaseUrl,
     emailDispatchBatchSize,
     maintenanceApiToken,
@@ -1066,7 +1079,7 @@ export function describeConfigForLogs(config: BackendConfig): Record<string, unk
       statusSheet: config.googleSheets.statusSheet,
     },
     orderReservationMinutes: config.orderReservationMinutes,
-    wompiRedirectUrl: config.wompiRedirectUrl ?? null,
+    paymentReturnUrl: config.paymentReturnUrl ?? null,
     ticketBaseUrl: config.ticketBaseUrl ?? null,
     emailDispatchBatchSize: config.emailDispatchBatchSize,
     maintenanceApiToken: describeCredential(config.maintenanceApiToken),

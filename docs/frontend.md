@@ -128,7 +128,8 @@ path, so a bad or exhausted code never breaks the purchase.
    or `?ref_payco=` (ePayco's), an optional `?ref=`, and treats the `/gracias` path itself as a
    return. `/gracias` has no HTML file: `vercel.json` rewrites it to `index.html`, so it also works
    when opened directly (the Vite dev server hides a missing rewrite by falling back for any path).
-   The return URL is `WOMPI_REDIRECT_URL` for both providers (ePayco's session `response`).
+   The return URL is `PAYMENT_RETURN_URL` (legacy fallback `WOMPI_REDIRECT_URL`) for both
+   providers: Wompi's `redirect-url` and ePayco's session `response`.
 2. **Nothing in the URL is proof of payment.** The transaction id is forwarded to the payment-hint
    endpoint, which re-reads the transaction from the provider (Wompi with the private key, ePayco
    through its validation endpoint) before anything else happens. If the hint fails, the flow

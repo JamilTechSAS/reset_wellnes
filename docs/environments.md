@@ -242,7 +242,8 @@ renders the documented responses ([api.md](api.md)).
   secrets.
 - **Non-secret backend settings** (also Edge Function env vars): `APP_ENV`, `API_BASE_URL`,
   `PUBLIC_WEB_BASE_URL`, `CORS_ALLOWED_ORIGINS`, `TICKET_BASE_URL`, `EMAIL_ENABLED`, `EMAIL_FROM`,
-  `EMAIL_REPLY_TO`, `WOMPI_REDIRECT_URL`, `ORDER_RESERVATION_MINUTES`, `EMAIL_DISPATCH_BATCH_SIZE`,
+  `EMAIL_REPLY_TO`, `PAYMENT_RETURN_URL` (legacy fallback: `WOMPI_REDIRECT_URL`),
+  `ORDER_RESERVATION_MINUTES`, `EMAIL_DISPATCH_BATCH_SIZE`,
   `RATE_LIMIT_ENABLED`, `SHEETS_ENABLED`, `GOOGLE_SHEETS_DATA_TAB`, `GOOGLE_SHEETS_STATUS_TAB`,
   `LOG_LEVEL`, `TIMEZONE`, `SERVICE_NAME`. `APP_ENV` is the one switch that decides the Wompi
   environment; the loader rejects credentials whose prefix does not match it.

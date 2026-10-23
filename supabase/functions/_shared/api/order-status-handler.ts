@@ -243,7 +243,7 @@ export async function handlePaymentRetry(options: {
             reference: retry.wompiReference,
             amountInCents: retry.totalInCents,
             currency: retry.currency,
-            redirectUrl: options.config.wompiRedirectUrl,
+            redirectUrl: options.config.paymentReturnUrl,
             customerData: {
               email,
               fullName: undefined,

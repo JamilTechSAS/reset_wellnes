@@ -283,6 +283,24 @@ describe("handleQuote", () => {
 });
 
 describe("handleCreateOrder", () => {
+  it.each([
+    [{ PAYMENT_RETURN_URL: "http://localhost:3000/gracias" }, "http://localhost:3000/gracias"],
+    [{ WOMPI_REDIRECT_URL: "http://localhost:3000/legacy" }, "http://localhost:3000/legacy"],
+    [{}, null],
+  ])("uses the shared return URL as Wompi's redirect-url (%o)", async (returnEnv, expected) => {
+    const { gateway } = gatewayWith();
+    const result = await handleCreateOrder({
+      rawBody: VALID_ORDER_BODY,
+      idempotencyKey: "idem-key-00000002",
+      ipAddress: "181.10.20.30",
+      userAgent: "vitest/1.0",
+      gateway,
+      config: testConfig(returnEnv),
+      logger,
+    });
+    expect((result.checkout as WompiCheckout).redirectUrl).toBe(expected);
+  });
+
   it("creates the order and returns a checkout payload with no secret", async () => {
     const { gateway, createOrder } = gatewayWith();
     const result = await handleCreateOrder({
@@ -495,6 +513,75 @@ describe("handleCreateOrder", () => {
         }),
       ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
       expect(mockApify.createSession).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      [{ PAYMENT_RETURN_URL: "http://localhost:3000/gracias" }, "http://localhost:3000/gracias"],
+      [{ WOMPI_REDIRECT_URL: "http://localhost:3000/legacy" }, "http://localhost:3000/legacy"],
+      [
+        {
+          PAYMENT_RETURN_URL: "http://localhost:3000/gracias",
+          WOMPI_REDIRECT_URL: "http://localhost:3000/legacy",
+        },
+        "http://localhost:3000/gracias",
+      ],
+    ])("sends the return URL as the session response (%o)", async (returnEnv, expected) => {
+      const { gateway } = gatewayWith({
+        createOrder: vi.fn().mockResolvedValue(epaycoOrder(1_000_000)),
+      });
+      const mockApify: EpaycoApifyClient = {
+        login: vi.fn(),
+        createSession: vi.fn().mockResolvedValue({ sessionId: "sess_qa" }),
+      };
+      const config = testConfig({
+        PAYMENT_PROVIDER: "epayco",
+        EPAYCO_PUBLIC_KEY: fakeCredential("epayco_pub_"),
+        EPAYCO_PRIVATE_KEY: fakeCredential("epayco_prv_"),
+        EPAYCO_P_KEY: fakeCredential("epayco_pkey_"),
+        EPAYCO_CUST_ID_CLIENTE: "123456",
+        EPAYCO_TEST: "true",
+        ...returnEnv,
+      });
+      const result = await handleCreateOrder({
+        rawBody: VALID_ORDER_BODY,
+        idempotencyKey: undefined,
+        ipAddress: "127.0.0.1",
+        userAgent: undefined,
+        gateway,
+        config,
+        logger,
+        epaycoApify: mockApify,
+      });
+      expect(mockApify.createSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          response: expected,
+          confirmation: "http://127.0.0.1:54321/functions/v1/webhooks-epayco",
+        }),
+      );
+      expect((result.checkout as EpaycoCheckout).redirectUrl).toBe(expected);
+    });
+
+    it("omits the session response when no return URL is configured", async () => {
+      const { gateway } = gatewayWith({
+        createOrder: vi.fn().mockResolvedValue(epaycoOrder(1_000_000)),
+      });
+      const mockApify: EpaycoApifyClient = {
+        login: vi.fn(),
+        createSession: vi.fn().mockResolvedValue({ sessionId: "sess_qa" }),
+      };
+      await handleCreateOrder({
+        rawBody: VALID_ORDER_BODY,
+        idempotencyKey: undefined,
+        ipAddress: "127.0.0.1",
+        userAgent: undefined,
+        gateway,
+        config: epaycoConfig(),
+        logger,
+        epaycoApify: mockApify,
+      });
+      expect(mockApify.createSession).toHaveBeenCalledWith(
+        expect.objectContaining({ response: undefined }),
+      );
     });
 
     it("sends 10.000 COP as 10000 pesos (no double conversion)", async () => {

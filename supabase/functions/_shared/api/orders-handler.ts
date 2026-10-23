@@ -222,7 +222,7 @@ export async function createEpaycoCheckoutForAttempt(input: {
     amount: amountInPesos,
     ip: input.clientIp,
     invoice: input.paymentReference,
-    response: config.wompiRedirectUrl,
+    response: config.paymentReturnUrl,
     confirmation: `${config.apiBaseUrl}/webhooks-epayco`,
     test: config.epayco.test,
     taxBase: 0,
@@ -239,7 +239,7 @@ export async function createEpaycoCheckoutForAttempt(input: {
     reference: input.paymentReference,
     amountInCents: input.amountInCents,
     currency: input.currency,
-    redirectUrl: config.wompiRedirectUrl,
+    redirectUrl: config.paymentReturnUrl,
     confirmationUrl: `${config.apiBaseUrl}/webhooks-epayco`,
     customerData: {
       email: input.buyerEmail,
@@ -278,7 +278,7 @@ async function buildCheckout(
     reference: order.wompiReference,
     amountInCents: order.totalInCents,
     currency: order.currency,
-    redirectUrl: config.wompiRedirectUrl,
+    redirectUrl: config.paymentReturnUrl,
     customerData: {
       email: buyerEmail,
       fullName: undefined,

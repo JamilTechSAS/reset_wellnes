@@ -188,6 +188,49 @@ describe("configuration", () => {
     expect(error.issues.some((issue) => issue.includes("MAINTENANCE_API_TOKEN"))).toBe(true);
   });
 
+  it("reads the payment return URL from PAYMENT_RETURN_URL, falling back to WOMPI_REDIRECT_URL", () => {
+    expect(loadConfig(VALID_DEV_ENV).paymentReturnUrl).toBeUndefined();
+    expect(
+      loadConfig({ ...VALID_DEV_ENV, PAYMENT_RETURN_URL: "http://localhost:3000/gracias" })
+        .paymentReturnUrl,
+    ).toBe("http://localhost:3000/gracias");
+    expect(
+      loadConfig({ ...VALID_DEV_ENV, WOMPI_REDIRECT_URL: "http://localhost:3000/legacy" })
+        .paymentReturnUrl,
+    ).toBe("http://localhost:3000/legacy");
+    expect(
+      loadConfig({
+        ...VALID_DEV_ENV,
+        PAYMENT_RETURN_URL: "http://localhost:3000/gracias",
+        WOMPI_REDIRECT_URL: "http://localhost:3000/legacy",
+      }).paymentReturnUrl,
+    ).toBe("http://localhost:3000/gracias");
+  });
+
+  it("validates the payment return URL under the variable that supplied it", () => {
+    const current = expectConfigError({
+      ...VALID_SANDBOX_ENV,
+      PAYMENT_RETURN_URL: "http://evento.example/gracias",
+    });
+    expect(
+      current.issues.some((issue) => issue.includes("PAYMENT_RETURN_URL must use https")),
+    ).toBe(true);
+
+    const legacy = expectConfigError({ ...VALID_SANDBOX_ENV, WOMPI_REDIRECT_URL: "not-a-url" });
+    expect(legacy.issues.some((issue) => issue.includes("WOMPI_REDIRECT_URL"))).toBe(true);
+
+    // The current name wins, so a broken legacy value next to it is never read.
+    const config = loadConfig({
+      ...VALID_SANDBOX_ENV,
+      PAYMENT_RETURN_URL: "https://evento.example/gracias",
+      WOMPI_REDIRECT_URL: "not-a-url",
+    });
+    expect(config.paymentReturnUrl).toBe("https://evento.example/gracias");
+    expect(describeConfigForLogs(config)).toMatchObject({
+      paymentReturnUrl: "https://evento.example/gracias",
+    });
+  });
+
   it("requires the maintenance token outside development", () => {
     const error = expectConfigError({ ...VALID_SANDBOX_ENV, MAINTENANCE_API_TOKEN: undefined });
     expect(error.issues.some((issue) => issue.includes("MAINTENANCE_API_TOKEN is required"))).toBe(
