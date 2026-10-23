@@ -45,11 +45,20 @@
     <main>
       <!-- ================= INICIO ================= -->
       <section class="hero" id="inicio">
-        <!-- VIDEO DE FONDO -->
-        <video class="hero-video" autoplay muted loop playsinline>
-          <source src="/assets/video/inicio.mp4" type="video/mp4" />
+        <!-- VIDEO DE FONDO (vertical 9:16, sin audio, en loop) -->
+        <video
+          class="hero-video"
+          autoplay
+          muted
+          loop
+          playsinline
+          preload="auto"
+          poster="/assets/img/reset-portada-poster.jpg?v=20261023d"
+          aria-hidden="true"
+        >
+          <source src="/assets/video/reset-portada.mp4?v=20261023d" type="video/mp4" />
         </video>
-        <div class="hero-shade"></div>
+        <div class="hero-shade" aria-hidden="true"></div>
 
         <div class="hero-content">
           <h1 class="hero-logo">
@@ -105,12 +114,19 @@
       <!-- ================= ALIADOS ================= -->
       <section class="aliados" id="aliados" aria-labelledby="aliados-titulo">
         <div class="aliados-grid">
-          <!-- VIDEO: cuando lo tengas, guárdalo en assets/video/ y reemplaza el <div class="ph"> por:
-        <video src="assets/video/aliados.mp4" autoplay muted loop playsinline poster="assets/img/aliados-poster.webp"></video> -->
+          <!-- VIDEO de Marcas & Alianzas: vertical 9:16, sin audio, en loop (assets/video/aliados.mp4) -->
           <div class="aliados-media">
-            <div class="ph">
-              <span>(video vertical 9:16: clase en grupo al aire libre, sin audio)</span>
-            </div>
+            <video
+              autoplay
+              muted
+              loop
+              playsinline
+              preload="metadata"
+              poster="/assets/img/aliados-poster.jpg?v=20261023d"
+              aria-hidden="true"
+            >
+              <source src="/assets/video/aliados.mp4?v=20261023d" type="video/mp4" />
+            </video>
           </div>
 
           <div class="aliados-texto">
@@ -130,8 +146,8 @@
             <p>Si tu marca vibra con Re set, creemos algo increíble juntos.</p>
             <a class="aliados-btn" href="marca-y-colaboracion.html">Postula tu marca</a>
 
-            <!-- LOGOS: reemplaza cada <span class="slot"> por el logo con el enlace a la página de la marca:
-          <a href="https://pagina-de-la-marca.com" target="_blank" rel="noopener"><img src="assets/img/logo-marca.png" alt="Nombre de la marca"></a> -->
+            <!-- LOGOS: para agregar una marca nueva, copia una línea <li> y cambia el link, el archivo del logo y el nombre:
+          <a href="https://pagina-de-la-marca.com" target="_blank" rel="noopener"><img src="/assets/img/logo-marca.png?v=20261023d" alt="Nombre de la marca"></a> -->
             <ul class="aliados-logos" aria-label="Marcas aliadas">
               <li>
                 <a
@@ -147,17 +163,66 @@
                     loading="lazy"
                 /></a>
               </li>
-              <li><span class="slot">(logo aliado)</span></li>
-              <li><span class="slot">(logo aliado)</span></li>
-              <li><span class="slot">(logo aliado)</span></li>
-              <li><span class="slot">(logo aliado)</span></li>
-              <li><span class="slot">(logo aliado)</span></li>
-              <li><span class="slot">(logo aliado)</span></li>
-              <li><span class="slot">(logo aliado)</span></li>
-              <li><span class="slot">(logo aliado)</span></li>
-              <li><span class="slot">(logo aliado)</span></li>
-              <li><span class="slot">(logo aliado)</span></li>
-              <li><span class="slot">(logo aliado)</span></li>
+              <li>
+                <a
+                  href="https://www.instagram.com/studio83_ph/"
+                  target="_blank"
+                  rel="noopener"
+                  aria-label="Studio 83 Pilates House (abre su Instagram)"
+                  ><img
+                    class="logo-studio83"
+                    src="/assets/img/logo-studio83.png?v=20261023d"
+                    alt="Studio 83 Pilates House"
+                    width="541"
+                    height="431"
+                    loading="lazy"
+                /></a>
+              </li>
+              <li>
+                <a
+                  href="https://www.instagram.com/kai_activwear/"
+                  target="_blank"
+                  rel="noopener"
+                  aria-label="Kai (abre su Instagram)"
+                  ><img
+                    class="logo-kai"
+                    src="/assets/img/logo-kai.png?v=20261023d"
+                    alt="Kai"
+                    width="656"
+                    height="486"
+                    loading="lazy"
+                /></a>
+              </li>
+              <li>
+                <a
+                  href="https://www.instagram.com/sunny.day.spa.bronzed/"
+                  target="_blank"
+                  rel="noopener"
+                  aria-label="Sunny Day Spa (abre su Instagram)"
+                  ><img
+                    class="logo-sunnyday"
+                    src="/assets/img/logo-sunnyday.png?v=20261023d"
+                    alt="Sunny Day Spa"
+                    width="489"
+                    height="593"
+                    loading="lazy"
+                /></a>
+              </li>
+              <li>
+                <a
+                  href="https://www.instagram.com/dra.iveth.ordosgoitia/"
+                  target="_blank"
+                  rel="noopener"
+                  aria-label="Dra. Iveth Ordosgoitia (abre su Instagram)"
+                  ><img
+                    class="logo-iveth"
+                    src="/assets/img/logo-iveth.png?v=20261023d"
+                    alt="Iveth Ordosgoitia"
+                    width="2184"
+                    height="279"
+                    loading="lazy"
+                /></a>
+              </li>
             </ul>
           </div>
         </div>
@@ -186,15 +251,18 @@
         <nav class="footer-col" aria-labelledby="footer-comunidad">
           <p class="footer-titulo" id="footer-comunidad">Comunidad</p>
           <ul>
-            <li><a href="eventos.html">Eventos</a></li>
-            <li><a href="preguntas-frecuentes.html">Preguntas frecuentes</a></li>
+            <!-- EVENTOS: se habilita después del 15 de noviembre. Para activarlo, agrega aquí: <li><a href="eventos.html">Eventos</a></li> -->
+            <li>
+              <a href="preguntas-frecuentes.html">Preguntas frecuentes</a>
+            </li>
             <li><a href="mailto:reset.wellness@gmail.com">Contacto</a></li>
             <li>
               <a href="https://instagram.com/reset.wll" target="_blank" rel="noopener">Instagram</a>
             </li>
-            <!-- PENDIENTE: pega aquí el link de TikTok -->
             <li>
-              <a href="#" data-pendiente>TikTok</a> <span class="pendiente">(pendiente)</span>
+              <a href="https://www.tiktok.com/@reset.wellness.cl" target="_blank" rel="noopener"
+                >TikTok</a
+              >
             </li>
           </ul>
         </nav>
@@ -262,9 +330,17 @@
           </p>
         </div>
 
-        <!-- IMAGEN: reemplaza el <div class="ph"> por <img src="assets/img/comunidad.webp" alt="Asistentes de Reset en clase al aire libre"> -->
         <div class="community-media">
-          <img src="/assets/img/comunidad.jpg" alt="Comunidad Reset Wellness" />
+          <picture>
+            <source srcset="/assets/img/comunidad.webp?v=20261023d" type="image/webp" />
+            <img
+              src="/assets/img/comunidad.jpg?v=20261023d"
+              alt="Asistentes de Reset en una clase de pilates en la terraza del GHL"
+              width="1000"
+              height="1333"
+              loading="lazy"
+            />
+          </picture>
         </div>
       </div>
     </div>

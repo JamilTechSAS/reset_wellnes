@@ -176,10 +176,10 @@ describe("purchase step rendering", () => {
       CONTEXT,
     );
     expect(bundle.body).not.toContain('id="pf-discount"');
-    expect(bundle.body).toContain("Doble experiencia es un producto separado.");
+    expect(bundle.body).toContain("Comparte esta experiencia es un producto separado.");
   });
 
-  it("shows the fixed Doble experiencia total without a quantity discount", () => {
+  it("shows the fixed Comparte esta experiencia total without a quantity discount", () => {
     const event = makeEvent();
     const generalEvent = {
       ...event,
@@ -212,7 +212,7 @@ describe("purchase step rendering", () => {
       CONTEXT,
     );
 
-    expect(step.body).toContain("Doble experiencia");
+    expect(step.body).toContain("Comparte esta experiencia");
     expect(step.body).toContain("$340.000");
     expect(step.body).not.toContain("Descuento por cantidad");
   });

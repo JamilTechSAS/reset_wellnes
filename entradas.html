@@ -45,11 +45,16 @@
     <main>
       <section class="entradas" aria-labelledby="entradas-titulo">
         <div class="entradas-grid">
-          <!-- FOTO: reemplaza el <div class="ph"> por <img src="assets/img/entradas.webp" alt="..."> -->
           <div class="entradas-media">
-            <div class="ph">
-              <span>(foto: asistente en clase en la terraza del GHL, luz de la mañana)</span>
-            </div>
+            <picture>
+              <source srcset="/assets/img/entradas.webp?v=20261023d" type="image/webp" />
+              <img
+                src="/assets/img/entradas.jpg?v=20261023d"
+                alt="Instructora de Reset en una clase de pilates en la terraza del GHL"
+                width="1000"
+                height="1333"
+              />
+            </picture>
           </div>
 
           <div class="entradas-info">
@@ -69,7 +74,9 @@
               </label>
               <label class="tipo" data-tipo="duo">
                 <input type="radio" name="tipo" value="duo" />
-                <span class="tipo-nombre">Doble experiencia <small>(2 entradas)</small></span>
+                <span class="tipo-nombre"
+                  >Comparte esta experiencia <small>(2 entradas)</small></span
+                >
                 <span class="tipo-precio">$340.000</span>
                 <span class="tipo-nota" data-nota>$170.000 por persona</span>
               </label>
@@ -114,7 +121,7 @@
             <div class="entradas-detalle">
               <p>
                 <strong>Fecha:</strong> domingo 15 de noviembre de 2026<br />
-                <strong>Hora:</strong> 1:00 p.m. a 7:00 p.m.<br />
+                <strong>Hora:</strong> 1:00 p. m. a 7:00 p. m.<br />
                 <strong>Lugar:</strong> Terraza del hotel GHL, Montería
               </p>
 
@@ -146,23 +153,22 @@
                 moverte, cuidarte y sentirte bien:
               </p>
               <ul>
+                <li>Inmersión en hielo</li>
                 <li>Pilates</li>
                 <li>Yoga</li>
-                <li>Spinning</li>
-                <li>Inmersión en hielo</li>
-                <li>Quiropráctica</li>
                 <li>Sueroterapia</li>
                 <li>Bronceo</li>
-                <li>Entre otras experiencias y beneficios</li>
+                <li>Masajes</li>
+                <li>Pool party</li>
                 <li>Activaciones de marcas</li>
                 <li>Kit de bienvenida</li>
                 <li>Espacios para compartir y conectar</li>
+                <li>DJ</li>
+                <li>Sorpresas</li>
               </ul>
 
               <h2>Código de vestuario</h2>
-              <p>
-                <strong>Sport + <span class="pendiente">(color pendiente)</span></strong>
-              </p>
+              <p><strong>Ropa deportiva y vestido de baño</strong></p>
               <p class="det-cupos">Cupos limitados</p>
             </div>
           </div>
@@ -192,15 +198,18 @@
         <nav class="footer-col" aria-labelledby="footer-comunidad">
           <p class="footer-titulo" id="footer-comunidad">Comunidad</p>
           <ul>
-            <li><a href="eventos.html">Eventos</a></li>
-            <li><a href="preguntas-frecuentes.html">Preguntas frecuentes</a></li>
+            <!-- EVENTOS: se habilita después del 15 de noviembre. Para activarlo, agrega aquí: <li><a href="eventos.html">Eventos</a></li> -->
+            <li>
+              <a href="preguntas-frecuentes.html">Preguntas frecuentes</a>
+            </li>
             <li><a href="mailto:reset.wellness@gmail.com">Contacto</a></li>
             <li>
               <a href="https://instagram.com/reset.wll" target="_blank" rel="noopener">Instagram</a>
             </li>
-            <!-- PENDIENTE: pega aquí el link de TikTok -->
             <li>
-              <a href="#" data-pendiente>TikTok</a> <span class="pendiente">(pendiente)</span>
+              <a href="https://www.tiktok.com/@reset.wellness.cl" target="_blank" rel="noopener"
+                >TikTok</a
+              >
             </li>
           </ul>
         </nav>
@@ -263,9 +272,17 @@
           </p>
         </div>
 
-        <!-- IMAGEN: reemplaza el <div class="ph"> por <img src="assets/img/comunidad.webp" alt="Asistentes de Reset en clase al aire libre"> -->
         <div class="community-media">
-          <img src="/assets/img/comunidad.jpg" alt="Comunidad Reset Wellness" />
+          <picture>
+            <source srcset="/assets/img/comunidad.webp?v=20261023d" type="image/webp" />
+            <img
+              src="/assets/img/comunidad.jpg?v=20261023d"
+              alt="Asistentes de Reset en una clase de pilates en la terraza del GHL"
+              width="1000"
+              height="1333"
+              loading="lazy"
+            />
+          </picture>
         </div>
       </div>
     </div>

@@ -163,7 +163,9 @@ function quoteSummary(quote: Quote, bundleCode: PurchaseState["bundleCode"]): st
   const isBundle = bundleCode === "DOUBLE_EXPERIENCE";
   const rows = [
     summaryRow(
-      isBundle ? "Doble experiencia (2 entradas)" : `${quote.ticketType.name} × ${quote.quantity}`,
+      isBundle
+        ? "Comparte esta experiencia (2 entradas)"
+        : `${quote.ticketType.name} × ${quote.quantity}`,
       quote.subtotalInCents,
     ),
     quote.quantityDiscountInCents > 0
@@ -292,7 +294,7 @@ function renderForm(state: PurchaseState, ctx: PurchaseDialogContext, showProble
       </div>
       ${
         isBundle
-          ? `<p class="qty-unit">Doble experiencia · $170.000 por persona</p>`
+          ? `<p class="qty-unit">Comparte esta experiencia · $170.000 por persona</p>`
           : unit === null
             ? ""
             : `<p class="qty-unit">${ticketType === undefined ? "" : `${escapeHtml(ticketType.name)} · `}${escapeHtml(formatCopCents(unit))} por entrada${
@@ -303,11 +305,11 @@ function renderForm(state: PurchaseState, ctx: PurchaseDialogContext, showProble
       }
       ${
         isBundle
-          ? `<p class="purchase-section-note">Doble experiencia incluye 2 entradas Generales por $340.000. Es un producto independiente y no admite códigos promocionales.</p>`
+          ? `<p class="purchase-section-note">Comparte esta experiencia incluye 2 entradas Generales por $340.000. Es un producto independiente y no admite códigos promocionales.</p>`
           : currentTierName === "Preventa"
-            ? `<p class="purchase-section-note">Doble experiencia estará disponible en la etapa General, al terminar la preventa.</p>`
+            ? `<p class="purchase-section-note">Comparte esta experiencia estará disponible en la etapa General, al terminar la preventa.</p>`
             : isGeneralStage && state.quantity === 2
-              ? `<p class="purchase-section-note">Dos entradas Generales individuales cuestan $400.000. Doble experiencia es un producto separado.</p>`
+              ? `<p class="purchase-section-note">Dos entradas Generales individuales cuestan $400.000. Comparte esta experiencia es un producto separado.</p>`
               : isGeneralStage
                 ? `<p class="purchase-section-note">Los códigos de descuento solo aplican a una entrada General.</p>`
                 : ""
@@ -367,7 +369,7 @@ function renderForm(state: PurchaseState, ctx: PurchaseDialogContext, showProble
       previewTotal === null
         ? ""
         : `<div class="summary preview">
-             ${summaryRow(isBundle ? "Doble experiencia · 2 entradas" : `${state.quantity} × ${formatCopCents(unit ?? 0)}`, previewTotal, { strong: true })}
+             ${summaryRow(isBundle ? "Comparte esta experiencia · 2 entradas" : `${state.quantity} × ${formatCopCents(unit ?? 0)}`, previewTotal, { strong: true })}
              <p class="summary-caption">Precio estimado. El valor definitivo se confirma al continuar.</p>
            </div>`
     }
@@ -418,7 +420,7 @@ function renderReview(state: PurchaseState, ctx: PurchaseDialogContext): string 
       <h3 class="purchase-section-title">Resumen de tu compra</h3>
       <div class="review-lines">
         <div class="review-line"><span>Evento</span><strong>${escapeHtml(quote.event.name)}</strong></div>
-        <div class="review-line"><span>Entrada</span><strong>${escapeHtml(state.bundleCode === "DOUBLE_EXPERIENCE" ? "Doble experiencia" : quote.ticketType.name)}${ticketType?.currentTier === null || ticketType?.currentTier === undefined ? "" : ` · ${escapeHtml(ticketType.currentTier.name)}`}</strong></div>
+        <div class="review-line"><span>Entrada</span><strong>${escapeHtml(state.bundleCode === "DOUBLE_EXPERIENCE" ? "Comparte esta experiencia" : quote.ticketType.name)}${ticketType?.currentTier === null || ticketType?.currentTier === undefined ? "" : ` · ${escapeHtml(ticketType.currentTier.name)}`}</strong></div>
         <div class="review-line"><span>Cantidad</span><strong>${quote.quantity}</strong></div>
         <div class="review-line"><span>Titular</span><strong>${escapeHtml(`${state.participant.firstName} ${state.participant.lastName}`.trim())}</strong></div>
       </div>

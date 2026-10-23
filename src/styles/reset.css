@@ -1,16 +1,10 @@
 /* RESET WELLNESS CLUB · estilos compartidos */
 
-/* ---------- Tipografías de marca (sube los .woff2 a assets/fonts/) ---------- */
-@font-face {
-  font-family: "Cooper Light BT";
-  src: url("/assets/fonts/cooper-light-bt.woff2") format("woff2");
-  font-display: swap;
-}
-@font-face {
-  font-family: "Glacial Indifference";
-  src: url("/assets/fonts/glacial-indifference.woff2") format("woff2");
-  font-display: swap;
-}
+/* ---------- Tipografías de marca ----------
+   Las fuentes propias (Cooper Light BT / Glacial Indifference) no se entregaron.
+   Se usan Fraunces y Questrial (Google Fonts, cargadas en el <head> de cada página)
+   como sustitutas: son las que mejor conservan el estilo de Reset.
+   Cuando lleguen los .woff2, reactivar los @font-face y anteponerlos en --f-serif/--f-body. */
 
 :root {
   --cafe: #513229; /* Mother Earth */
@@ -20,8 +14,8 @@
   --ph-a: #ebcfc6;
   --ph-b: #e3c1b6;
   --ph-ink: #8a4b3b; /* espacio de foto pendiente */
-  --f-serif: "Cooper Light BT", "Fraunces", Georgia, serif;
-  --f-body: "Glacial Indifference", "Questrial", "Helvetica Neue", Arial, sans-serif;
+  --f-serif: "Fraunces", Georgia, "Times New Roman", serif;
+  --f-body: "Questrial", "Helvetica Neue", Arial, sans-serif;
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
 
   /* ===== ESCALA TIPOGRÁFICA (1rem = 16px) ===== */
@@ -221,6 +215,7 @@ p {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  object-position: 50% 38%;
   z-index: 0;
 }
 .hero-video + .hero-shade {
@@ -747,8 +742,8 @@ p {
   overflow: hidden;
   color: var(--beige);
   padding: clamp(6.5rem, 10vw, 8.5rem) clamp(1.25rem, 6vw, 6.5rem) clamp(5rem, 8vw, 7rem);
-  /* PROVISIONAL: rayas = aquí va el video de fondo */
-  background: repeating-linear-gradient(135deg, var(--ph-a) 0 18px, var(--ph-b) 18px 36px);
+  /* Fondo café liso (sin video) */
+  background: var(--cafe);
 }
 .marca-bg-img {
   position: absolute;
@@ -2025,5 +2020,145 @@ p {
   }
   .evento-fila-espejo .evento-media {
     order: 0;
+  }
+}
+
+/* Portada con video: fondo café mientras carga (ya no lleva rayas de pendiente) */
+.hero:has(.hero-video) {
+  background: var(--cafe);
+}
+
+/* Ajuste óptico: el logo de Kai es muy pesado, se ve más pequeño para equilibrar */
+.aliados-logos img.logo-kai {
+  max-height: 34px;
+}
+.aliados-logos img.logo-studio83 {
+  max-height: 62px;
+}
+.aliados-logos img.logo-sunnyday {
+  max-height: 58px;
+}
+/* 5 logos en una sola fila, alineados al centro (en celular bajan a 2 filas centradas) */
+.aliados-logos {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem 1.5rem;
+}
+.aliados-logos li {
+  flex: 0 0 auto;
+}
+.aliados-logos img.logo-iveth {
+  max-height: none;
+  width: 150px;
+  height: auto;
+}
+@media (max-width: 860px) {
+  .aliados-logos {
+    justify-content: center;
+    gap: 0.75rem 2rem;
+  }
+  .aliados-logos img.logo-iveth {
+    width: 140px;
+  }
+}
+
+/* Foto del pop-up de comunidad */
+.community-media picture {
+  position: absolute;
+  inset: 0;
+}
+.community-media img {
+  object-position: 50% 55%;
+}
+@media (max-width: 760px) {
+  .community-media {
+    height: 220px;
+  }
+  .community-media img {
+    object-position: 50% 52%;
+  }
+}
+
+/* La visión: foto vertical */
+.vision-media picture {
+  position: absolute;
+  inset: 0;
+}
+.vision-media-vertical {
+  aspect-ratio: 2 / 3;
+  max-width: 27rem;
+  justify-self: center;
+  width: 100%;
+}
+.vision-media-vertical img {
+  object-fit: cover;
+  object-position: 50% 100%;
+} /* se recorta solo arriba; las piernas quedan completas */
+/* La visión: la foto empieza a la misma altura que el texto */
+.vision:not(.experiencia) .vision-grid {
+  align-items: start;
+}
+.vision:not(.experiencia) .vision-texto > .vision-etiqueta {
+  margin-top: 0;
+}
+
+/* Portada de Nosotros con foto */
+.nos-hero:has(.nos-hero-img) {
+  background: var(--cafe);
+}
+.nos-hero-img {
+  object-position: 50% 40%;
+}
+.nos-hero-shade {
+  background: color-mix(in srgb, var(--cafe) 50%, transparent);
+}
+/* Portada de Nosotros en celular: banda más baja, encuadre en las caras y capa más pareja */
+@media (max-width: 760px) {
+  .nos-hero {
+    min-height: 21rem;
+    padding-top: 6.5rem;
+    padding-bottom: 3.5rem;
+  }
+  .nos-hero-img {
+    object-position: 30% 36%;
+  }
+  .nos-hero-shade {
+    background: linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--cafe) 45%, transparent),
+      color-mix(in srgb, var(--cafe) 70%, transparent)
+    );
+  }
+}
+
+/* Foto de Entradas (vertical) */
+.entradas-media picture {
+  position: absolute;
+  inset: 0;
+}
+.entradas-media:has(picture) {
+  aspect-ratio: 4 / 5;
+}
+.entradas-media img {
+  object-position: 50% 45%;
+}
+
+/* Escritorio angosto (861px–1199px): los 5 logos se mantienen en una sola fila */
+@media (min-width: 861px) and (max-width: 1199px) {
+  .aliados-logos {
+    flex-wrap: nowrap;
+    gap: 1rem;
+  }
+  .aliados-logos li {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+  .aliados-logos img {
+    max-width: 100%;
+  }
+  .aliados-logos img.logo-iveth {
+    width: 120px;
   }
 }
