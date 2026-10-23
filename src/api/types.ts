@@ -261,7 +261,7 @@ export type RetriedPayment = {
   readonly totalInCents: number;
   readonly currency: string;
   readonly reservationExpiresAt: string | null;
-  readonly checkout: WompiCheckout;
+  readonly checkout: PaymentCheckout;
 };
 
 export type PaymentHintOutcome =

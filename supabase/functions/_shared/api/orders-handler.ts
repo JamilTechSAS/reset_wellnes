@@ -24,7 +24,11 @@ import type { CreateOrderResult, OrderGateway, QuoteResult } from "../db/orders.
 import type { Logger } from "../logging/logger.ts";
 import { buildWompiCheckout, type WompiCheckout } from "../integrations/wompi/checkout.ts";
 import { buildEpaycoCheckout } from "../integrations/epayco/checkout.ts";
-import { createEpaycoApifyClient, type EpaycoApifyClient } from "../integrations/epayco/apify.ts";
+import {
+  createEpaycoApifyClient,
+  EpaycoApifyError,
+  type EpaycoApifyClient,
+} from "../integrations/epayco/apify.ts";
 import type { EpaycoCheckout } from "../integrations/epayco/types.ts";
 import {
   parseCreateOrderRequest,
@@ -159,57 +163,112 @@ export async function handleQuote(options: {
 }
 
 /**
+ * Smallest and largest amounts (COP pesos) ePayco accepts for a Smart Checkout session, as
+ * reported by the provider itself ("property Amount must be between 5000 and 5000000").
+ * Checked before calling ePayco so the buyer gets a clear validation error instead of an
+ * opaque upstream failure.
+ */
+export const EPAYCO_MIN_AMOUNT_PESOS = 5_000;
+export const EPAYCO_MAX_AMOUNT_PESOS = 5_000_000;
+
+/**
+ * Creates an ePayco Smart Checkout session for ONE payment attempt and returns the
+ * secret-free checkout payload. Shared by order creation and payment retry so both paths
+ * send the same invoice (the attempt reference: `EVT-…` for attempt 1, `EVT-…-N` after a
+ * retry) that the confirmation webhook later maps back to the order.
+ */
+export async function createEpaycoCheckoutForAttempt(input: {
+  readonly config: BackendConfig;
+  readonly paymentReference: string;
+  readonly amountInCents: number;
+  readonly currency: string;
+  readonly buyerEmail: string;
+  readonly clientIp: string | undefined;
+  readonly epaycoApify?: EpaycoApifyClient | undefined;
+}): Promise<EpaycoCheckout> {
+  const { config } = input;
+  if (!input.clientIp) {
+    throw new EpaycoApifyError("Client IP is required by ePayco session creation", {
+      context: { invoice: input.paymentReference },
+    });
+  }
+  if (input.amountInCents % 100 !== 0) {
+    // COP has no minor unit at ePayco: a fractional peso would be silently rounded.
+    throw validationError("ePayco amounts must be whole pesos", {
+      context: { surface: "epayco-amount", amountInCents: input.amountInCents },
+    });
+  }
+  const amountInPesos = input.amountInCents / 100;
+  if (amountInPesos < EPAYCO_MIN_AMOUNT_PESOS || amountInPesos > EPAYCO_MAX_AMOUNT_PESOS) {
+    throw validationError(
+      `ePayco only accepts amounts between ${EPAYCO_MIN_AMOUNT_PESOS} and ${EPAYCO_MAX_AMOUNT_PESOS} COP`,
+      { context: { surface: "epayco-amount", amountInPesos } },
+    );
+  }
+
+  const apify =
+    input.epaycoApify ??
+    createEpaycoApifyClient({
+      publicKey: config.epayco.publicKey,
+      privateKey: config.epayco.privateKey,
+      test: config.epayco.test,
+    });
+
+  const session = await apify.createSession({
+    checkoutVersion: "2",
+    name: "Re set Sunset Vol. 1",
+    description: `Entrada Re set Sunset Vol. 1 · Ref: ${input.paymentReference}`,
+    currency: input.currency,
+    amount: amountInPesos,
+    ip: input.clientIp,
+    invoice: input.paymentReference,
+    response: config.wompiRedirectUrl,
+    confirmation: `${config.apiBaseUrl}/webhooks-epayco`,
+    test: config.epayco.test,
+    taxBase: 0,
+    tax: 0,
+    taxIco: 0,
+    country: "CO",
+    lang: "ES",
+  });
+
+  return buildEpaycoCheckout({
+    sessionId: session.sessionId,
+    publicKey: config.epayco.publicKey,
+    test: config.epayco.test,
+    reference: input.paymentReference,
+    amountInCents: input.amountInCents,
+    currency: input.currency,
+    redirectUrl: config.wompiRedirectUrl,
+    confirmationUrl: `${config.apiBaseUrl}/webhooks-epayco`,
+    customerData: {
+      email: input.buyerEmail,
+      fullName: undefined,
+      phoneNumber: undefined,
+      phoneNumberPrefix: undefined,
+    },
+  });
+}
+
+/**
  * Builds the checkout payload (ePayco or Wompi) for a freshly created (or replayed) order.
  */
 async function buildCheckout(
   order: CreateOrderResult,
   config: BackendConfig,
   buyerEmail: string,
+  clientIp: string | undefined,
   epaycoApify?: EpaycoApifyClient,
 ): Promise<PaymentCheckout> {
   if (config.paymentProvider === "epayco") {
-    const apify =
-      epaycoApify ??
-      createEpaycoApifyClient({
-        publicKey: config.epayco.publicKey,
-        privateKey: config.epayco.privateKey,
-        test: config.epayco.test,
-      });
-
-    const amountInPesos = Math.round(order.totalInCents / 100);
-    const session = await apify.createSession({
-      checkoutVersion: "2",
-      name: "Re set Sunset Vol. 1",
-      description: `Entrada Re set Sunset Vol. 1 · Ref: ${order.reference}`,
-      currency: order.currency,
-      amount: amountInPesos,
-      invoice: order.reference,
-      response: config.wompiRedirectUrl,
-      confirmation: `${config.apiBaseUrl}/webhooks-epayco`,
-      test: config.epayco.test,
-      taxBase: 0,
-      tax: 0,
-      taxIco: 0,
-      country: "CO",
-      lang: "ES",
-    });
-    const sessionId = session.sessionId;
-
-    return buildEpaycoCheckout({
-      sessionId,
-      publicKey: config.epayco.publicKey,
-      test: config.epayco.test,
-      reference: order.wompiReference,
+    return createEpaycoCheckoutForAttempt({
+      config,
+      paymentReference: order.wompiReference,
       amountInCents: order.totalInCents,
       currency: order.currency,
-      redirectUrl: config.wompiRedirectUrl,
-      confirmationUrl: `${config.apiBaseUrl}/webhooks-epayco`,
-      customerData: {
-        email: buyerEmail,
-        fullName: undefined,
-        phoneNumber: undefined,
-        phoneNumberPrefix: undefined,
-      },
+      buyerEmail,
+      clientIp,
+      epaycoApify,
     });
   }
 
@@ -297,6 +356,7 @@ export async function handleCreateOrder(options: {
     order,
     options.config,
     request.buyer.email,
+    options.ipAddress,
     options.epaycoApify,
   );
 

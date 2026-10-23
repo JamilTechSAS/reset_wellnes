@@ -384,6 +384,7 @@ describe("handleCreateOrder", () => {
         checkoutVersion: "2",
         invoice: "EVT-2026-000001",
         amount: 160000,
+        ip: "127.0.0.1",
         currency: "COP",
       }),
     );
@@ -439,6 +440,106 @@ describe("handleCreateOrder", () => {
     expect(result.replayed).toBe(true);
     expect(result.reference).toBe("EVT-2026-000001");
     expect((result.checkout as EpaycoCheckout).sessionId).toBe("epayco_session_replayed");
+  });
+
+  describe("ePayco session guards", () => {
+    const epaycoOrder = (totalInCents: number) => ({
+      orderId: "01925b68-8a8b-7000-8000-000000000001",
+      reference: "EVT-2026-000001",
+      status: "PENDING",
+      replayed: false,
+      quantity: 1,
+      pricingTierName: "QA",
+      unitPriceInCents: totalInCents,
+      subtotalInCents: totalInCents,
+      quantityDiscountInCents: 0,
+      discountCodeInCents: 0,
+      totalDiscountInCents: 0,
+      totalInCents,
+      currency: "COP",
+      reservationExpiresAt: "2026-10-04T00:15:00.000Z",
+      paymentAttempt: 1,
+      wompiReference: "EVT-2026-000001",
+    });
+    const epaycoConfig = () =>
+      testConfig({
+        PAYMENT_PROVIDER: "epayco",
+        EPAYCO_PUBLIC_KEY: fakeCredential("epayco_pub_"),
+        EPAYCO_PRIVATE_KEY: fakeCredential("epayco_prv_"),
+        EPAYCO_P_KEY: fakeCredential("epayco_pkey_"),
+        EPAYCO_CUST_ID_CLIENTE: "123456",
+        EPAYCO_TEST: "true",
+      });
+
+    it.each([
+      [200_000, "2.000 COP (below the provider minimum)"],
+      [600_000_000, "6.000.000 COP (above the provider maximum)"],
+    ])("refuses %i cents — %s — without calling ePayco", async (totalInCents) => {
+      const { gateway } = gatewayWith({
+        createOrder: vi.fn().mockResolvedValue(epaycoOrder(totalInCents)),
+      });
+      const mockApify: EpaycoApifyClient = {
+        login: vi.fn(),
+        createSession: vi.fn(),
+      };
+      await expect(
+        handleCreateOrder({
+          rawBody: VALID_ORDER_BODY,
+          idempotencyKey: undefined,
+          ipAddress: "127.0.0.1",
+          userAgent: undefined,
+          gateway,
+          config: epaycoConfig(),
+          logger,
+          epaycoApify: mockApify,
+        }),
+      ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+      expect(mockApify.createSession).not.toHaveBeenCalled();
+    });
+
+    it("sends 10.000 COP as 10000 pesos (no double conversion)", async () => {
+      const { gateway } = gatewayWith({
+        createOrder: vi.fn().mockResolvedValue(epaycoOrder(1_000_000)),
+      });
+      const mockApify: EpaycoApifyClient = {
+        login: vi.fn(),
+        createSession: vi.fn().mockResolvedValue({ sessionId: "sess_qa" }),
+      };
+      const result = await handleCreateOrder({
+        rawBody: VALID_ORDER_BODY,
+        idempotencyKey: undefined,
+        ipAddress: "127.0.0.1",
+        userAgent: undefined,
+        gateway,
+        config: epaycoConfig(),
+        logger,
+        epaycoApify: mockApify,
+      });
+      expect(mockApify.createSession).toHaveBeenCalledWith(
+        expect.objectContaining({ amount: 10_000, invoice: "EVT-2026-000001" }),
+      );
+      expect((result.checkout as EpaycoCheckout).amountInCents).toBe(1_000_000);
+    });
+
+    it("refuses to create a session without the buyer IP", async () => {
+      const { gateway } = gatewayWith({
+        createOrder: vi.fn().mockResolvedValue(epaycoOrder(1_000_000)),
+      });
+      const mockApify: EpaycoApifyClient = { login: vi.fn(), createSession: vi.fn() };
+      await expect(
+        handleCreateOrder({
+          rawBody: VALID_ORDER_BODY,
+          idempotencyKey: undefined,
+          ipAddress: undefined,
+          userAgent: undefined,
+          gateway,
+          config: epaycoConfig(),
+          logger,
+          epaycoApify: mockApify,
+        }),
+      ).rejects.toMatchObject({ code: "UPSTREAM_ERROR" });
+      expect(mockApify.createSession).not.toHaveBeenCalled();
+    });
   });
 
   it("rejects participant data that fails domain validation", async () => {

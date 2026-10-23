@@ -25,6 +25,9 @@ import type { BackendConfig } from "../config/env.ts";
 import type { Logger } from "../logging/logger.ts";
 import type { OrderStatus, OrderStatusGateway, PaymentGateway } from "../db/payments.ts";
 import { buildWompiCheckout, type WompiCheckout } from "../integrations/wompi/checkout.ts";
+import type { EpaycoApifyClient } from "../integrations/epayco/apify.ts";
+import type { EpaycoCheckout } from "../integrations/epayco/types.ts";
+import { createEpaycoCheckoutForAttempt } from "./orders-handler.ts";
 
 /** Normalizes an email the same way the order row stores it. */
 export function normalizeLookupEmail(email: string): string {
@@ -174,7 +177,7 @@ export type PaymentRetryResponse = {
   readonly totalInCents: number;
   readonly currency: string;
   readonly reservationExpiresAt: string | null;
-  readonly checkout: WompiCheckout;
+  readonly checkout: WompiCheckout | EpaycoCheckout;
 };
 
 /**
@@ -192,6 +195,9 @@ export async function handlePaymentRetry(options: {
   readonly orderStatus: OrderStatusGateway;
   readonly config: BackendConfig;
   readonly logger: Logger;
+  /** Buyer IP, required by ePayco session creation. */
+  readonly clientIp?: string | undefined;
+  readonly epaycoApify?: EpaycoApifyClient | undefined;
 }): Promise<PaymentRetryResponse> {
   const reference = options.reference.trim();
   if (!/^EVT-[0-9]{4}-[0-9]{6,}(-[0-9]+)?$/.test(reference)) {
@@ -220,20 +226,31 @@ export async function handlePaymentRetry(options: {
       reservationMinutes: options.config.orderReservationMinutes,
     });
 
-    const checkout = await buildWompiCheckout({
-      publicKey: options.config.wompi.publicKey,
-      integritySecret: options.config.wompi.integritySecret,
-      reference: retry.wompiReference,
-      amountInCents: retry.totalInCents,
-      currency: retry.currency,
-      redirectUrl: options.config.wompiRedirectUrl,
-      customerData: {
-        email,
-        fullName: undefined,
-        phoneNumber: undefined,
-        phoneNumberPrefix: undefined,
-      },
-    });
+    const checkout =
+      options.config.paymentProvider === "epayco"
+        ? await createEpaycoCheckoutForAttempt({
+            config: options.config,
+            paymentReference: retry.wompiReference,
+            amountInCents: retry.totalInCents,
+            currency: retry.currency,
+            buyerEmail: email,
+            clientIp: options.clientIp,
+            epaycoApify: options.epaycoApify,
+          })
+        : await buildWompiCheckout({
+            publicKey: options.config.wompi.publicKey,
+            integritySecret: options.config.wompi.integritySecret,
+            reference: retry.wompiReference,
+            amountInCents: retry.totalInCents,
+            currency: retry.currency,
+            redirectUrl: options.config.wompiRedirectUrl,
+            customerData: {
+              email,
+              fullName: undefined,
+              phoneNumber: undefined,
+              phoneNumberPrefix: undefined,
+            },
+          });
 
     options.logger.info("payment retry created", {
       reference: retry.reference,

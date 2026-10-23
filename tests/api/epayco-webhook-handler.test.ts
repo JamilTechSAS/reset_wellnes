@@ -252,4 +252,62 @@ describe("ePayco webhook handler", () => {
     expect(outcome.outcome).toBe("REJECTED");
     expect(outcome.reason).toBe("MALFORMED_PAYLOAD");
   });
+  it("maps a retry invoice (EVT-…-N) to its order and keeps the attempt reference", async () => {
+    const payload = await makePayload({ x_id_invoice: `${ORDER_REF}-2` });
+    const gateway = mockGateway();
+
+    const outcome = await handleEpaycoWebhook({
+      rawBody: payload,
+      config: mockConfig,
+      logger,
+      payments: gateway,
+    });
+
+    expect(outcome.status).toBe(200);
+    expect(gateway.confirmPayment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderReference: ORDER_REF,
+        wompiReference: `${ORDER_REF}-2`,
+      }),
+    );
+  });
+
+  it("rejects a sandbox transaction while the backend runs in live mode", async () => {
+    const payload = await makePayload({ x_test_request: "TRUE" });
+    const gateway = mockGateway();
+    const liveConfig = {
+      ...mockConfig,
+      epayco: { ...mockConfig.epayco, test: false },
+    } as unknown as BackendConfig;
+
+    const outcome = await handleEpaycoWebhook({
+      rawBody: payload,
+      config: liveConfig,
+      logger,
+      payments: gateway,
+    });
+
+    expect(outcome.status).toBe(200);
+    expect(outcome.outcome).toBe("REJECTED");
+    expect(outcome.reason).toBe("TEST_TRANSACTION_IN_LIVE_MODE");
+    expect(gateway.confirmPayment).not.toHaveBeenCalled();
+    expect(gateway.recordWebhookRejection).toHaveBeenCalledWith(
+      expect.objectContaining({ errorCode: "TEST_TRANSACTION_IN_LIVE_MODE" }),
+    );
+  });
+
+  it("accepts a sandbox transaction while the backend runs in test mode", async () => {
+    const payload = await makePayload({ x_test_request: "TRUE" });
+    const gateway = mockGateway();
+
+    const outcome = await handleEpaycoWebhook({
+      rawBody: payload,
+      config: mockConfig,
+      logger,
+      payments: gateway,
+    });
+
+    expect(outcome.outcome).toBe("APPLIED");
+    expect(gateway.confirmPayment).toHaveBeenCalled();
+  });
 });

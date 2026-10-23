@@ -228,6 +228,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
         orderStatus: context.orderStatus,
         config: context.config,
         logger: context.logger,
+        clientIp: resolveClientIp(request),
       });
       return successResponse(data, { headers: corsHeaders });
     }
@@ -326,16 +327,39 @@ Deno.serve(async (request: Request): Promise<Response> => {
     return successResponse(data, { status: 201, headers: corsHeaders });
   } catch (error) {
     const appError = toAppError(error);
+    const isProviderError = appError.context.surface === "epayco-apify";
+    // Sanitised provider diagnostics (no keys, tokens or buyer data — see apify.ts). They are
+    // always logged so a production failure stays diagnosable, but only returned to the
+    // caller outside production.
+    const providerDiagnostics = isProviderError
+      ? {
+          provider: "epayco-apify",
+          message: appError.message,
+          httpStatus: appError.context.httpStatus ?? null,
+          providerSuccess: appError.context.providerSuccess ?? null,
+          providerTitleResponse: appError.context.providerTitleResponse ?? null,
+          providerTextResponse: appError.context.providerTextResponse ?? null,
+          providerMessage: appError.context.providerMessage ?? null,
+          providerLastAction: appError.context.providerLastAction ?? null,
+          providerValidationErrors: appError.context.providerValidationErrors ?? null,
+          responseKeys: appError.context.responseKeys ?? null,
+          dataKeys: appError.context.dataKeys ?? null,
+        }
+      : undefined;
     // Only the error CODE and safe field-level details are logged; never the request body
     // (it contains personal data) and never SQL text.
     logger.warn("order request rejected", {
       code: appError.code,
       detail: appError.context.detail ?? null,
+      ...(providerDiagnostics ?? {}),
     });
     const isConfig = error instanceof ConfigError;
-    const configIssues =
-      isConfig && context.config.appEnv !== "production" ? { issues: error.issues } : undefined;
-    const details = participantErrorDetails(error) ?? configIssues;
+    const exposeDiagnostics = context.config.appEnv !== "production";
+    const configIssues = isConfig && exposeDiagnostics ? { issues: error.issues } : undefined;
+    const details =
+      participantErrorDetails(error) ??
+      configIssues ??
+      (exposeDiagnostics ? providerDiagnostics : undefined);
     return errorResponse(appError, {
       ...(isConfig ? { message: "La configuración del backend está incompleta." } : {}),
       ...(details === undefined ? {} : { details }),

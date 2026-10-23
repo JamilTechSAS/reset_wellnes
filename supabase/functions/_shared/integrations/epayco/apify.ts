@@ -57,6 +57,7 @@ export type CreateSessionParams = {
   readonly description?: string | undefined;
   readonly currency: string;
   readonly amount: number; // in pesos
+  readonly ip: string;
   readonly invoice: string;
   readonly response?: string | undefined;
   readonly confirmation?: string | undefined;
@@ -172,6 +173,7 @@ export function createEpaycoApifyClient(options: EpaycoApifyClientOptions): Epay
       description: params.description ?? params.name,
       currency: params.currency,
       amount: params.amount,
+      ip: params.ip,
       invoice: params.invoice,
       ...(params.response ? { response: params.response } : {}),
       ...(params.confirmation ? { confirmation: params.confirmation } : {}),
@@ -243,9 +245,52 @@ export function createEpaycoApifyClient(options: EpaycoApifyClientOptions): Epay
 
       const validation = sessionResponseSchema.safeParse(parsedJson);
       if (!validation.success) {
+        const responseObject =
+          typeof parsedJson === "object" && parsedJson !== null && !Array.isArray(parsedJson)
+            ? (parsedJson as Record<string, unknown>)
+            : {};
+        const responseData =
+          typeof responseObject.data === "object" &&
+          responseObject.data !== null &&
+          !Array.isArray(responseObject.data)
+            ? (responseObject.data as Record<string, unknown>)
+            : {};
+        const safeText = (value: unknown): string | null =>
+          typeof value === "string" ? value.replace(/[\r\n\t]+/g, " ").slice(0, 240) : null;
+
         throw new EpaycoApifyError("ePayco session creation response missing sessionId", {
           httpStatus: response.status,
-          context: { invoice: params.invoice },
+          context: {
+            invoice: params.invoice,
+            responseKeys: Object.keys(responseObject).slice(0, 12).join(","),
+            dataKeys: Object.keys(responseData).slice(0, 12).join(","),
+            providerSuccess:
+              typeof responseObject.success === "boolean" ? responseObject.success : null,
+            providerTitleResponse: safeText(responseObject.titleResponse),
+            providerTextResponse: safeText(responseObject.textResponse),
+            providerMessage: safeText(responseObject.message),
+            providerLastAction: safeText(responseObject.lastAction),
+            providerValidationErrors: Array.isArray(responseData.errors)
+              ? responseData.errors
+                  .slice(0, 8)
+                  .map((entry: unknown) => {
+                    if (typeof entry !== "object" || entry === null) {
+                      return "Unrecognized validation error";
+                    }
+                    const item = entry as Record<string, unknown>;
+                    const code =
+                      typeof item.codError === "string" || typeof item.codError === "number"
+                        ? String(item.codError).slice(0, 20)
+                        : "";
+                    const message =
+                      safeText(item.errorMessage)
+                        ?.replace(/[^a-zA-Z0-9 _.,:()-]/g, "")
+                        .slice(0, 180) ?? "Message unavailable";
+                    return code ? `${code}: ${message}` : message;
+                  })
+                  .join(" | ")
+              : null,
+          },
         });
       }
 

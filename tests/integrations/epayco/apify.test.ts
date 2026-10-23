@@ -68,6 +68,7 @@ describe("ePayco Apify client (Smart Checkout V2)", () => {
           checkout_version: string;
           name: string;
           amount: number;
+          ip: string;
           currency: string;
           invoice: string;
           confirmation: string;
@@ -77,6 +78,7 @@ describe("ePayco Apify client (Smart Checkout V2)", () => {
         expect(body.checkout_version).toBe("2");
         expect(body.name).toBe("Re set Sunset Vol. 1");
         expect(body.amount).toBe(160000);
+        expect(body.ip).toBe("203.0.113.10");
         expect(body.currency).toBe("COP");
         expect(body.invoice).toBe("EVT-2026-000001");
         expect(body.confirmation).toBe("https://api.example.com/webhooks-epayco");
@@ -109,6 +111,7 @@ describe("ePayco Apify client (Smart Checkout V2)", () => {
     });
 
     const result = await client.createSession({
+      ip: "203.0.113.10",
       name: "Re set Sunset Vol. 1",
       currency: "COP",
       amount: 160000,
@@ -158,6 +161,7 @@ describe("ePayco Apify client (Smart Checkout V2)", () => {
     });
 
     const result = await client.createSession({
+      ip: "203.0.113.10",
       name: "Re set Sunset Vol. 1",
       currency: "COP",
       amount: 160000,
@@ -191,6 +195,7 @@ describe("ePayco Apify client (Smart Checkout V2)", () => {
 
     await expect(
       client.createSession({
+        ip: "203.0.113.10",
         name: "Test",
         currency: "COP",
         amount: 1000,
@@ -222,6 +227,7 @@ describe("ePayco Apify client (Smart Checkout V2)", () => {
 
     await expect(
       client.createSession({
+        ip: "203.0.113.10",
         name: "Test",
         currency: "COP",
         amount: -50,

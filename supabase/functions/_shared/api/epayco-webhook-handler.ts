@@ -48,6 +48,30 @@ async function sha256Hex(value: string): Promise<string> {
     .join("");
 }
 
+/**
+ * Order references are `EVT-YYYY-NNNNNN`; payment retries append `-<attempt>`
+ * (see `public.retry_payment`). The invoice ePayco echoes back is the ATTEMPT reference, so
+ * the order reference is recovered by dropping a retry suffix when one is present.
+ * `confirm_payment` re-checks that the attempt reference belongs to that order.
+ */
+const ATTEMPT_REFERENCE = /^(EVT-[0-9]{4}-[0-9]{6,})(?:-([0-9]{1,3}))?$/;
+
+export function resolveEpaycoReferences(invoice: string): {
+  readonly orderReference: string;
+  readonly paymentReference: string;
+} {
+  const trimmed = invoice.trim();
+  const match = ATTEMPT_REFERENCE.exec(trimmed);
+  if (match?.[1] === undefined) {
+    return { orderReference: trimmed, paymentReference: trimmed };
+  }
+  return { orderReference: match[1], paymentReference: trimmed };
+}
+
+function isTruthyFlag(value: string | undefined): boolean {
+  return value !== undefined && ["true", "1", "yes"].includes(value.trim().toLowerCase());
+}
+
 /** Parses raw JSON or URLSearchParams into a flat string record */
 export function normalizeEpaycoPayload(body: unknown): Record<string, string> {
   if (typeof body !== "object" || body === null) {
@@ -75,7 +99,8 @@ export async function handleEpaycoWebhook(
   const amountStr = payload.x_amount ?? payload.amount ?? "";
   const currency = (payload.x_currency_code ?? payload.currency ?? "COP").toUpperCase();
   const signature = payload.x_signature ?? payload.signature ?? "";
-  const orderReference = payload.x_id_invoice ?? payload.extra1 ?? payload.invoice ?? "";
+  const invoice = payload.x_id_invoice ?? payload.x_id_factura ?? payload.invoice ?? "";
+  const { orderReference, paymentReference } = resolveEpaycoReferences(invoice);
   const codResponseStr = payload.x_cod_response ?? payload.x_cod_transaction_state ?? "";
   const statusMessage = payload.x_response_reason_text ?? payload.x_response ?? undefined;
   const paymentMethod = payload.x_franchise ?? payload.x_payment_method ?? undefined;
@@ -146,9 +171,42 @@ export async function handleEpaycoWebhook(
     };
   }
 
+  // 2b. A sandbox transaction must never settle an order while the backend runs live.
+  //     Test and live deliveries are signed with the same merchant keys, so the signature
+  //     alone cannot tell them apart.
+  if (isTruthyFlag(payload.x_test_request) && !config.epayco.test) {
+    logger.warn("epayco test transaction received while live mode is active", {
+      orderReference,
+      refPayco,
+    });
+    const testDigest = await sha256Hex(`epayco:test:${refPayco}:${transactionId}`);
+    try {
+      await payments.recordWebhookRejection({
+        dedupeKey: `rej:epayco:${testDigest.slice(0, 32)}`,
+        eventName: "epayco.confirmation",
+        httpStatus: 200,
+        errorCode: "TEST_TRANSACTION_IN_LIVE_MODE",
+        provider: "epayco",
+      });
+    } catch (e) {
+      logger.error("failed to record webhook rejection", { error: toAppError(e).code });
+    }
+    // 200 so ePayco stops retrying a delivery that can never be applied.
+    return {
+      status: 200,
+      outcome: "REJECTED",
+      eventId: undefined,
+      orderReference,
+      transactionId: refPayco,
+      ticketsIssued: 0,
+      reason: "TEST_TRANSACTION_IN_LIVE_MODE",
+      reviewRequired: true,
+    };
+  }
+
   // 3. Deduplication and idempotency claim
   const eventDigest = await sha256Hex(
-    `epayco:${refPayco}:${transactionId}:${codResponseStr}:${orderReference}`,
+    `epayco:${refPayco}:${transactionId}:${codResponseStr}:${paymentReference}`,
   );
   const dedupeKey = `evt:epayco:${eventDigest.slice(0, 32)}`;
 
@@ -200,7 +258,7 @@ export async function handleEpaycoWebhook(
   try {
     confirmation = await payments.confirmPayment({
       orderReference,
-      wompiReference: orderReference,
+      wompiReference: paymentReference,
       wompiTransactionId: refPayco,
       wompiStatus: codResponseStr,
       amountCents: amountInCents,
