@@ -18,6 +18,7 @@ import {
   type PurchaseController,
 } from "../../src/purchase/controller.ts";
 import type { EpaycoCheckout, PaymentCheckout, WompiCheckout } from "../../src/api/types.ts";
+import { parseReturnContext } from "../../src/purchase/return-route.ts";
 import {
   createFakeApi,
   createMemoryStore,
@@ -931,6 +932,32 @@ describe("return, refresh and repeated returns", () => {
     expect(state.hintOutcome).toBe("APPROVED_APPLIED");
     expect(state.step).toBe("pending");
     expect(state.status?.status).toBe("PENDING");
+  });
+
+  it("forwards ePayco's ref_payco as a hint and stays pending until the backend confirms", async () => {
+    const api = createFakeApi();
+    api.getOrderStatus.mockResolvedValue(makeOrderStatus({ status: "PENDING" }));
+    const env = setup({ api, seed: pendingOrderEntry(), polling });
+    const { transactionId } = parseReturnContext(
+      new URL("https://reset-wellnes-staging.vercel.app/gracias?ref_payco=987654"),
+    );
+
+    await env.controller.resumeReturn({ transactionId });
+    await advance(env, 2_000);
+
+    expect(api.sendPaymentHint).toHaveBeenCalledWith("EVT-2026-000001", TEST_BUYER_EMAIL, "987654");
+    expect(env.controller.getState().step).toBe("pending");
+  });
+
+  it("does not send an ePayco hint when this browser has no stored order", async () => {
+    const api = createFakeApi();
+    const env = setup({ api });
+
+    await env.controller.resumeReturn({ transactionId: "987654" });
+
+    expect(api.sendPaymentHint).not.toHaveBeenCalled();
+    expect(api.getOrderStatus).not.toHaveBeenCalled();
+    expect(env.controller.getState().problem?.kind).toBe("not_found");
   });
 
   it("keeps working when the hint itself fails", async () => {

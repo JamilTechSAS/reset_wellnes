@@ -516,6 +516,32 @@ describe("parseReturnContext", () => {
   it("treats a transaction id anywhere as a return", () => {
     expect(parseReturnContext(new URL("http://localhost:3000/?id=tx-1")).isReturn).toBe(true);
   });
+
+  it("recognizes an ePayco return by its documented ref_payco parameter", () => {
+    const context = parseReturnContext(
+      new URL(
+        "https://reset-wellnes-staging.vercel.app/gracias?ref_payco=68fb83729d094878e015be00",
+      ),
+    );
+    expect(context.isReturn).toBe(true);
+    expect(context.transactionId).toBe("68fb83729d094878e015be00");
+    expect(context.reference).toBeUndefined();
+  });
+
+  it("does not read the webhook-only x_ref_payco field from the return URL", () => {
+    const context = parseReturnContext(new URL("http://localhost:3000/?x_ref_payco=987654"));
+    expect(context.isReturn).toBe(false);
+    expect(context.transactionId).toBeUndefined();
+  });
+
+  it("never derives a payment outcome from success-looking parameters", () => {
+    const context = parseReturnContext(
+      new URL(
+        "http://localhost:3000/gracias?ref_payco=987654&x_response=Aceptada&x_cod_response=1",
+      ),
+    );
+    expect(Object.keys(context).sort()).toEqual(["isReturn", "reference", "transactionId"]);
+  });
 });
 
 describe("Wompi checkout URL", () => {

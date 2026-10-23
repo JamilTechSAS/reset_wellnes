@@ -124,12 +124,15 @@ path, so a bad or exhausted code never breaks the purchase.
 
 ## 5. Returning from Wompi, polling, refresh
 
-1. `parseReturnContext(window.location)` reads `?id=` / `?transaction-id=` (Wompi's transaction id),
-   an optional `?ref=`, and treats the `/gracias` path itself as a return.
+1. `parseReturnContext(window.location)` reads `?id=` / `?transaction-id=` (Wompi's transaction id)
+   or `?ref_payco=` (ePayco's), an optional `?ref=`, and treats the `/gracias` path itself as a
+   return. `/gracias` has no HTML file: `vercel.json` rewrites it to `index.html`, so it also works
+   when opened directly (the Vite dev server hides a missing rewrite by falling back for any path).
+   The return URL is `WOMPI_REDIRECT_URL` for both providers (ePayco's session `response`).
 2. **Nothing in the URL is proof of payment.** The transaction id is forwarded to the payment-hint
-   endpoint, which re-reads the transaction from Wompi with the private key before anything else
-   happens. If the hint fails, the flow continues unchanged (the webhook and the reconciliation
-   sweep still apply).
+   endpoint, which re-reads the transaction from the provider (Wompi with the private key, ePayco
+   through its validation endpoint) before anything else happens. If the hint fails, the flow
+   continues unchanged (the webhook still applies; the reconciliation sweep is Wompi-only).
 3. The order to ask about comes from the session correlation written when the order was created
    (reference + buyer email). Without one, the dialog asks for the reference and the buyer email.
 4. Polling: `GET /orders/{reference}` every **4 s**, for at most **90 s**. It stops on a terminal

@@ -6,8 +6,15 @@
  * to `POST /orders/{reference}/payment-hint`, which re-reads the transaction with the private
  * key before anything happens. Nothing in the URL is ever treated as proof of payment.
  *
- * The order reference is not added by Wompi, so it comes from the (optional) `ref` parameter
- * when present and otherwise from the session's stored pending order.
+ * ePayco sends the buyer back to the session's `response` URL with `ref_payco` (its
+ * transaction reference, docs.epayco.com "Páginas de Respuesta y Confirmación"). It takes the
+ * same hint path: the backend re-reads it from ePayco's validation endpoint.
+ *
+ * The order reference is not added by either provider, so it comes from the (optional) `ref`
+ * parameter when present and otherwise from the session's stored pending order.
+ *
+ * `/gracias` has no HTML file of its own: `vercel.json` rewrites it to `index.html`, whose
+ * `bootstrap()` reads this context and resumes the purchase dialog.
  */
 
 export type ReturnContext = {
@@ -36,7 +43,6 @@ export function parseReturnContext(url: URL): ReturnContext {
     url.searchParams.get("id"),
     url.searchParams.get("transaction-id"),
     url.searchParams.get("ref_payco"),
-    url.searchParams.get("x_ref_payco"),
   );
   const rawReference = firstNonEmpty(
     url.searchParams.get("ref"),
