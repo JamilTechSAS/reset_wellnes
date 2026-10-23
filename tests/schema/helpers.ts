@@ -38,6 +38,7 @@ export const DOMAIN_TABLES = [
   "quantity_discounts",
   "rate_limit_counters",
   "sheets_projections",
+  "ticket_bundles",
   "ticket_types",
   "tickets",
 ] as const;

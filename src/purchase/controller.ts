@@ -359,7 +359,12 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
 
   function eligibleDiscountCode(): string | undefined {
     const ticketType = selectTicketType(state.event, config.ticketTypeCode);
-    if (state.bundleCode !== null || state.quantity !== 1 || ticketType?.currentTier?.name !== "General") return undefined;
+    if (
+      state.bundleCode !== null ||
+      state.quantity !== 1 ||
+      ticketType?.currentTier?.name !== "General"
+    )
+      return undefined;
     return state.discountCode.length === 0 ? undefined : state.discountCode;
   }
 
@@ -369,8 +374,14 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
 
   async function start(): Promise<void> {
     const draft = loadDraft(store);
-    const quantity = state.bundleCode !== null ? 2 : clamp(draft?.quantity ?? state.quantity, 1, MAX_QUANTITY_FALLBACK);
-    const savedDiscountCode = state.bundleCode === null && quantity === 1 ? (draft?.discountCode ?? state.discountCode) : "";
+    const quantity =
+      state.bundleCode !== null
+        ? 2
+        : clamp(draft?.quantity ?? state.quantity, 1, MAX_QUANTITY_FALLBACK);
+    const savedDiscountCode =
+      state.bundleCode === null && quantity === 1
+        ? (draft?.discountCode ?? state.discountCode)
+        : "";
     const participant = {
       ...participantFromDraft(draft, state.participant),
       ...(state.participant.dataProcessing ? { dataProcessing: true } : {}),
@@ -476,11 +487,10 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
       discountCode: bundleCode !== null || leavingBundle ? "" : state.discountCode,
       quote: null,
     });
-    if (bundleCode === null) {
+    if (leavingBundle) {
       persistDraft();
     }
   }
-
 
   function setDiscountCode(value: string): void {
     emit({ discountCode: value.trim().toUpperCase(), quote: null });

@@ -166,9 +166,15 @@ describe("purchase step rendering", () => {
         })),
       },
     };
-    const single = renderPurchaseStep(makeState({ step: "form", quantity: 1, event: generalEvent }), CONTEXT);
+    const single = renderPurchaseStep(
+      makeState({ step: "form", quantity: 1, event: generalEvent }),
+      CONTEXT,
+    );
     expect(single.body).toContain('id="pf-discount"');
-    const bundle = renderPurchaseStep(makeState({ step: "form", quantity: 2, event: generalEvent }), CONTEXT);
+    const bundle = renderPurchaseStep(
+      makeState({ step: "form", quantity: 2, event: generalEvent }),
+      CONTEXT,
+    );
     expect(bundle.body).not.toContain('id="pf-discount"');
     expect(bundle.body).toContain("Doble experiencia es un producto separado.");
   });

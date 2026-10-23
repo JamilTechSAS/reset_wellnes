@@ -163,9 +163,7 @@ function quoteSummary(quote: Quote, bundleCode: PurchaseState["bundleCode"]): st
   const isBundle = bundleCode === "DOUBLE_EXPERIENCE";
   const rows = [
     summaryRow(
-      isBundle
-        ? "Doble experiencia (2 entradas)"
-        : `${quote.ticketType.name} × ${quote.quantity}`,
+      isBundle ? "Doble experiencia (2 entradas)" : `${quote.ticketType.name} × ${quote.quantity}`,
       quote.subtotalInCents,
     ),
     quote.quantityDiscountInCents > 0
@@ -180,7 +178,6 @@ function quoteSummary(quote: Quote, bundleCode: PurchaseState["bundleCode"]): st
   ];
   return `<div class="summary">${rows.join("")}</div>`;
 }
-
 
 function discountNotice(quote: Quote): string {
   const { discountCode } = quote;

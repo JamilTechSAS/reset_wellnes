@@ -83,6 +83,7 @@ describe("schema constraints", () => {
         "discount_redemptions.discount_code_id->discount_codes",
         "discount_redemptions.order_id->orders",
         "email_deliveries.ticket_id->tickets",
+        "order_items.bundle_id->ticket_bundles",
         "order_items.order_id->orders",
         "order_items.pricing_tier_id->pricing_tiers",
         "order_items.ticket_type_id->ticket_types",
@@ -99,6 +100,9 @@ describe("schema constraints", () => {
         // Phase 5 outbox: a projection row belongs to exactly one ticket and event.
         "sheets_projections.event_id->events",
         "sheets_projections.ticket_id->tickets",
+        "ticket_bundles.event_id->events",
+        "ticket_bundles.pricing_tier_id->pricing_tiers",
+        "ticket_bundles.ticket_type_id->ticket_types",
         "ticket_types.event_id->events",
         "tickets.event_id->events",
         "tickets.order_id->orders",

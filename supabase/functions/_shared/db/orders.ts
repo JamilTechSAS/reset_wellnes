@@ -233,7 +233,9 @@ export function createOrderGateway(client: DbClient): OrderGateway {
         p_buyer_phone: request.buyerPhone,
         p_participant: request.participant,
         ...(request.discountCode === undefined ? {} : { p_discount_code: request.discountCode }),
-        ...(request.idempotencyKey === undefined ? {} : { p_idempotency_key: request.idempotencyKey }),
+        ...(request.idempotencyKey === undefined
+          ? {}
+          : { p_idempotency_key: request.idempotencyKey }),
         ...(request.ipAddress === undefined ? {} : { p_ip_address: request.ipAddress }),
         ...(request.userAgent === undefined ? {} : { p_user_agent: request.userAgent }),
       };
