@@ -1,7 +1,13 @@
 # Security
 
-Security here means, in priority order: (1) nobody gets a ticket they did not pay for,
+Security here means, in priority order: (1) nobody gets an admission they did not pay for,
 (2) nobody's personal data leaks, (3) nothing can be silently changed after the fact.
+
+**Provider and ticket status.** ePayco is the only checkout the buyer flow opens, and its
+confirmation webhook is `POST /webhooks-epayco`. Tickets and QR codes are discontinued: an
+admission is a participant row on a PAID order. The Wompi controls, ticket tokens and email
+outbox described below are legacy layers kept for historical data and earlier deployments; they
+are not part of the current purchase path.
 
 ## 1. Assets
 

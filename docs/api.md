@@ -1,11 +1,11 @@
 # API
 
-**Status: the operational backend is complete (Phases 1–5) and this contract is frozen**
-(pre-frontend closure, 2026-10-04; see
-[audits/pre-frontend-closure-01.md](audits/pre-frontend-closure-01.md)). Every endpoint below is
-implemented and test-covered; the Spanish frontend is a thin client over these contracts. The
-only part not yet exercised against live providers is the Wompi sandbox / Resend / Google run,
-which needs credentials (§5 explains the Data API boundary; the freeze checklist is §6).
+**Status: the operational backend is implemented and test-covered.** The Spanish frontend is a
+thin client over these contracts. Payments run through **ePayco Smart Checkout V2** (the only
+provider the purchase flow opens); tickets and QR codes are discontinued, so a PAID order and its
+participant roster are the confirmation. The part not exercised against live providers is the
+ePayco sandbox / Resend / Google run, which needs credentials (§5 explains the Data API boundary;
+the freeze checklist is §6).
 
 Base URL: `https://<project-ref>.supabase.co/functions/v1/<function>` (locally
 `http://127.0.0.1:54321/functions/v1/<function>`).
@@ -28,17 +28,17 @@ Base URL: `https://<project-ref>.supabase.co/functions/v1/<function>` (locally
 | `VALIDATION_ERROR` | 400  | Malformed or invalid input (`details.issues[]` per field)                 |
 | `UNAUTHORIZED`     | 401  | Missing/invalid credentials (operator token, webhook signature)           |
 | `FORBIDDEN`        | 403  | Authenticated but not allowed                                             |
-| `NOT_FOUND`        | 404  | Unknown order reference, ticket token, etc.                               |
+| `NOT_FOUND`        | 404  | Unknown order reference, participant, or legacy ticket token              |
 | `CONFLICT`         | 409  | State does not allow the operation (sold out, already paid, already used) |
 | `RATE_LIMITED`     | 429  | Too many requests                                                         |
-| `UPSTREAM_ERROR`   | 502  | Wompi (or another provider) failed to answer correctly                    |
+| `UPSTREAM_ERROR`   | 502  | ePayco (or another provider) failed to answer correctly                   |
 | `INTERNAL_ERROR`   | 500  | Unexpected; the real cause is only in logs                                |
 
 ### Authentication
 
 | Audience             | Mechanism                                                                                                                                                                                                                                                        |
 | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Wompi webhook        | Event checksum (`X-Event-Checksum` / `signature.checksum`), private-key transaction lookup (Phase 4, implemented); `verify_jwt = false`                                                                                                                          |
+| ePayco webhook       | Provider-authenticated notification (`webhooks-epayco`), validated server-side before any order changes; `verify_jwt = false`. The Wompi checksum mechanism below is legacy                                                                                      |
 | Public buyer API     | No user account. `GET`/retry require the order reference **and** the buyer email (`X-Buyer-Email`); abuse control = strict validation, per-IP/per-reference rate limits, order-scoped opaque identifiers                                                         |
 | Maintenance jobs     | `Authorization: Bearer <MAINTENANCE_API_TOKEN>` (shared secret, ≥32 chars, constant-time comparison); `verify_jwt = false`                                                                                                                                       |
 | Operator check-in UI | Supabase Auth: `Authorization: Bearer <access token>` verified by Supabase Auth, plus an active row in `public.operators` (role `OPERATOR`/`ADMIN`). 401 = not authenticated; 403 = authenticated but not an active operator. There is no shared operator secret |
@@ -48,6 +48,11 @@ Base URL: `https://<project-ref>.supabase.co/functions/v1/<function>` (locally
 authenticates its own callers as listed above.
 
 ## 2. Endpoints
+
+> **Provider status.** ePayco Smart Checkout V2 is the only checkout the buyer frontend opens;
+> `POST /webhooks-epayco` is the active confirmation endpoint. The `/webhooks/wompi` section and
+> the ticket-era endpoints below are kept as historical reference only: Wompi is not used for
+> this event, and no purchase issues a ticket or a QR code.
 
 ### `GET /health` — implemented
 
@@ -149,7 +154,7 @@ max_per_order]`; the discount code belongs to the event, is active, unexpired an
 limit. Totals are recomputed server-side from database state and **never** taken from input —
 there is no amount parameter anywhere in the request.
 
-Named product: `Doble experiencia` is selected only by sending `"bundleCode": "DOUBLE_EXPERIENCE"` with quantity `2`. The database prices that product at `34000000` centavos ($340,000 COP), reserves two admissions from the General stage, and rejects promo codes with the bundle. Without `bundleCode`, a quantity of two represents two individual General tickets at $400,000 COP; it never receives the bundle price automatically.
+Named product: `Doble experiencia` is selected only by sending `"bundleCode": "DOUBLE_EXPERIENCE"` with quantity `2`. The database prices that product at `34000000` centavos ($340,000 COP), reserves two admissions from the General stage, and rejects promo codes with the bundle. Without `bundleCode`, a quantity of two represents two individual General admissions at $400,000 COP; it never receives the bundle price automatically.
 
 ### `POST /orders` — implemented (Phase 3)
 
@@ -176,9 +181,10 @@ same key returns the same order instead of reserving inventory twice).
   "subtotalInCents": 19000000, "quantityDiscountInCents": 0, "discountCodeInCents": 4750000,
   "totalDiscountInCents": 4750000, "totalInCents": 14250000, "currency": "COP",
   "reservationExpiresAt": "2026-10-03T16:05:00.000Z", "paymentAttempt": 1,
-  "checkout": { "publicKey": "pub_test_…", "currency": "COP", "amountInCents": 14250000,
-                "reference": "EVT-2026-000001", "integritySignature": "…",
-                "expirationTime": null, "redirectUrl": "https://evento.example/gracias",
+  "checkout": { "provider": "epayco", "sessionId": "…", "publicKey": "…", "test": true,
+                "reference": "EVT-2026-000001", "amountInCents": 14250000, "currency": "COP",
+                "redirectUrl": "https://evento.example/gracias",
+                "confirmationUrl": "https://<project>.supabase.co/functions/v1/webhooks-epayco",
                 "customerData": { "email": "comprador@example.com", "fullName": null,
                                   "phoneNumber": null, "phoneNumberPrefix": null } } } }
 ```
@@ -187,18 +193,23 @@ Errors: `VALIDATION_ERROR` (input, `details.issues[]` for participant fields), `
 (unknown event or ticket type), `CONFLICT` (`SOLD_OUT`, `DISCOUNT_EXHAUSTED`, `QUANTITY_LIMIT`,
 `IDEMPOTENCY_KEY_CONFLICT`), `RATE_LIMITED`.
 
-The checkout payload is the only place the signature is produced; the integrity secret stays
-server-side. `expirationTime` is included in the signature whenever the checkout uses it (it is
-disabled by default). A supplied code that cannot be applied fails the order instead of silently
-charging the full price.
+The checkout payload is secret-free: the ePayco session id plus the public flags and the amount
+the database wrote. No private key ever reaches the browser. A supplied code that cannot be
+applied fails the order instead of silently charging the full price.
 
 ### `GET /orders/{reference}` — implemented (Phase 4)
 
 Buyer-facing status, safe fields only. The order reference is sequential and therefore
 enumerable, so the endpoint requires the buyer email in the `X-Buyer-Email` header. A wrong
 email and an unknown reference return the **same** `404 ORDER_NOT_FOUND`, so the endpoint
-cannot be used to discover which orders exist. Ticket tokens are returned only for a `PAID`
-order and are never a capability for anything else.
+cannot be used to discover which orders exist.
+
+Tickets are discontinued: the response carries the order's **admissions** and a names-only
+**participant roster** instead of ticket tokens and per-ticket email counts. The roster is
+returned only for a `PAID` order; while the order is pending the fields exist but are empty
+(`participants: []`). A two-admission purchase starts with one assignment (the buyer) and
+`admissions.remainingUnassigned: 1`, which drops to `0` once the companion is attached with
+`POST /orders/{reference}/participants`.
 
 ```json
 // GET /orders/EVT-2026-000001   (X-Buyer-Email: comprador@example.com)
@@ -230,29 +241,34 @@ order and are never a capability for anything else.
         "finalizedAt": "…"
       }
     ],
-    "tickets": [
-      {
-        "token": "TKT_…",
-        "unit": 1,
-        "status": "ACTIVE",
-        "assigned": true,
-        "pricePaidCents": 9500001,
-        "participantName": "Ana Pérez"
-      }
-    ],
-    "confirmation": { "queued": 3, "sent": 0, "failed": 0, "ready": true }
+    "admissions": { "quantity": 3, "assigned": 2, "remainingUnassigned": 1 },
+    "participants": [
+      { "unit": 1, "firstName": "Ana", "lastName": "Pérez" },
+      { "unit": 2, "firstName": "Beto", "lastName": "Gómez" }
+    ]
   }
 }
 ```
 
-The projection is a SQL whitelist: it never returns cédula, email, phone, IP, user agent,
-Wompi transaction id, integrity signature or `provider_payload`. Validation: the reference
-must match `EVT-<year>-<sequence>`; the email must be non-empty. Rate-limited per order
-reference (§3).
+`admissions` is derived from the order lines (`quantity`), the participant rows
+(`assigned`) and their difference (`remainingUnassigned`) — never from ticket rows. The
+roster is names only, numbered in attachment order (`unit: 1` is the holder), and is the
+refresh-proof answer to "is the companion already registered?"
+
+The projection is a SQL whitelist: it never returns cédula, email, phone, city, participant
+id, IP, user agent, Wompi transaction id, integrity signature or `provider_payload`.
+Validation: the reference must match `EVT-<year>-<sequence>`; the email must be non-empty.
+Rate-limited per order reference (§3).
+
+**Compatibility note (ticket removal).** The ticket-era fields `tickets` and
+`confirmation` are no longer returned. They only ever described ticket issuance and the
+per-ticket email outbox, both of which are gone, so keeping empty copies would have implied
+a capability that does not exist. The only in-repo consumer (the buyer frontend) already
+ignores them.
 
 ### `POST /orders/{reference}/retry` — implemented (Phase 4)
 
-Creates a new payment attempt with a **fresh Wompi reference** for a `FAILED` or `EXPIRED`
+Creates a new payment attempt with a **fresh payment reference** for a `FAILED` or `EXPIRED`
 order (a used reference can never be reused). Requires the same reference + buyer email
 possession check. The order, its frozen price and its history are preserved; an `EXPIRED`
 order re-reserves at the original stage and price (`SOLD_OUT` if no longer possible).
@@ -262,23 +278,25 @@ order re-reserves at the original stage and price (`SOLD_OUT` if no longer possi
 { "ok": true, "data": {
   "reference": "EVT-2026-000002", "status": "PENDING", "paymentAttempt": 2,
   "totalInCents": 19000002, "currency": "COP", "reservationExpiresAt": "…",
-  "checkout": { "publicKey": "pub_test_…", "currency": "COP", "amountInCents": 19000002,
-                "reference": "EVT-2026-000002-2", "integritySignature": "…",
-                "expirationTime": null, "redirectUrl": "…", "customerData": { … } } } }
+  "checkout": { "provider": "epayco", "sessionId": "…", "publicKey": "…",
+                "test": true, "reference": "EVT-2026-000002-2",
+                "amountInCents": 19000002, "currency": "COP",
+                "redirectUrl": "…", "confirmationUrl": "…", "customerData": { … } } } }
 ```
 
 Errors: `NOT_FOUND` (unknown reference or wrong email), `CONFLICT` (`ORDER_ALREADY_PAID`,
 `ORDER_NOT_RETRYABLE`, `TOO_MANY_ATTEMPTS`, `SOLD_OUT`), `VALIDATION_ERROR`. The checkout
-payload is built from the row the database just wrote, so amount and signature cannot
-disagree with what is stored.
+payload is built from the row the database just wrote, so amount and reference cannot disagree
+with what is stored.
 
 ### `POST /orders/{reference}/payment-hint` — implemented (Phase 5)
 
-Recovery path for a lost webhook. Wompi's checkout redirect carries `?id=<transaction_id>`; the
-frontend posts that id here so the backend can re-read the transaction with the private key and
-run the SAME confirmation as the webhook. **The hint is never trusted**: reference, amount,
-currency and transaction id are validated against the buyer's own payment before anything is
-confirmed, and an attempt already attached to a different transaction is refused (`MISMATCH`).
+Recovery path for a lost webhook. The ePayco return carries `?ref_payco=<transaction_id>` (the
+legacy Wompi `?id=` shape is still parsed); the frontend posts that id here so the backend can
+re-read the transaction from ePayco and run the SAME confirmation as the webhook. **The hint is
+never trusted**: reference, amount, currency and transaction id are validated against the buyer's
+own payment before anything is confirmed, and an attempt already attached to a different
+transaction is refused (`MISMATCH`).
 
 Headers: `X-Buyer-Email: <email>` (or `{ "email": "…" }` in the body).
 
@@ -293,9 +311,9 @@ Headers: `X-Buyer-Email: <email>` (or `{ "email": "…" }` in the body).
 
 `outcome` uses the reconciliation vocabulary (`APPROVED_APPLIED`, `APPROVED_DUPLICATE`,
 `STILL_PENDING`, `DECLINED`, `VOIDED`, `ERROR`, `UNKNOWN_STATUS`, `MISMATCH`,
-`RECONCILIATION_REQUIRED`) plus `TRANSACTION_NOT_FOUND` when Wompi does not know the id.
+`RECONCILIATION_REQUIRED`) plus `TRANSACTION_NOT_FOUND` when the provider does not know the id.
 Errors: `NOT_FOUND` (unknown reference or wrong email — identical responses),
-`VALIDATION_ERROR` (id shape), `UPSTREAM_ERROR` (Wompi unavailable; retry).
+`VALIDATION_ERROR` (id shape), `UPSTREAM_ERROR` (ePayco unavailable; retry).
 
 ### `POST /orders/{reference}/participants` — implemented (Phase 5)
 
@@ -350,7 +368,10 @@ changed value (history is never overwritten). Same header/body rules as attach.
 Errors: `NOT_FOUND` (a participant id from another order is indistinguishable from an unknown
 one), `VALIDATION_ERROR`.
 
-### `POST /webhooks/wompi` — implemented (Phase 4)
+### `POST /webhooks/wompi` — legacy, not used for this event
+
+Wompi is retired as a purchase provider. This section documents the historical confirmation
+path. The active endpoint is `POST /webhooks-epayco` (provider validation + invoice mapping).
 
 Public (no JWT), authenticated by the event checksum; the body is only a pointer to the
 transaction.
@@ -366,8 +387,8 @@ transaction.
 3. Look the transaction up server-side with the private key (`GET /v1/transactions/{id}`).
 4. Validate transaction id ⇄ reference ⇄ order, amount and currency exactly.
 5. `confirm_payment`: lock the order, advance the payment forward-only, move the order to
-   `PAID`, convert reserved inventory to sold, issue exactly one ticket per purchased unit,
-   queue the confirmation email in the outbox — all in one transaction.
+   `PAID`, convert reserved inventory to sold and enqueue the participant projection for the
+   Google Sheet — all in one transaction. No ticket, token or email row is created.
 6. Record the outcome on the ledger and answer `200`.
 
 ```text
@@ -395,9 +416,10 @@ reported in`jobErrors` without stopping the rest. If it never runs, no payment i
 ticket is wrong: inventory stays reserved longer, emails and the sheet wait, and unreconciled
 payments remain visible.
 
-### `GET /tickets/{token}` — implemented (Phase 5)
+### `GET /tickets/{token}` — legacy, not used by the purchase flow
 
-Public-safe ticket lookup for the holder (function `tickets`). The opaque token IS the
+Tickets are no longer issued, so this endpoint only answers for historical rows. Public-safe
+ticket lookup for the holder (function `tickets`). The opaque token IS the
 capability (100 bits of CSPRNG entropy); malformed and unknown tokens answer the same
 `404 NOT_FOUND`, so the endpoint cannot be used to enumerate. The response is the minimum a
 participant-facing page needs and is a SQL whitelist — never cédula, email, phone, order

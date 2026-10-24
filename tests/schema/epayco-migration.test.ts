@@ -88,7 +88,8 @@ describe("ePayco database migration & backward compatibility", () => {
     payment: {
       provider: string;
     };
-    tickets: unknown[];
+    admissions: { quantity: number; assigned: number; remainingUnassigned: number };
+    participants: { unit: number; firstName: string; lastName: string }[];
   };
 
   it("confirms an order via ePayco payment without issuing tickets", async () => {
@@ -134,7 +135,7 @@ describe("ePayco database migration & backward compatibility", () => {
     `);
     expect(Number(ticketsRes.rows[0]?.count)).toBe(0);
 
-    // 4. Verify get_order_status projection includes provider; no tickets are listed.
+    // 4. Verify the status projection: provider, admission counts and the holder's name.
     const statusRes = await db.query<{ s: TestOrderStatus }>(`
       select public.get_order_status('${order?.reference ?? ""}', 'carlos@example.com') as s;
     `);
@@ -142,7 +143,9 @@ describe("ePayco database migration & backward compatibility", () => {
     expect(status?.found).toBe(true);
     expect(status?.status).toBe("PAID");
     expect(status?.payment.provider).toBe("epayco");
-    expect(status?.tickets).toHaveLength(0);
+    expect(status?.admissions).toEqual({ quantity: 2, assigned: 1, remainingUnassigned: 1 });
+    expect(status?.participants.map((person) => person.unit)).toEqual([1]);
+    expect(status).not.toHaveProperty("tickets");
   });
 
   it("preserves historical Wompi payments compatibility", async () => {

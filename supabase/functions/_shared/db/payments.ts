@@ -620,19 +620,22 @@ export function createPaymentGateway(client: DbClient): PaymentGateway {
 // Order status (buyer-facing read model)
 // ---------------------------------------------------------------------------
 
-export type OrderStatusTicket = {
-  readonly token: string;
+/**
+ * One assigned admission of a PAID order, names only.
+ *
+ * Ticket generation is discontinued: an admission belongs to the order and is
+ * consumed by a participant row. `unit` is the 1-based ordinal; unit 1 is the buyer.
+ */
+export type OrderStatusParticipant = {
   readonly unit: number;
-  readonly status: string;
-  readonly pricePaidCents: number;
-  readonly issuedAt: string;
-  readonly assigned: boolean;
-  readonly participant: {
-    readonly firstName: string;
-    readonly lastName: string;
-    readonly city: string;
-    readonly instagram: string | null;
-  } | null;
+  readonly firstName: string;
+  readonly lastName: string;
+};
+
+export type OrderStatusAdmissions = {
+  readonly quantity: number;
+  readonly assigned: number;
+  readonly remainingUnassigned: number;
 };
 
 export type OrderStatus = {
@@ -664,13 +667,8 @@ export type OrderStatus = {
     readonly createdAt: string;
     readonly finalizedAt: string | null;
   }[];
-  readonly tickets?: readonly OrderStatusTicket[];
-  readonly confirmation?: {
-    readonly queued: number;
-    readonly sent: number;
-    readonly failed: number;
-    readonly ready: boolean;
-  };
+  readonly admissions?: OrderStatusAdmissions;
+  readonly participants?: readonly OrderStatusParticipant[];
 };
 
 export type OrderStatusGateway = {

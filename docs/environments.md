@@ -2,20 +2,21 @@
 
 ## 1. Environments
 
-|                | `development`                                               | `sandbox`                          | `production`                       |
-| -------------- | ----------------------------------------------------------- | ---------------------------------- | ---------------------------------- |
-| Purpose        | Local work                                                  | Integration + Wompi test money     | Real sales                         |
-| Database       | Local Supabase stack (Docker)                               | Hosted Supabase project (separate) | Hosted Supabase project (separate) |
-| Wompi          | Sandbox (`pub_test_*`…)                                     | Sandbox                            | Production (`pub_prod_*`…)         |
-| Wompi base URL | `https://sandbox.wompi.co/v1` (overridable for local fakes) | `https://sandbox.wompi.co/v1`      | `https://production.wompi.co/v1`   |
-| Email          | Disabled by default (`EMAIL_ENABLED=false`)                 | Resend test sender                 | Resend verified domain             |
-| `verify_jwt`   | per function in `config.toml`                               | same                               | same                               |
+|              | `development`                               | `sandbox`                          | `production`                       |
+| ------------ | ------------------------------------------- | ---------------------------------- | ---------------------------------- |
+| Purpose      | Local work                                  | Integration + ePayco test money    | Real sales                         |
+| Database     | Local Supabase stack (Docker)               | Hosted Supabase project (separate) | Hosted Supabase project (separate) |
+| ePayco       | Test mode (`EPAYCO_TEST=true`)              | Test mode                          | Production (`EPAYCO_TEST=false`)   |
+| Wompi        | Legacy only; not used by the purchase flow  | Legacy only                        | Legacy only                        |
+| Email        | Disabled by default (`EMAIL_ENABLED=false`) | Resend test sender                 | Resend verified domain             |
+| `verify_jwt` | per function in `config.toml`               | same                               | same                               |
 
 Rules that the configuration loader enforces (see `_shared/config/env.ts`):
 
-- `APP_ENV` is the only switch. `production` is the only value that selects the production Wompi
-  environment; credentials whose prefix does not match are rejected **at startup**.
-- `WOMPI_BASE_URL` may only be overridden in development.
+- `APP_ENV` is the only switch. `production` requires `EPAYCO_TEST=false`; test credentials
+  must never settle a real order, and the loader refuses the combination at startup.
+- `EPAYCO_BASE_URL` may only be overridden in development (integration tests point it at a fake).
+- Wompi keys are accepted by legacy code but are not part of this event's purchase flow.
 - Outside development: `https` is required for public URLs, CORS origins must be explicit
   origins (no `*`, no localhost), `MAINTENANCE_API_TOKEN` is required (≥32 chars), email
   credentials are required when `EMAIL_ENABLED=true` (the default), and `LOG_LEVEL=debug` is
@@ -42,12 +43,12 @@ Rules that the configuration loader enforces (see `_shared/config/env.ts`):
 | Secret                                                                                                                       | Where it lives                                                                                        | Who can see it    | Notes                                                                            |
 | ---------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ----------------- | -------------------------------------------------------------------------------- |
 | Server-side Supabase key (`SUPABASE_SECRET_KEY`, or the platform's `SUPABASE_SECRET_KEYS` bag / `SUPABASE_SERVICE_ROLE_KEY`) | Edge Function secrets; on hosted Supabase the platform provides the bag                               | Backend only      | Full database authority. Never in the frontend, never in logs                    |
-| `WOMPI_PRIVATE_KEY`                                                                                                          | Edge Function secrets                                                                                 | Backend only      | Used for `GET /v1/transactions/{id}`                                             |
-| `WOMPI_INTEGRITY_SECRET`                                                                                                     | Edge Function secrets                                                                                 | Backend only      | Signs checkout amounts; the frontend gets only the hash                          |
-| `WOMPI_EVENTS_SECRET`                                                                                                        | Edge Function secrets                                                                                 | Backend only      | Verifies webhook authenticity                                                    |
+| `EPAYCO_PRIVATE_KEY`                                                                                                         | Edge Function secrets                                                                                 | Backend only      | Creates the Smart Checkout session / validates transactions                      |
+| `EPAYCO_P_KEY`                                                                                                               | Edge Function secrets                                                                                 | Backend only      | Provider credential, never in the browser                                        |
+| `EPAYCO_CUST_ID_CLIENTE`                                                                                                     | Edge Function secrets                                                                                 | Backend only      | Merchant id used by the checkout session                                         |
 | `RESEND_API_KEY`                                                                                                             | Edge Function secrets                                                                                 | Backend only      | Email sending (outbox dispatcher)                                                |
 | `MAINTENANCE_API_TOKEN`                                                                                                      | Edge Function secrets + Supabase Vault (`maintenance_api_token`)                                      | Backend/operators | Bearer for `orders-maintenance` (expiry, email, reconciliation, cleanup, Sheets) |
-| `WOMPI_PUBLIC_KEY`                                                                                                           | Backend + frontend checkout                                                                           | Public by design  | Only ever used to identify the merchant                                          |
+| `EPAYCO_PUBLIC_KEY`                                                                                                          | Edge Function secrets                                                                                 | Public by design  | Merchant identification; the browser only receives the backend's session id      |
 | `SUPABASE_PUBLISHABLE_KEY`                                                                                                   | Frontend, operator sign-in only (legacy `anon` key equivalent)                                        | Public by design  | Mints Supabase Auth sessions for operators; reads nothing (zero Data API grants) |
 | Google service account                                                                                                       | Edge Function secrets (`GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_PRIVATE_KEY`, `GOOGLE_SPREADSHEET_ID`) | Backend           | Writes the client's spreadsheet; no database access                              |
 | `.env.local`                                                                                                                 | Developer machine                                                                                     | Developer         | Git-ignored; `.env.example` is the template                                      |
@@ -62,15 +63,16 @@ npx supabase secrets set --env-file .env.production --project-ref <prod-ref>
 npx supabase secrets list --project-ref <prod-ref>   # names + digests, never values
 ```
 
-`.env.sandbox` / `.env.production` are git-ignored. Real Wompi credentials are only ever obtained
-from the merchant dashboard ("Developers > Secrets for technical integration").
+`.env.sandbox` / `.env.production` are git-ignored. Real ePayco credentials are only ever obtained
+from the merchant dashboard ("Integraciones > Llaves API"). Wompi keys are legacy.
 
 **Current hosted status (Phase 6D.1, 2026-10-07): the Supabase key resolves; the rest is still
 unset.** No application secret is configured on `pzogdjjdkgolybfcegcs` (`npx supabase secrets list`
 shows only the platform-reserved names), so `GET /health` answers `500` — now naming **six**
 variables instead of seven, because the server-side Supabase key comes from the platform's own
 `SUPABASE_SECRET_KEYS` bag and is no longer something an operator must define. The remaining six are
-the four `WOMPI_*` values, `PUBLIC_WEB_BASE_URL` and `API_BASE_URL` (plus `CORS_ALLOWED_ORIGINS`
+the four ePayco values (`EPAYCO_PUBLIC_KEY`, `EPAYCO_PRIVATE_KEY`, `EPAYCO_P_KEY`,
+`EPAYCO_CUST_ID_CLIENTE`), `PUBLIC_WEB_BASE_URL` and `API_BASE_URL` (plus `CORS_ALLOWED_ORIGINS`
 and `MAINTENANCE_API_TOKEN` once `APP_ENV` is `sandbox`). Until they are set, every public endpoint
 — including the landing page's `GET /events/{code}` — returns `INTERNAL_ERROR`, and responses carry
 no `access-control-allow-origin` header at all.
@@ -105,7 +107,7 @@ curl -X POST "$API_BASE_URL/orders-maintenance" -H "authorization: Bearer $MAINT
 
 A credential is rotated without touching source code:
 
-1. Generate the new value in the provider dashboard (for Wompi, both keys of the same environment).
+1. Generate the new value in the provider dashboard (for ePayco, the key being rotated).
 2. Update the environment file (or secret) and re-deploy / re-set secrets.
 3. Verify with `GET /health` — it reports which credential **prefix** was loaded, so a mismatch
    between environments is visible immediately.
@@ -132,8 +134,8 @@ Checklist before touching production:
 - [ ] `npm run check` is green on the commit being deployed.
 - [ ] Migrations were applied to sandbox and to a scratch project first.
 - [ ] `CORS_ALLOWED_ORIGINS` lists the real frontend origin.
-- [ ] Wompi event URL for the environment points at `…/functions/v1/webhooks-wompi`, and the
-      production one is configured with production credentials.
+- [ ] The ePayco confirmation URL points at `…/functions/v1/webhooks-epayco`, the response URL
+      points at the site's `/gracias`, and `EPAYCO_TEST=false` in production.
 - [ ] Vault holds `project_url` and `maintenance_api_token`, and `cron.job` shows
       `event-ticketing-maintenance` (§3); expiry, emails, reconciliation, cleanup and Sheets are
       off the payment path but must still run.
@@ -205,71 +207,70 @@ numbers are in [audits/pre-frontend-closure-01.md](audits/pre-frontend-closure-0
 ```text
 Browser
   └─ Vercel (Spanish frontend, static build + public config only)
-       └─ Supabase Edge Functions (orders, events, tickets, checkin, webhooks-wompi,
+       └─ Supabase Edge Functions (orders, events, checkin, webhooks-epayco,
             orders-maintenance, health)
-                 └─ Supabase PostgreSQL (19 tables, RLS on, no policies; the Data API is
+                 └─ Supabase PostgreSQL (RLS on, no policies; the Data API is
                       used only by the backend with the secret key)
-                           └─ Wompi (COP) · Resend (email) · Google Sheets (read-only projection)
+                           └─ ePayco (COP) · Resend (email) · Google Sheets (read-only projection)
 ```
 
-Nothing in the browser is authoritative: price, inventory, payment state, ticket validity and
-attendance are decided inside the Edge Functions and SQL; the frontend only sends input and
-renders the documented responses ([api.md](api.md)).
+Nothing in the browser is authoritative: price, inventory, payment state and attendance are
+decided inside the Edge Functions and SQL; the frontend only sends input and renders the
+documented responses ([api.md](api.md)).
 
-| Piece                 | Deploys to                                    | Holds                                                                                                                 |
-| --------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Spanish frontend      | Vercel (static / SPA build)                   | Public values only: functions base URL, `WOMPI_PUBLIC_KEY`, event code, Supabase URL + publishable key (Auth sign-in) |
-| Edge Functions        | Supabase project (`npm run functions:deploy`) | All backend secrets, set with `npx supabase secrets set` (§2)                                                         |
-| Database + migrations | Supabase project (`npx supabase db push`)     | Schema, RLS, explicit grants (migration `20261004150000`), `pg_cron` job, Vault secrets                               |
-| Wompi configuration   | Wompi merchant dashboard                      | Event URL → `…/functions/v1/webhooks-wompi`; redirect → the Vercel site                                               |
-| Resend domain         | Resend dashboard                              | Verified sender identity used by `EMAIL_FROM`                                                                         |
-| Spreadsheet           | Google Drive (client account)                 | Shared with the service account; our side only ever writes to it                                                      |
+| Piece                 | Deploys to                                    | Holds                                                                                             |
+| --------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Spanish frontend      | Vercel (static / SPA build)                   | Public values only: functions base URL, event code, Supabase URL + publishable key (Auth sign-in) |
+| Edge Functions        | Supabase project (`npm run functions:deploy`) | All backend secrets, set with `npx supabase secrets set` (§2)                                     |
+| Database + migrations | Supabase project (`npx supabase db push`)     | Schema, RLS, explicit grants (migration `20261004150000`), `pg_cron` job, Vault secrets           |
+| ePayco configuration  | ePayco merchant dashboard                     | Confirmation URL → `…/functions/v1/webhooks-epayco`; response URL → the Vercel site               |
+| Resend domain         | Resend dashboard                              | Verified sender identity used by `EMAIL_FROM`                                                     |
+| Spreadsheet           | Google Drive (client account)                 | Shared with the service account; our side only ever writes to it                                  |
 
 ### What lives where (Vercel vs Supabase)
 
-- **Vercel (frontend)**: no private credential, ever. Only the functions base URL, the Wompi
-  **public** key (merchant identification), the event code, and the Supabase project URL +
-  publishable key for the operator sign-in flow (Supabase Auth only — with zero Data API grants,
-  it cannot read a single row). Anything that is not safe in a browser tab does not belong here.
+- **Vercel (frontend)**: no private credential, ever. Only the functions base URL, the event code,
+  and the Supabase project URL + publishable key for the operator sign-in flow (Supabase Auth
+  only — with zero Data API grants, it cannot read a single row). The ePayco session id arrives
+  from the backend at checkout time; no ePayco key is bundled.
 - **Supabase (Edge Function secrets, per environment)**: `SUPABASE_URL` + the server-side key
   (`SUPABASE_SECRET_KEY` where the host allows defining it, otherwise the platform's
-  `SUPABASE_SECRET_KEYS` bag — used only by the functions), the four Wompi values (`WOMPI_PUBLIC_KEY`,
-  `WOMPI_PRIVATE_KEY`, `WOMPI_INTEGRITY_SECRET`, `WOMPI_EVENTS_SECRET`), `RESEND_API_KEY`,
-  `MAINTENANCE_API_TOKEN`, and — when `SHEETS_ENABLED=true` — `GOOGLE_SERVICE_ACCOUNT_EMAIL`,
-  `GOOGLE_PRIVATE_KEY`, `GOOGLE_SPREADSHEET_ID`.
+  `SUPABASE_SECRET_KEYS` bag — used only by the functions), the four ePayco values
+  (`EPAYCO_PUBLIC_KEY`, `EPAYCO_PRIVATE_KEY`, `EPAYCO_P_KEY`, `EPAYCO_CUST_ID_CLIENTE`),
+  `RESEND_API_KEY`, `MAINTENANCE_API_TOKEN`, and — when `SHEETS_ENABLED=true` —
+  `GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_PRIVATE_KEY`, `GOOGLE_SPREADSHEET_ID`.
 - **Vault (inside the database)**: `project_url` and `maintenance_api_token`, read by the
-  `pg_cron` job (§3). Vault never holds Wompi/Resend/Google keys — those stay in Edge Function
+  `pg_cron` job (§3). Vault never holds ePayco/Resend/Google keys — those stay in Edge Function
   secrets.
 - **Non-secret backend settings** (also Edge Function env vars): `APP_ENV`, `API_BASE_URL`,
-  `PUBLIC_WEB_BASE_URL`, `CORS_ALLOWED_ORIGINS`, `TICKET_BASE_URL`, `EMAIL_ENABLED`, `EMAIL_FROM`,
+  `PUBLIC_WEB_BASE_URL`, `CORS_ALLOWED_ORIGINS`, `EPAYCO_TEST`, `EMAIL_ENABLED`, `EMAIL_FROM`,
   `EMAIL_REPLY_TO`, `ALERT_EMAIL_TO` (optional payment-alert digest recipients; invalid entries
   are ignored and reported, never a config error), `PAYMENT_RETURN_URL` (legacy fallback: `WOMPI_REDIRECT_URL`),
   `ORDER_RESERVATION_MINUTES`, `EMAIL_DISPATCH_BATCH_SIZE`,
   `RATE_LIMIT_ENABLED`, `SHEETS_ENABLED`, `GOOGLE_SHEETS_DATA_TAB`, `GOOGLE_SHEETS_STATUS_TAB`,
-  `LOG_LEVEL`, `TIMEZONE`, `SERVICE_NAME`. `APP_ENV` is the one switch that decides the Wompi
-  environment; the loader rejects credentials whose prefix does not match it.
+  `LOG_LEVEL`, `TIMEZONE`, `SERVICE_NAME`. `APP_ENV` decides whether ePayco test mode is allowed;
+  `TICKET_BASE_URL` is a legacy variable that no purchase flow uses.
 
 ### Sandbox/staging vs production
 
 Two separate hosted projects, never mixed:
 
-|                   | Sandbox (staging)                    | Production                           |
-| ----------------- | ------------------------------------ | ------------------------------------ |
-| `APP_ENV`         | `sandbox`                            | `production`                         |
-| Wompi credentials | `pub_test_*` / `prv_test_*` prefixes | `pub_prod_*` / `prv_prod_*` prefixes |
-| Wompi base URL    | `https://sandbox.wompi.co/v1`        | `https://production.wompi.co/v1`     |
-| Email             | Resend test sender                   | Verified domain (`EMAIL_FROM`)       |
-| Data              | Disposable test data                 | Real orders                          |
+|             | Sandbox (staging)    | Production                     |
+| ----------- | -------------------- | ------------------------------ |
+| `APP_ENV`   | `sandbox`            | `production`                   |
+| ePayco mode | `EPAYCO_TEST=true`   | `EPAYCO_TEST=false`            |
+| Email       | Resend test sender   | Verified domain (`EMAIL_FROM`) |
+| Data        | Disposable test data | Real orders                    |
 
-`WOMPI_BASE_URL` cannot be overridden outside `development`, so a sandbox key can never reach the
-production endpoint and vice versa. The frontend points at the sandbox project URL in preview
+`EPAYCO_BASE_URL` cannot be overridden outside `development`, so a test credential can never be
+pointed at a production endpoint. The frontend points at the sandbox project URL in preview
 deployments and at the production project URL in production (Vercel environment variables).
 
 ### Frontend rules
 
 The frontend must not call `/rest/v1` or `/graphql/v1`, must never receive a secret/private key,
-and must not compute prices, payment states or ticket validity locally — those come only from the
-Edge Functions ([api.md](api.md) §5).
+and must not compute prices, payment states or admissions locally — those come only from the Edge
+Functions ([api.md](api.md) §5).
 
 The landing page's content is the client's, from the handover ZIP; values the client has not
 supplied are rendered as "por confirmar" rather than invented

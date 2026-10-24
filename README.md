@@ -1,62 +1,60 @@
-# Event ticketing backend
+# Reset Wellness purchase backend
 
-Backend for a one-time event in Colombia: order creation, Wompi (COP) payments, ticket and
-QR issuance, check-in, confirmation email, and a read-only operational export for the client.
+Backend for a one-time event in Colombia: order creation, ePayco (COP) payments, participant
+assignment, check-in, and a read-only operational export for the client. Tickets and QR codes
+are discontinued: a paid order is the confirmation, and its participants are the admissions.
 
-**Status: Phase 6D (frontend wired to the hosted Supabase project) done — PASS WITH CONDITIONS.**
-The production bundle now targets `https://pzogdjjdkgolybfcegcs.supabase.co/functions/v1`, the real
-buyer journey (event → quote → order → Wompi handoff) has been executed against the frozen backend
-with the client's event data, and the canonical event code is `RESET-SUNSET-2026`. The hosted
-project itself answers `500` on every endpoint until an operator sets its secrets — none are
-configured yet — so the hosted purchase flow is **not** live
-([docs/phases/phase-06d.md](docs/phases/phase-06d.md)). **Phase 6D.1 fixed the two backend issues
-that integration exposed**: the server-side Supabase key now comes from the platform's
-`SUPABASE_SECRET_KEYS` bag (a hosted project cannot define a `SUPABASE_`-prefixed secret), and an
-idempotent `POST /orders` replay returns the same payload as a fresh order instead of answering
-`500` ([docs/phases/phase-06d1.md](docs/phases/phase-06d1.md)). Phase 6C (real client content for Reset
-Wellness Club — Re set Sunset Vol. 1) done. The backend can price
-a request from database state, reserve inventory atomically, create the order transactionally, return a signed
-Wompi checkout configuration, confirm a verified payment through `POST /webhooks/wompi` (and
-recover lost webhooks via reconciliation or the buyer's payment hint), issue exactly-once
-tickets, deliver confirmation emails through the database outbox, assign participants, serve
-public event/ticket APIs, authenticate real operators (Supabase Auth) and check people in at the
-door, enforce PostgreSQL rate limits, and project everything to the client's read-only Google
-Sheet on a schedule. **The Spanish buyer frontend is built** — the Phase 6A landing page wired to
-these APIs by the Phase 6B purchase flow (see [docs/frontend.md](docs/frontend.md)) — as a thin
-client that never talks to PostgreSQL, PostgREST or GraphQL directly, and as of Phase 6C it carries
-the **real client content** (branding, prices, dates, contact, legal documents) with everything the
-client has not supplied rendered as "por confirmar" instead of being invented. No live
-Wompi/email/Google call has been made yet (no credentials) — see
-[docs/phases/phase-06c.md](docs/phases/phase-06c.md),
-[docs/phases/phase-06b.md](docs/phases/phase-06b.md),
-[docs/phases/phase-05.md](docs/phases/phase-05.md) and the earlier phase reports for exactly what
-exists, what is verified, and what is still pending.
+**Status: ePayco-only, no-ticket purchase flow implemented and integrated with the frontend.**
+The canonical event code is `RESET-SUNSET-2026` and the production bundle targets
+`https://pzogdjjdkgolybfcegcs.supabase.co/functions/v1`. The backend can price a request from
+database state, reserve inventory atomically, create the order transactionally, open an ePayco
+Smart Checkout session, confirm a verified payment through the ePayco webhook (and recover lost
+webhooks through reconciliation or the buyer's payment hint), attach the second person of a
+two-admission purchase as a participant, serve the public event API, authenticate real operators
+(Supabase Auth) and check people in at the door, enforce PostgreSQL rate limits, and project each
+participant to the client's read-only Google Sheet on a schedule. `GET /orders/{reference}` reports
+the order's admissions and a names-only participant roster, so the confirmation survives a refresh
+without tickets.
+
+Tickets, QR codes, ticket tokens, ticket lookup and ticket-based purchase emails are gone from the
+buyer journey; the legacy tables and `webhooks-wompi` remain only for historical data and are not
+part of the active flow. **The Spanish buyer frontend is built** — the client's landing page wired
+to these APIs by the purchase flow (see [docs/frontend.md](docs/frontend.md)) — as a thin client
+that never talks to PostgreSQL, PostgREST or GraphQL directly, carrying the **real client content**
+(branding, prices, dates, contact, legal documents) with everything the client has not supplied
+rendered as "por confirmar" instead of being invented.
+
+**Not verified live:** no ePayco sandbox payment, email delivery or Google Sheets write has been
+executed from this repository (no credentials), and the hosted project answers `500` until an
+operator sets its secrets. See [docs/phases/phase-06d.md](docs/phases/phase-06d.md),
+[docs/phases/phase-06d1.md](docs/phases/phase-06d1.md) and the earlier phase reports for what was
+verified in each step.
 
 ---
 
 ## Source of truth
 
-| Concern                               | Owner                                                     |
-| ------------------------------------- | --------------------------------------------------------- |
-| Orders, payments, tickets, attendance | Supabase PostgreSQL **plus** backend logic                |
-| Whether a payment really happened     | **Wompi**, verified server-side via events + private API  |
-| Price of a ticket                     | Backend calculation from database configuration           |
-| Client-facing operational view        | Google Sheets, **read-only** export (never authoritative) |
+| Concern                                  | Owner                                                     |
+| ---------------------------------------- | --------------------------------------------------------- |
+| Orders, payments, participants, check-in | Supabase PostgreSQL **plus** backend logic                |
+| Whether a payment really happened        | **ePayco**, verified server-side via webhook + validation |
+| Price of an admission                    | Backend calculation from database configuration           |
+| Client-facing operational view           | Google Sheets, **read-only** export (never authoritative) |
 
-The browser is never trusted for price, payment state or ticket validity. Reaching a
-"success" URL proves nothing: only a verified Wompi event (or a server-side transaction
-lookup) can mark an order as paid.
+The browser is never trusted for price, payment state or admission validity. Reaching a
+"success" URL proves nothing: only a verified ePayco event (or a server-side validation
+lookup) can mark an order as paid. There is no ticket to validate at the door — the
+participant roster of a PAID order is the admission list.
 
 ## Stack
 
 - **Runtime / API**: Supabase Edge Functions (Deno 2), TypeScript, strict.
 - **Database**: Supabase PostgreSQL 17 with SQL migrations.
-- **Payments**: Wompi Colombia (Widget / Web Checkout + `transaction.updated` webhooks).
-- **Email**: Resend (transactional; QR ticket confirmation).
+- **Payments**: ePayco Colombia (Smart Checkout V2 + confirmation webhooks).
+- **Email**: Resend (transactional; operational notifications — no ticket delivery).
 - **Operational export**: Google Sheets, read-only.
 - **Tooling**: Node 24+, Vitest, ESLint (typed), Prettier, Supabase CLI, Deno.
-- **Money**: integer **centavos** (1/100 COP), matching Wompi's `amount_in_cents`. Floating
-  point is never used for money.
+- **Money**: integer **centavos** (1/100 COP). Floating point is never used for money.
 
 ## Quick start
 
@@ -102,22 +100,22 @@ curl http://127.0.0.1:54321/functions/v1/health
 │       ├── _shared/             # portable backend core: deployable, runtime-agnostic
 │       │   ├── config/          # environment loading + validation
 │       │   ├── api/             # handlers: quote, orders, participants, hint, public, check-in, reconciliation, sheets, maintenance
-│       │   ├── domain/          # money, pricing, orders, payments, confirmation, reconciliation, tickets, check-in, consents, operators, rate limits, sheets
-│       │   ├── integrations/    # vendor-specific code (wompi/, resend/, google/), isolated from the core
+│       │   ├── domain/          # money, pricing, orders, payments, confirmation, reconciliation, participants, check-in, consents, operators, rate limits, sheets
+│       │   ├── integrations/    # vendor-specific code (epayco/, wompi/ legacy, resend/, google/), isolated from the core
 │       │   ├── db/              # Supabase client factory + typed gateways + generated Database types
 │       │   ├── http/            # response envelope, CORS, Spanish errors, body/client-IP helpers
 │       │   └── logging/         # structured JSON logging with PII/secret redaction
 │       ├── deno.json            # dependency mapping for `deno check` (local dev)
 │       ├── health/              # deploy smoke test (public, exposes nothing sensitive)
 │       ├── events/              # public event + availability
-│       ├── tickets/             # public ticket lookup by opaque token
+│       ├── tickets/             # legacy public ticket lookup (tickets are discontinued)
 │       ├── checkin/             # operator check-in + admission lookup (Supabase Auth)
 │       ├── orders/              # create, quote, buyer status, retry, payment hint, participants
-│       ├── webhooks-wompi/      # the only endpoint that can mark an order paid
+│       ├── webhooks-epayco/     # the only endpoint that can mark an order paid
 │       └── orders-maintenance/  # expiry + email + reconciliation + cleanup + Sheets (bearer token)
 ├── tests/                       # Vitest: domain, integrations, config, schema, tooling
 ├── scripts/                     # verification scripts (Deno typecheck)
-└── docs/                        # architecture, data model, Wompi, API, environments…
+└── docs/                        # architecture, data model, API, environments…
 ```
 
 **Why the core lives inside `supabase/functions/_shared/`:** the Supabase deployer bundles
@@ -152,7 +150,7 @@ unit tests.
 - **Secrets**: `.env.local` locally, Supabase secrets in hosted environments. Nothing
   credential-shaped may be committed — an automated test scans the repository for it.
 - **Logging**: one JSON line per event, traceable by `orderId` / `paymentId` /
-  `wompiReference` / `ticketId`, with automatic redaction of secrets and personal data.
+  `reference`, with automatic redaction of secrets and personal data.
 
 ## Documentation
 
@@ -160,7 +158,7 @@ unit tests.
 | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
 | [docs/architecture.md](docs/architecture.md)                         | Layers, flows, state machines, testing strategy                                                  |
 | [docs/data-model.md](docs/data-model.md)                             | Implemented schema, constraints, identifiers, RLS, open decisions                                |
-| [docs/wompi-integration.md](docs/wompi-integration.md)               | Verified Wompi behaviour + payment flow                                                          |
+| [docs/wompi-integration.md](docs/wompi-integration.md)               | Legacy Wompi behaviour (historical provider, retired for this event)                             |
 | [docs/api.md](docs/api.md)                                           | Implemented endpoint contracts and error codes                                                   |
 | [docs/environments.md](docs/environments.md)                         | dev/sandbox/prod, secrets inventory, runbook                                                     |
 | [docs/security.md](docs/security.md)                                 | Threat model, PII handling, review checklist                                                     |
