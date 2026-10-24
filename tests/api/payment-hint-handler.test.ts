@@ -223,7 +223,7 @@ describe("payment hint endpoint", () => {
     expect(confirmPayment).toHaveBeenCalledWith(
       expect.objectContaining({ wompiTransactionId: TRANSACTION_ID, wompiStatus: "APPROVED" }),
     );
-    expect(queueTicketEmails).toHaveBeenCalledTimes(1);
+    expect(queueTicketEmails).not.toHaveBeenCalled();
   });
 
   it("reports a still-pending transaction without queueing anything", async () => {

@@ -129,11 +129,11 @@ describe("backend role access", () => {
     });
   });
 
-  it("lets the backend role run the buyer journey through payment, tickets and check-in", async () => {
+  it("lets the backend role run the buyer journey through payment and participant sheet sync", async () => {
     const order = await createOrder(1, "rla-buyer@example.com", "rla-idem-buyer-0001");
     expect(order.quantity).toBe(1);
 
-    const { paymentId, orderId, token } = await asServiceRole(async () => {
+    const { paymentId, orderId } = await asServiceRole(async () => {
       const confirmation = await db.query<{
         summary: {
           result: string;
@@ -148,52 +148,29 @@ describe("backend role access", () => {
       );
       const summary = confirmation.rows[0]?.summary;
       expect(summary?.result).toBe("APPLIED");
-      expect(summary?.ticketsIssued).toBe(1);
+      // Tickets are discontinued: approval issues none.
+      expect(summary?.ticketsIssued).toBe(0);
       if (summary === undefined) {
         throw new Error("confirm_payment returned no row");
       }
 
-      const queued = await db.query<{ queued: string }>(
-        `select public.queue_ticket_emails('${summary.orderId}'::uuid)::text as queued`,
+      // The PAID transition enqueued the buyer's participant to the Sheets outbox. The
+      // backend role can drive the whole participant projection pipeline.
+      const claimed = await db.query<{ participant_id: string }>(
+        "select participant_id from public.claim_participant_sheet_projections(50, now(), 900, 6)",
       );
-      expect(queued.rows[0]?.queued).toBeTruthy();
-
-      const delivery = await db.query<{ id: string }>(
-        "select id from public.claim_email_deliveries(10, now(), 900, 5) limit 1",
-      );
-      const deliveryId = delivery.rows[0]?.id;
-      expect(deliveryId).toBeTruthy();
+      expect(claimed.rows.length).toBeGreaterThan(0);
+      const ids = claimed.rows.map((row) => `'${row.participant_id}'::uuid`).join(",");
       const finished = await db.query<{ ok: boolean }>(
-        `select (public.finish_email_delivery('${String(deliveryId)}'::uuid,'SENT','msg-rla-1',null,null,now())) is not null as ok`,
+        `select (public.finish_participant_sheet_projections(array[${ids}],'SYNCED',null,null,now())) is not null as ok`,
       );
       expect(finished.rows[0]?.ok).toBe(true);
 
-      const tickets = await db.query<{ token: string }>(
-        `select token from public.tickets where order_id = '${summary.orderId}'::uuid`,
-      );
-      const ticketToken = tickets.rows[0]?.token;
-      expect(ticketToken).toBeTruthy();
-
-      const publicTicket = await db.query<{ ticket: string }>(
-        `select public.get_public_ticket('${String(ticketToken)}')::text as ticket`,
-      );
-      expect(publicTicket.rows[0]?.ticket).toBeTruthy();
-      const operatorTicket = await db.query<{ ticket: string }>(
-        `select public.get_operator_ticket('${String(ticketToken)}')::text as ticket`,
-      );
-      expect(operatorTicket.rows[0]?.ticket).toBeTruthy();
-
-      const checkin = await db.query<{ checkin: string }>(
-        `select public.record_check_in('${String(ticketToken)}','Operador Puerta',null,'QR_SCAN',null,now())::text as checkin`,
-      );
-      expect(checkin.rows[0]?.checkin).toBeTruthy();
-
-      return { paymentId: summary.paymentId, orderId: summary.orderId, token: String(ticketToken) };
+      return { paymentId: summary.paymentId, orderId: summary.orderId };
     });
 
     expect(paymentId).toBeTruthy();
     expect(orderId).toBeTruthy();
-    expect(token.startsWith("TKT_")).toBe(true);
   });
 
   it("lets the backend role update a participant and sync the sheets projections", async () => {
@@ -204,8 +181,9 @@ describe("backend role access", () => {
     );
 
     await asServiceRole(async () => {
-      // Participants can only be attached to a paid order; pay first. Two units were
-      // reserved and the buyer supplied one participant, so one slot is free for `luis`.
+      // Pay first: the PAID transition enqueues the buyer's participant to the Sheets outbox.
+      // (Tickets are discontinued, so the ticket-based attach_participant flow is retired; the
+      // backend role updates the buyer's own participant instead.)
       const confirmation = await db.query<{ result: string }>(
         `select public.confirm_payment(
            '${order.reference}','${order.wompiReference}','tx-rla-2','APPROVED',
@@ -213,45 +191,35 @@ describe("backend role access", () => {
       );
       expect(confirmation.rows[0]?.result).toBe("APPLIED");
 
-      const attached = await db.query<{ attached: string }>(
-        `select public.attach_participant(
-           '${order.reference}','rla-participants@example.com',
-           '{"firstName":"Luis","lastName":"Gómez","nationalId":"1098765432",
-             "email":"luis@example.com","phone":"3009876543","city":"Medellín",
-             "consents":{"dataProcessing":true,"futureEvents":true}}'::jsonb,
-           null,'v1')::text as attached`,
-      );
-      expect(attached.rows[0]?.attached).toBeTruthy();
-
-      const participant = await db.query<{ id: string }>(
-        `select id from public.participants
-          where order_id = '${order.orderId}'::uuid and email = 'luis@example.com'`,
+      const participant = await db.query<{ id: string; email: string }>(
+        `select id, email from public.participants where order_id = '${order.orderId}'::uuid limit 1`,
       );
       const participantId = participant.rows[0]?.id;
+      const participantEmail = participant.rows[0]?.email;
       expect(participantId).toBeTruthy();
 
       const updated = await db.query<{ updated: string }>(
         `select public.update_participant(
            '${order.reference}','rla-participants@example.com','${String(participantId)}'::uuid,
-           '{"firstName":"Luis","lastName":"Gómez","nationalId":"1098765432",
-             "email":"luis@example.com","phone":"3009876543","city":"Cali",
-             "consents":{"dataProcessing":true,"futureEvents":false}}'::jsonb,
+           ('{"firstName":"Comprador","lastName":"Gómez","nationalId":"1098765432",
+             "email":"' || '${String(participantEmail)}' || '","phone":"3009876543","city":"Cali",
+             "consents":{"dataProcessing":true,"futureEvents":false}}')::jsonb,
            'v1')::text as updated`,
       );
       expect(updated.rows[0]?.updated).toBeTruthy();
 
       const stats = await db.query<{ stats: string }>(
-        "select public.sheet_projection_stats()::text as stats",
+        "select public.participant_sheet_projection_stats()::text as stats",
       );
       expect(stats.rows[0]?.stats).toBeTruthy();
 
-      const claimed = await db.query<{ ticket_id: string }>(
-        "select ticket_id from public.claim_sheet_projections(50, now(), 900, 6)",
+      const claimed = await db.query<{ participant_id: string }>(
+        "select participant_id from public.claim_participant_sheet_projections(50, now(), 900, 6)",
       );
       expect(claimed.rows.length).toBeGreaterThan(0);
-      const ids = claimed.rows.map((row) => `'${row.ticket_id}'::uuid`).join(",");
+      const ids = claimed.rows.map((row) => `'${row.participant_id}'::uuid`).join(",");
       const finished = await db.query<{ ok: boolean }>(
-        `select (public.finish_sheet_projections(array[${ids}],'SYNCED',null,null,now())) is not null as ok`,
+        `select (public.finish_participant_sheet_projections(array[${ids}],'SYNCED',null,null,now())) is not null as ok`,
       );
       expect(finished.rows[0]?.ok).toBe(true);
 

@@ -320,7 +320,7 @@ describe("webhook authenticity", () => {
     expect(outcome.outcome).toBe("APPLIED");
     expect(outcome.ticketsIssued).toBe(3);
     expect(s.calls.confirmPayment).toBe(1);
-    expect(s.calls.queueTicketEmails).toBe(1);
+    expect(s.calls.queueTicketEmails).toBe(0);
     // H15: every write of the Wompi path declares Wompi.
     expect(s.calls.providers).toEqual(["claim:wompi", "confirm:wompi"]);
   });
@@ -441,7 +441,7 @@ describe("webhook deduplication", () => {
     expect(outcome.status).toBe(200);
     expect(outcome.outcome).toBe("APPLIED");
     expect(s.calls.confirmPayment).toBe(1);
-    expect(s.calls.queueTicketEmails).toBe(1);
+    expect(s.calls.queueTicketEmails).toBe(0);
     // The retry owns the outcome now; the finalize still happens exactly once.
     expect(s.calls.finalize.at(-1)?.result).toBe("APPLIED");
   });

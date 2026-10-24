@@ -181,9 +181,10 @@ describe("database migrations", () => {
         where n.nspname = 'public' and c.relkind = 'r'`,
     );
     // 11 tables from Phase 2 + `pricing_policy` (Phase 3) + `operators` and
-    // `sheets_projections` (Phase 5) and `ticket_bundles` (Phase 6). The count is asserted so the query above cannot
-    // silently become vacuous; update it when a table gains updated_at.
-    expect(withUpdatedAt.rows[0]?.count).toBe(15);
+    // `sheets_projections` (Phase 5) and `ticket_bundles` (Phase 6) + the participant
+    // projection outbox (tickets discontinued). The count is asserted so the query above
+    // cannot silently become vacuous; update it when a table gains updated_at.
+    expect(withUpdatedAt.rows[0]?.count).toBe(16);
   });
 
   it("actually bumps updated_at on a domain table", async () => {

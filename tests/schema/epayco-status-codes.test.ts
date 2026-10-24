@@ -208,7 +208,8 @@ describe("ePayco codes 6-11 on an unpaid order", () => {
     const state = await snapshot(created);
 
     expect(approved.orderStatus).toBe("PAID");
-    expect(state.active_tickets).toBe(2);
+    // Tickets are discontinued: no ticket rows, but inventory still moves reserved -> sold.
+    expect(state.active_tickets).toBe(0);
     expect(state.reserved).toBe(0);
     expect(state.sold).toBe(2);
   });
@@ -219,7 +220,7 @@ describe("ePayco codes after the order was paid", () => {
     const created = await createOrder();
     const approved = await confirm(created, "1");
     expect(approved.orderStatus).toBe("PAID");
-    expect(approved.ticketsIssued).toBe(2);
+    expect(approved.ticketsIssued).toBe(0);
     return created;
   }
 
@@ -233,8 +234,8 @@ describe("ePayco codes after the order was paid", () => {
       expect(result.paymentStatus).toBe("approved");
       expect(result.orderStatus).toBe("PAID");
       expect(result.ticketsIssued).toBe(0);
-      expect(state.tickets).toBe(2);
-      expect(state.active_tickets).toBe(2);
+      expect(state.tickets).toBe(0);
+      expect(state.active_tickets).toBe(0);
       expect(state.sold).toBe(2);
       expect(state.reserved).toBe(0);
     },
@@ -251,7 +252,7 @@ describe("ePayco codes after the order was paid", () => {
     expect(reversal.paymentStatus).toBe("refunded");
     // No automatic refund, ticket void or stock release: those are business decisions.
     expect(state.order_status).toBe("PAID");
-    expect(state.active_tickets).toBe(2);
+    expect(state.active_tickets).toBe(0);
     expect(state.sold).toBe(2);
     expect(state.message).toMatch(/manual review required/);
   });
@@ -273,7 +274,7 @@ describe("ePayco codes after the order was paid", () => {
     const state = await snapshot(created);
 
     expect(late.paymentStatus).toBe("refunded");
-    expect(state.tickets).toBe(2);
+    expect(state.tickets).toBe(0);
     expect(state.sold).toBe(2);
   });
 });

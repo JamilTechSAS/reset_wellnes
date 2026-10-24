@@ -402,7 +402,8 @@ describe("maintenance alerts (H8 integration)", () => {
 
     expect(result.reconciliation.byResult).toEqual({ APPROVED_APPLIED: 1 });
     expect(p.confirmPayment).toHaveBeenCalledTimes(1);
-    expect(p.queueTicketEmails).toHaveBeenCalledTimes(1);
+    // Tickets are discontinued: a recovered approval queues no ticket email.
+    expect(p.queueTicketEmails).not.toHaveBeenCalled();
     expect(p.finishPaymentReconciliation).toHaveBeenCalledWith({
       paymentId: PAYMENT_ID,
       result: "APPROVED_APPLIED",

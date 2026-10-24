@@ -220,7 +220,7 @@ describe("ePayco webhook handler", () => {
         provider: "epayco",
       }),
     );
-    expect(gateway.queueTicketEmails).toHaveBeenCalledWith("order-uuid-1");
+    expect(gateway.queueTicketEmails).not.toHaveBeenCalled();
     expect(gateway.finalizeWebhookEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         eventId: "evt-0001",
@@ -713,7 +713,7 @@ describe("ePayco webhook handler", () => {
       expect(outcome.outcome).toBe("APPLIED");
       expect(outcome.ticketsIssued).toBe(1);
       expect(second.confirmPayment).toHaveBeenCalledTimes(1);
-      expect(second.queueTicketEmails).toHaveBeenCalledWith("order-uuid-1");
+      expect(second.queueTicketEmails).not.toHaveBeenCalled();
       expect(second.finalizeWebhookEvent).toHaveBeenCalledWith(
         expect.objectContaining({ eventId: "evt-0001", result: "APPLIED" }),
       );

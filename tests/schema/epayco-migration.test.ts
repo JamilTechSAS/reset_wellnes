@@ -91,7 +91,7 @@ describe("ePayco database migration & backward compatibility", () => {
     tickets: unknown[];
   };
 
-  it("confirms an order via ePayco payment and issues tickets", async () => {
+  it("confirms an order via ePayco payment without issuing tickets", async () => {
     // 1. Create order
     const orderRes = await db.query<{ o: TestOrder }>(`
       select public.create_order(
@@ -125,15 +125,16 @@ describe("ePayco database migration & backward compatibility", () => {
     expect(result?.orderStatus).toBe("PAID");
     expect(result?.paymentStatus).toBe("approved");
     expect(result?.paymentProvider).toBe("epayco");
-    expect(result?.ticketsIssued).toBe(2);
+    // Tickets are discontinued: the approval issues none.
+    expect(result?.ticketsIssued).toBe(0);
 
-    // 3. Verify tickets exist in database
+    // 3. No ticket rows are created in the database
     const ticketsRes = await db.query<{ count: string }>(`
       select count(*) as count from public.tickets where order_id = '${order?.orderId ?? ""}';
     `);
-    expect(Number(ticketsRes.rows[0]?.count)).toBe(2);
+    expect(Number(ticketsRes.rows[0]?.count)).toBe(0);
 
-    // 4. Verify get_order_status projection includes provider
+    // 4. Verify get_order_status projection includes provider; no tickets are listed.
     const statusRes = await db.query<{ s: TestOrderStatus }>(`
       select public.get_order_status('${order?.reference ?? ""}', 'carlos@example.com') as s;
     `);
@@ -141,7 +142,7 @@ describe("ePayco database migration & backward compatibility", () => {
     expect(status?.found).toBe(true);
     expect(status?.status).toBe("PAID");
     expect(status?.payment.provider).toBe("epayco");
-    expect(status?.tickets).toHaveLength(2);
+    expect(status?.tickets).toHaveLength(0);
   });
 
   it("preserves historical Wompi payments compatibility", async () => {
@@ -176,6 +177,6 @@ describe("ePayco database migration & backward compatibility", () => {
     expect(result?.orderStatus).toBe("PAID");
     expect(result?.paymentStatus).toBe("approved");
     expect(result?.paymentProvider).toBe("wompi");
-    expect(result?.ticketsIssued).toBe(1);
+    expect(result?.ticketsIssued).toBe(0);
   });
 });

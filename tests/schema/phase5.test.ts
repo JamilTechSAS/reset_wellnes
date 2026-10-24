@@ -554,30 +554,41 @@ describe("phase 5 schema", () => {
   // Google Sheets outbox
   // -------------------------------------------------------------------------
 
-  it("collapses every change to a ticket into one projection row and re-queues it", async () => {
-    // The fixture's ticket insert fired the enqueue trigger.
-    const initial = await db.query<{ status: string; attempt_count: number }>(
-      "select status, attempt_count from public.sheets_projections where ticket_id = $1",
-      [fixture.ticketId],
-    );
-    expect(initial.rows).toEqual([{ status: "QUEUED", attempt_count: 0 }]);
-
-    // Updating the participant re-queues the same row instead of inserting another.
+  it("collapses every change to a participant into one projection row and re-queues it", async () => {
+    // Tickets are discontinued: the Sheets outbox is keyed on the participant and fed only
+    // for PAID orders. Mark the fixture order paid, then an edit enqueues the participant.
+    await db.query("update public.orders set status = 'PAID', paid_at = now() where id = $1", [
+      fixture.orderId,
+    ]);
     await db.query("update public.participants set city = 'Medellín' where id = $1", [
       fixture.participantId,
     ]);
+    const initial = await db.query<{ status: string; attempt_count: number }>(
+      "select status, attempt_count from public.sheets_participant_projections where participant_id = $1",
+      [fixture.participantId],
+    );
+    expect(initial.rows).toEqual([{ status: "QUEUED", attempt_count: 0 }]);
+
+    // A further edit re-queues the same row instead of inserting another.
+    await db.query("update public.participants set city = 'Cartagena' where id = $1", [
+      fixture.participantId,
+    ]);
     const after = await db.query<{ count: number }>(
-      "select count(*)::int as count from public.sheets_projections where ticket_id = $1",
-      [fixture.ticketId],
+      "select count(*)::int as count from public.sheets_participant_projections where participant_id = $1",
+      [fixture.participantId],
     );
     expect(after.rows[0]?.count).toBe(1);
 
     // A claim takes the row; a mid-write change puts it back to QUEUED, so the optimistic
     // finish cannot mark the newer state as synced.
-    const claimed = await db.query<{ ticket_id: string; status: string; attempt_count: number }>(
-      "select ticket_id, status, attempt_count from public.claim_sheet_projections(50, now(), 900, 6)",
+    const claimed = await db.query<{
+      participant_id: string;
+      status: string;
+      attempt_count: number;
+    }>(
+      "select participant_id, status, attempt_count from public.claim_participant_sheet_projections(50, now(), 900, 6)",
     );
-    const ours = claimed.rows.find((row) => row.ticket_id === fixture.ticketId);
+    const ours = claimed.rows.find((row) => row.participant_id === fixture.participantId);
     expect(ours?.status).toBe("SYNCING");
     expect(ours?.attempt_count).toBe(1);
 
@@ -586,38 +597,44 @@ describe("phase 5 schema", () => {
     ]);
     const finished = await asJson(
       db,
-      "select public.finish_sheet_projections(array[$1]::uuid[], 'SYNCED') as value",
-      [fixture.ticketId],
+      "select public.finish_participant_sheet_projections(array[$1]::uuid[], 'SYNCED') as value",
+      [fixture.participantId],
     );
     expect(finished.updatedCount).toBe(0);
 
     const requeued = await db.query<{ status: string; attempt_count: number }>(
-      "select status, attempt_count from public.sheets_projections where ticket_id = $1",
-      [fixture.ticketId],
+      "select status, attempt_count from public.sheets_participant_projections where participant_id = $1",
+      [fixture.participantId],
     );
     expect(requeued.rows[0]?.status).toBe("QUEUED");
     expect(requeued.rows[0]?.attempt_count).toBe(0);
 
     // A second claim succeeds and the finish marks it synced this time.
-    await db.query("select * from public.claim_sheet_projections(50, now(), 900, 6)");
+    await db.query("select * from public.claim_participant_sheet_projections(50, now(), 900, 6)");
     const done = await asJson(
       db,
-      "select public.finish_sheet_projections(array[$1]::uuid[], 'SYNCED') as value",
-      [fixture.ticketId],
+      "select public.finish_participant_sheet_projections(array[$1]::uuid[], 'SYNCED') as value",
+      [fixture.participantId],
     );
     expect(done.updatedCount).toBe(1);
-    const stats = await asJson(db, "select public.sheet_projection_stats() as value");
+    const stats = await asJson(db, "select public.participant_sheet_projection_stats() as value");
     expect(stats.synced).toBeGreaterThanOrEqual(1);
   });
 
   it("stops claiming a projection after the attempt ceiling until new data arrives", async () => {
+    await db.query("update public.orders set status = 'PAID', paid_at = now() where id = $1", [
+      fixture.orderId,
+    ]);
+    await db.query("update public.participants set city = 'Medellín' where id = $1", [
+      fixture.participantId,
+    ]);
     await db.query(
-      "update public.sheets_projections set attempt_count = 6, status = 'FAILED', next_attempt_at = now() - interval '1 hour' where ticket_id = $1",
-      [fixture.ticketId],
+      "update public.sheets_participant_projections set attempt_count = 6, status = 'FAILED', next_attempt_at = now() - interval '1 hour' where participant_id = $1",
+      [fixture.participantId],
     );
-    const claimed = await db.query<{ ticket_id: string }>(
-      "select ticket_id from public.claim_sheet_projections(200, now(), 900, 6) where ticket_id = $1",
-      [fixture.ticketId],
+    const claimed = await db.query<{ participant_id: string }>(
+      "select participant_id from public.claim_participant_sheet_projections(200, now(), 900, 6) where participant_id = $1",
+      [fixture.participantId],
     );
     expect(claimed.rows).toEqual([]);
 
@@ -626,8 +643,8 @@ describe("phase 5 schema", () => {
       fixture.participantId,
     ]);
     const after = await db.query<{ status: string; attempt_count: number }>(
-      "select status, attempt_count from public.sheets_projections where ticket_id = $1",
-      [fixture.ticketId],
+      "select status, attempt_count from public.sheets_participant_projections where participant_id = $1",
+      [fixture.participantId],
     );
     expect(after.rows[0]).toEqual({ status: "QUEUED", attempt_count: 0 });
   });

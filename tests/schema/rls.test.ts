@@ -220,7 +220,12 @@ describe("row level security posture", () => {
     expect(view.rows[0]?.relkind).toBe("v");
     expect(view.rows[0]?.reloptions ?? []).toContain("security_invoker=true");
 
-    await createFixture(db);
+    const fixture = await createFixture(db);
+    // Tickets are discontinued: the export view projects ONE ROW PER PARTICIPANT of a PAID
+    // order. Mark the fixture order paid so its single participant appears.
+    await db.query("update public.orders set status = 'PAID', paid_at = now() where id = $1", [
+      fixture.orderId,
+    ]);
 
     try {
       await db.exec("set role service_role");

@@ -148,13 +148,13 @@ describe("reconciliation sweep", () => {
         provider: "wompi",
       }),
     );
-    expect(queueTicketEmails).toHaveBeenCalledWith("33333333-3333-4333-8333-333333333333");
+    expect(queueTicketEmails).not.toHaveBeenCalled();
     expect(finish).toHaveBeenCalledWith({
       paymentId: claimed().paymentId,
       result: "APPROVED_APPLIED",
     });
     expect(summary.confirmedApproved).toBe(1);
-    expect(summary.emailsQueued).toBe(1);
+    expect(summary.emailsQueued).toBe(0);
     expect(summary.byResult.APPROVED_APPLIED).toBe(1);
   });
 

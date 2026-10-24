@@ -39,6 +39,7 @@ export const DOMAIN_TABLES = [
   "pricing_tiers",
   "quantity_discounts",
   "rate_limit_counters",
+  "sheets_participant_projections",
   "sheets_projections",
   "ticket_bundles",
   "ticket_types",

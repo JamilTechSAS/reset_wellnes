@@ -762,6 +762,11 @@ $$;
 -- 4. Grants on the new participant projection functions (mirror the legacy
 --    sheet-projection grants: service_role only).
 -- =============================================================================
+-- app_private helpers are backend-only: strip PUBLIC's default EXECUTE (browser-facing roles
+-- must hold no EXECUTE on any backend function), mirroring migration 20261004130000.
+revoke all on function app_private.enqueue_participant_projection(uuid, uuid) from public;
+revoke all on function app_private.sheets_enqueue_participant_paid() from public;
+
 do $$
 begin
   if exists (select 1 from pg_roles where rolname = 'service_role') then
@@ -771,6 +776,11 @@ begin
     execute 'grant execute on function public.claim_participant_sheet_projections(integer, timestamptz, integer, integer) to service_role';
     execute 'grant execute on function public.finish_participant_sheet_projections(uuid[], public.sheets_projection_status, text, timestamptz, timestamptz) to service_role';
     execute 'grant execute on function public.participant_sheet_projection_stats() to service_role';
+    -- The backend role calls the app_private enqueue helper inside confirm_payment (security
+    -- invoker) and the participant trigger, mirroring migration 20261004140000's grant on the
+    -- legacy enqueue_sheet_projection. Browser roles keep no EXECUTE (revoked from public above).
+    execute 'grant execute on function app_private.enqueue_participant_projection(uuid, uuid) to service_role';
+    execute 'grant execute on function app_private.sheets_enqueue_participant_paid() to service_role';
   end if;
 end;
 $$;

@@ -98,6 +98,9 @@ describe("schema constraints", () => {
         "pricing_tiers.ticket_type_id->ticket_types",
         "quantity_discounts.pricing_tier_id->pricing_tiers",
         "quantity_discounts.ticket_type_id->ticket_types",
+        // Participant outbox (tickets discontinued): one projection row per participant.
+        "sheets_participant_projections.event_id->events",
+        "sheets_participant_projections.participant_id->participants",
         // Phase 5 outbox: a projection row belongs to exactly one ticket and event.
         "sheets_projections.event_id->events",
         "sheets_projections.ticket_id->tickets",

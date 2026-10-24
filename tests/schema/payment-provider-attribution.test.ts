@@ -136,7 +136,8 @@ describe("explicit provider (migrations applied)", () => {
       confirmSql(order, status, provider),
     );
     expect(result.rows[0]?.r.orderStatus).toBe("PAID");
-    expect(result.rows[0]?.r.ticketsIssued).toBe(1);
+    // Tickets are discontinued: approval issues none; provider attribution is unaffected.
+    expect(result.rows[0]?.r.ticketsIssued).toBe(0);
     expect(await providerOf(db, order.orderId)).toBe(stored);
   });
 

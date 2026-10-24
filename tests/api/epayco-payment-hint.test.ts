@@ -129,7 +129,7 @@ describe("ePayco payment hint", () => {
         provider: "epayco",
       }),
     );
-    expect(gateway.queueTicketEmails).toHaveBeenCalled();
+    expect(gateway.queueTicketEmails).not.toHaveBeenCalled();
   });
 
   it("handles transaction not found (404 from ePayco)", async () => {

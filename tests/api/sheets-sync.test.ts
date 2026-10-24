@@ -183,7 +183,10 @@ describe("Google Sheets sync worker", () => {
     const { sheets, client, finishProjections } = setup({
       claims: [
         claimedProjection({ attemptCount: 2 }),
-        claimedProjection({ participantId: "33333333-3333-4333-8333-333333333333", attemptCount: 2 }),
+        claimedProjection({
+          participantId: "33333333-3333-4333-8333-333333333333",
+          attemptCount: 2,
+        }),
       ],
       write: { ok: false, retryable: true, error: "sheets API returned HTTP 503", httpStatus: 503 },
     });

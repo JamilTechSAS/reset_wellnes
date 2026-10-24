@@ -168,15 +168,14 @@ describe("ePayco reconciliation (H4)", () => {
         providerPayload: { x_ref_payco: REF_PAYCO, x_cod_response: "1", x_amount: "10000" },
       }),
     );
-    expect(env.payments.queueTicketEmails).toHaveBeenCalledWith(
-      "33333333-3333-4333-8333-333333333333",
-    );
+    // Tickets are discontinued: a recovered approval queues no ticket email.
+    expect(env.payments.queueTicketEmails).not.toHaveBeenCalled();
     expect(env.finish).toHaveBeenCalledWith({
       paymentId: "22222222-2222-4222-8222-222222222222",
       result: "APPROVED_APPLIED",
     });
     expect(summary.confirmedApproved).toBe(1);
-    expect(summary.emailsQueued).toBe(1);
+    expect(summary.emailsQueued).toBe(0);
   });
 
   it("reports an approval already applied by the webhook as a duplicate, with no new tickets", async () => {
