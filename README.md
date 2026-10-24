@@ -162,7 +162,7 @@ unit tests.
 | [docs/api.md](docs/api.md)                                           | Implemented endpoint contracts and error codes                                                   |
 | [docs/environments.md](docs/environments.md)                         | dev/sandbox/prod, secrets inventory, runbook                                                     |
 | [docs/security.md](docs/security.md)                                 | Threat model, PII handling, review checklist                                                     |
-| [docs/operations-google-sheets.md](docs/operations-google-sheets.md) | Read-only operational export                                                                     |
+| [docs/operations-google-sheets.md](docs/operations-google-sheets.md) | Participant-based operational export (read-only projection)                                      |
 | [docs/testing.md](docs/testing.md)                                   | Test strategy and how to run everything                                                          |
 | [docs/phases/phase-01.md](docs/phases/phase-01.md)                   | Phase 1 report: done, verified, risks, next steps                                                |
 | [docs/phases/phase-02.md](docs/phases/phase-02.md)                   | Phase 2 report: schema, verification, limitations                                                |

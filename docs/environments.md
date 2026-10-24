@@ -2,14 +2,14 @@
 
 ## 1. Environments
 
-|              | `development`                               | `sandbox`                          | `production`                       |
-| ------------ | ------------------------------------------- | ---------------------------------- | ---------------------------------- |
-| Purpose      | Local work                                  | Integration + ePayco test money    | Real sales                         |
-| Database     | Local Supabase stack (Docker)               | Hosted Supabase project (separate) | Hosted Supabase project (separate) |
-| ePayco       | Test mode (`EPAYCO_TEST=true`)              | Test mode                          | Production (`EPAYCO_TEST=false`)   |
-| Wompi        | Legacy only; not used by the purchase flow  | Legacy only                        | Legacy only                        |
-| Email        | Disabled by default (`EMAIL_ENABLED=false`) | Resend test sender                 | Resend verified domain             |
-| `verify_jwt` | per function in `config.toml`               | same                               | same                               |
+|              | `development`                               | `sandbox`                                                              | `production`                        |
+| ------------ | ------------------------------------------- | ---------------------------------------------------------------------- | ----------------------------------- |
+| Purpose      | Local work                                  | Integration + ePayco test money                                        | Real sales                          |
+| Database     | Local Supabase stack (Docker)               | Hosted Supabase project (separate)                                     | Hosted Supabase project (separate)  |
+| ePayco       | Test mode (`EPAYCO_TEST=true`)              | Test mode                                                              | Production (`EPAYCO_TEST=false`)    |
+| Wompi        | Legacy only; not used by the purchase flow  | Legacy only                                                            | Legacy only                         |
+| Email        | Disabled by default (`EMAIL_ENABLED=false`) | Disabled in this phase (`EMAIL_ENABLED=false`); welcome email deferred | Resend verified domain when enabled |
+| `verify_jwt` | per function in `config.toml`               | same                                                                   | same                                |
 
 Rules that the configuration loader enforces (see `_shared/config/env.ts`):
 
@@ -25,8 +25,11 @@ Rules that the configuration loader enforces (see `_shared/config/env.ts`):
   `public.operators` table (see §6 "Operator accounts").
 - `SHEETS_ENABLED=true` requires `GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_PRIVATE_KEY` (a PKCS#8
   PEM) and `GOOGLE_SPREADSHEET_ID`; with the default `false`, the projection is skipped and every
-  other job still runs. `RATE_LIMIT_ENABLED` defaults to `true`; `false` is an emergency switch
-  that removes application-level abuse control.
+  other job still runs. The `Datos` and `Estado` tabs must already exist: the worker writes values
+  only and does not create tabs. `RATE_LIMIT_ENABLED` defaults to `true`; `false` is an emergency
+  switch that removes application-level abuse control.
+- This phase deliberately sends no buyer email: `EMAIL_ENABLED=false`. Ticket emails are
+  discontinued and the purchase welcome email is deferred until its HTML design is approved.
 - The server-side Supabase key must be an `sb_secret_*` key or a legacy `service_role` JWT; a
   publishable/anon key is rejected. (Supabase is deprecating the legacy `anon`/`service_role`
   JWTs by the end of 2026 — new keys use `sb_publishable_*` / `sb_secret_*`.) Since Phase 6D.1 it
@@ -66,23 +69,22 @@ npx supabase secrets list --project-ref <prod-ref>   # names + digests, never va
 `.env.sandbox` / `.env.production` are git-ignored. Real ePayco credentials are only ever obtained
 from the merchant dashboard ("Integraciones > Llaves API"). Wompi keys are legacy.
 
-**Current hosted status (Phase 6D.1, 2026-10-07): the Supabase key resolves; the rest is still
-unset.** No application secret is configured on `pzogdjjdkgolybfcegcs` (`npx supabase secrets list`
-shows only the platform-reserved names), so `GET /health` answers `500` — now naming **six**
-variables instead of seven, because the server-side Supabase key comes from the platform's own
-`SUPABASE_SECRET_KEYS` bag and is no longer something an operator must define. The remaining six are
-the four ePayco values (`EPAYCO_PUBLIC_KEY`, `EPAYCO_PRIVATE_KEY`, `EPAYCO_P_KEY`,
-`EPAYCO_CUST_ID_CLIENTE`), `PUBLIC_WEB_BASE_URL` and `API_BASE_URL` (plus `CORS_ALLOWED_ORIGINS`
-and `MAINTENANCE_API_TOKEN` once `APP_ENV` is `sandbox`). Until they are set, every public endpoint
-— including the landing page's `GET /events/{code}` — returns `INTERNAL_ERROR`, and responses carry
-no `access-control-allow-origin` header at all.
+**Current staging status (verified 2026-10-24).** The staging project `soqmdpqjjdmdhtgsutab` has
+the ePayco merchant values, the public/return URLs, the CORS origin and the maintenance token; its
+`GET /health` returns `200` with `APP_ENV=sandbox`. Google Sheets is **not configured**: there is no
+`SHEETS_ENABLED` secret (so the default `false` applies) and no `GOOGLE_*` secret. Production is a
+separate project (`pzogdjjdkgolybfcegcs`) and must not be used for staging validation. Do not infer
+staging readiness from health alone: migrations, Edge Functions and the Vercel build are deployed
+separately (see §5).
 
 ## 3. Scheduler (hosted project)
 
 The maintenance job runs from the database itself (migration 015): `pg_cron` → `pg_net` →
 `POST /orders-maintenance`, every 5 minutes. The endpoint expects the maintenance token; the
 cron function reads it from **Supabase Vault**, so no secret lives in a migration or in the
-repository. Create the two secrets once per project:
+repository. The Sheets projection runs last, after expiry, email, reconciliation, alerts and
+cleanup. A participant projection is only written when this job actually runs; `QUEUED` does not
+mean synced. Create the two secrets once per project:
 
 ```sql
 select vault.create_secret('https://<project-ref>.supabase.co', 'project_url');
@@ -142,8 +144,10 @@ Checklist before touching production:
 - [ ] Operator accounts exist in Supabase Auth and in `public.operators` (§6); deactivated
       accounts are `is_active = false`.
 - [ ] `RATE_LIMIT_ENABLED=true` (the emergency `false` is documented and temporary).
-- [ ] If `SHEETS_ENABLED=true`: the client's spreadsheet is shared with the service account, the
-      tabs exist (or the first sync creates them), and `SHEETS_ENABLED=false` was used in every
+- [ ] If `SHEETS_ENABLED=true`: the three Google values are set, the client's spreadsheet is
+      shared with the service account as Editor, and the `Datos` and `Estado` tabs exist. Create
+      those tabs manually; the worker does not create them. `orders-maintenance` must be the
+      version that drains `sheets_participant_projections`. Use `SHEETS_ENABLED=false` in every
       environment where no scope has been agreed.
 - [ ] `EMAIL_ENABLED=true` only where sending is intended (never from a laptop).
 - [ ] A test order has been run end to end in sandbox, including a declined card and a lost
@@ -275,9 +279,10 @@ Functions ([api.md](api.md) §5).
 The landing page's content is the client's, from the handover ZIP; values the client has not
 supplied are rendered as "por confirmar" rather than invented
 ([phases/phase-06c.md](phases/phase-06c.md) §5). `VITE_EVENT_CODE` / `VITE_TICKET_TYPE_CODE` must
-match the event and ticket-type rows in the target project. The frontend targets the hosted project
-by default: `vite build` uses `https://pzogdjjdkgolybfcegcs.supabase.co/functions/v1` and
-`vite dev` the local stack ([phases/phase-06d.md](phases/phase-06d.md) §3) — the hosted project
-itself still needs the secrets above before it can answer. The official brand fonts were not
+match the event and ticket-type rows in the target project. The frontend's **build default** is the production
+project (`https://pzogdjjdkgolybfcegcs.supabase.co/functions/v1`), while `vite dev` uses the local
+stack ([phases/phase-06d.md](phases/phase-06d.md) §3). A staging Vercel build **must** set
+`VITE_API_BASE_URL` to `https://soqmdpqjjdmdhtgsutab.supabase.co/functions/v1`; otherwise it will
+call the production backend. Verify the host in the browser network panel after deploying. The official brand fonts were not
 delivered: the page loads the substitute faces (Fraunces + Questrial) from the Google Fonts CDN,
 with system fonts behind them, and self-hosting them is an open pre-launch item.

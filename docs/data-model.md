@@ -328,18 +328,22 @@ without an active row gets `403 FORBIDDEN`.
 before storage, so no raw IP, reference or operator id lives in this table. Rows older than the
 horizon (default 2 h) are deleted by maintenance. Not evidence — abuse control only.
 
-### sheets_projections (Phase 5, Google Sheets outbox)
+### sheets_participant_projections (Google Sheets outbox)
 
-`ticket_id` (PK → tickets cascade), `event_id` → events, `status`
+`participant_id` (PK → participants cascade), `event_id` → events, `status`
 (`sheets_projection_status`: `QUEUED` | `SYNCING` | `SYNCED` | `FAILED`), `attempt_count`,
 `last_error` (≤500 chars), `last_synced_at`, `next_attempt_at`, `created_at`, `updated_at`.
 
-One row per ticket. Triggers on tickets/participants/attendance/consents enqueue (or re-queue)
-the ticket's row inside the same transaction, collapsing any number of changes into one logical
-projection event; re-queuing resets the attempt counter. The worker claims with `SKIP LOCKED`
-and `finish_sheet_projections` updates only rows still `SYNCING`, so a change that arrives
-mid-write stays queued. This table is an outbox, not evidence: losing it loses only a pending
-sheet update.
+One row per participant. `confirm_payment` enqueues every participant of the order in the same
+transaction that marks the order `PAID`; the `participants` trigger re-queues later inserts or
+edits, but only while the order is `PAID`. Re-queuing resets the attempt counter, so any number
+of changes collapse into one logical projection. `claim_participant_sheet_projections` takes due
+rows with `FOR UPDATE SKIP LOCKED`, reclaims stale `SYNCING` rows after a timeout, and increments
+the attempt counter; `finish_participant_sheet_projections` updates only rows still `SYNCING`, so
+a change that arrives mid-write stays queued. `participant_sheet_projection_stats` exposes
+queued / syncing / synced / failed / total plus `lastSyncedAt` and `oldestPendingAt`. This table
+is an outbox, not evidence: losing it loses only a pending sheet update, and `QUEUED` does not
+mean synced.
 
 ## 5. Access control (RLS and the export view)
 
@@ -375,40 +379,41 @@ sheet update.
 
 ## 6. Read models for the client
 
-### operational_export (one row per ticket)
+### operational_export (one row per participant of a PAID order)
 
-| Column (ES)                     | Source                                       | Notes                                      |
-| ------------------------------- | -------------------------------------------- | ------------------------------------------ |
-| `Evento`                        | `events.code`                                | Used to filter by event                    |
-| `Código de entrada`             | `tickets.token`                              |                                            |
-| `Nombre` / `Apellido`           | `participants.first_name` / `last_name`      | Null until a participant is assigned       |
-| `Cédula`                        | `participants.national_id`                   | Personal data — restricted                 |
-| `Correo`                        | `participants.email`                         | Personal data — restricted                 |
-| `Teléfono`                      | `participants.phone`                         | Personal data — restricted                 |
-| `Ciudad`                        | `participants.city`                          |                                            |
-| `Instagram`                     | `participants.instagram`                     | Nullable                                   |
-| `Tipo de entrada`               | `ticket_types.name`                          |                                            |
-| `Etapa de venta`                | `pricing_tiers.name`                         |                                            |
-| `Precio centavos`               | `tickets.price_paid_cents`                   | Integer centavos, not formatted money      |
-| `Moneda`                        | `orders.currency`                            |                                            |
-| `Referencia de la orden`        | `orders.reference`                           |                                            |
-| `Estado de la orden`            | `orders.status`                              | Raw enum                                   |
-| `Estado del pago`               | latest meaningful `payments.status`          | Approved attempt when present, else latest |
-| `Estado Wompi`                  | `payments.raw_wompi_status`                  | Exactly what Wompi sent                    |
-| `Estado de la entrada`          | `tickets.status`                             | Raw enum                                   |
-| `Ingreso`                       | `attendance` exists                          | Boolean                                    |
-| `Fecha de ingreso`              | `attendance.checked_in_at`                   | `timestamptz`                              |
-| `Autorización de datos`         | latest `DATA_PROCESSING` consent → `granted` | Plus version and captured_at columns       |
-| `Autorización próximos eventos` | latest `FUTURE_EVENTS` consent → `granted`   |                                            |
-| `Creada`                        | `tickets.created_at`                         | Stable export ordering                     |
+| Column (ES)                     | Source                                       | Notes                                       |
+| ------------------------------- | -------------------------------------------- | ------------------------------------------- |
+| `Evento`                        | `events.code`                                | Used to filter by event                     |
+| `Código de entrada`             | always `NULL`                                | Ticket-only column, retained for shape      |
+| `Nombre` / `Apellido`           | `participants.first_name` / `last_name`      | One row per participant                     |
+| `Cédula`                        | `participants.national_id`                   | Personal data — restricted                  |
+| `Correo`                        | `participants.email`                         | Personal data — restricted                  |
+| `Teléfono`                      | `participants.phone`                         | Personal data — restricted                  |
+| `Ciudad`                        | `participants.city`                          |                                             |
+| `Instagram`                     | `participants.instagram`                     | Nullable                                    |
+| `Tipo de entrada`               | `ticket_types.name` via `order_items`        |                                             |
+| `Etapa de venta`                | `pricing_tiers.name` via `order_items`       |                                             |
+| `Precio centavos`               | `order_items.line_total_cents / quantity`    | Per-admission centavos, not formatted money |
+| `Moneda`                        | `orders.currency`                            |                                             |
+| `Referencia de la orden`        | `orders.reference`                           |                                             |
+| `Estado de la orden`            | `orders.status`                              | Always `PAID` — the view filters on it      |
+| `Estado del pago`               | latest meaningful `payments.status`          | Approved attempt when present, else latest  |
+| `Estado Wompi`                  | `payments.raw_wompi_status`                  | Legacy column; null for ePayco rows         |
+| `Estado de la entrada`          | always `NULL`                                | Ticket-only column, retained for shape      |
+| `Ingreso`                       | always `NULL`                                | Attendance no longer applies                |
+| `Fecha de ingreso`              | always `NULL`                                | Attendance no longer applies                |
+| `Autorización de datos`         | latest `DATA_PROCESSING` consent → `granted` | Plus version and captured_at columns        |
+| `Autorización próximos eventos` | latest `FUTURE_EVENTS` consent → `granted`   |                                             |
+| `Creada`                        | `participants.created_at`                    | Stable export ordering                      |
 
 The view returns **raw values** (enum labels, centavos, `timestamptz`): the Spanish labels and
 money/date formatting live in the Phase 1 label maps and are applied by the export function
 ([operations-google-sheets.md](operations-google-sheets.md)). One formatting implementation,
-not two.
+not two. The export is the whole event's PAID participants, not just the claimed rows, so the
+first sync after enabling Sheets backfills every previously paid participant.
 
-Buyer-facing lookups (order status, ticket lookup) also go through Edge Functions that return
-whitelisted fields; they never query tables directly from the client.
+Buyer-facing lookups (order status) also go through Edge Functions that return whitelisted
+fields; they never query tables directly from the client.
 
 ## 7. Conflicts resolved against the brief (Phase 1 kept as source of truth)
 
@@ -527,9 +532,9 @@ outcome exactly once; `record_webhook_rejection` stores a refused (forged or mal
 with `checksum_valid = false`. `processed_at is null` is the "received but never finished"
 operator query, indexed by `payment_events_unprocessed_idx`.
 
-**Email outbox.** `queue_ticket_emails(order_id, template)` inserts one row per ticket with a
-unique derived key inside the confirmation transaction. `claim_email_deliveries` takes due rows
-with `FOR UPDATE SKIP LOCKED` (stale `SENDING` rows are reclaimable after a timeout) and
+**Email outbox.** `queue_ticket_emails(order_id, template)` is a legacy function and the purchase
+flow no longer calls it; `EMAIL_ENABLED=false` in this phase. `claim_email_deliveries` takes due
+rows with `FOR UPDATE SKIP LOCKED` (stale `SENDING` rows are reclaimable after a timeout) and
 `finish_email_delivery` records `SENT`/`FAILED`/`CANCELLED` with the next attempt instant.
 
 **Lifecycle.** `expire_pending_orders` returns inventory and marks `PENDING`/`FAILED` orders past
@@ -539,8 +544,8 @@ email, capped at 10 attempts, re-reserving at the original stage and price when 
 
 **`get_order_status(reference, buyer_email)`** is the buyer-facing projection: a SQL whitelist
 (no cédula, email, phone, IP, user agent, Wompi transaction id, signature or provider payload),
-ticket tokens only for a paid order, and the same `found: false` for an unknown reference and a
-wrong email.
+admission counts derived from `order_items` and `participants`, a names-only participant roster
+for a paid order, and the same `found: false` for an unknown reference and a wrong email.
 
 ## 12. Phase 5 operations (reconciliation, participants, check-in, public reads)
 
