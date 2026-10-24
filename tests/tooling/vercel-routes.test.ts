@@ -1,9 +1,11 @@
 /**
- * Hosting guardrail for the checkout return path.
+ * Hosting guardrail for clean URLs and the checkout return path.
  *
  * Vite builds one HTML file per `rollupOptions.input` entry and Vercel serves `dist/` as static
- * files, so a path with no file of its own (like `/gracias`) is a 404 unless `vercel.json`
- * rewrites it. The dev server hides this: it falls back to `index.html` for any path.
+ * files. With `cleanUrls: true`, Vercel serves each `foo.html` at `/foo` and 308-redirects the
+ * old `/foo.html` to `/foo`. In particular `/gracias` is served by the real `gracias.html`
+ * thank-you page (no rewrite to `index.html`), so the page runs its own authoritative payment
+ * verification instead of resuming the purchase dialog.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -13,6 +15,7 @@ import { describe, expect, it } from "vitest";
 const ROOT = process.cwd();
 
 type VercelConfig = {
+  cleanUrls?: boolean;
   rewrites?: { source: string; destination: string }[];
 };
 
@@ -20,25 +23,27 @@ function readVercelConfig(): VercelConfig {
   return JSON.parse(readFileSync(path.join(ROOT, "vercel.json"), "utf8")) as VercelConfig;
 }
 
-describe("vercel.json checkout return route", () => {
-  it("rewrites /gracias (with and without trailing slash) to a page", () => {
+describe("vercel.json clean URLs and return route", () => {
+  it("enables clean URLs", () => {
+    expect(readVercelConfig().cleanUrls).toBe(true);
+  });
+
+  it("serves /gracias from the real thank-you page, not a rewrite to index.html", () => {
     const rewrites = readVercelConfig().rewrites ?? [];
-    for (const source of ["/gracias", "/gracias/"]) {
-      expect(rewrites.find((r) => r.source === source)?.destination).toBe("/index.html");
-    }
+    expect(rewrites.find((r) => r.source === "/gracias")).toBeUndefined();
+    expect(rewrites.find((r) => r.destination === "/index.html")).toBeUndefined();
+    expect(existsSync(path.join(ROOT, "gracias.html"))).toBe(true);
   });
 
-  it("only rewrites to HTML entries Vite actually builds and that boot the purchase flow", () => {
+  it("builds gracias.html as its own Vite entry running the verification script", () => {
     const viteConfig = readFileSync(path.join(ROOT, "vite.config.ts"), "utf8");
-    for (const { destination } of readVercelConfig().rewrites ?? []) {
-      const file = destination.replace(/^\//, "");
-      expect(existsSync(path.join(ROOT, file))).toBe(true);
-      expect(viteConfig).toContain(`resolve(__dirname, "${file}")`);
-      expect(readFileSync(path.join(ROOT, file), "utf8")).toContain('src="/src/main.ts"');
-    }
+    expect(viteConfig).toContain('resolve(__dirname, "gracias.html")');
+    const gracias = readFileSync(path.join(ROOT, "gracias.html"), "utf8");
+    expect(gracias).toContain('src="/src/gracias.ts"');
+    expect(gracias).not.toContain('src="/src/main.ts"');
   });
 
-  it("does not add a catch-all that would hide real 404s", () => {
+  it("does not add a catch-all rewrite that would hide real 404s", () => {
     for (const { source } of readVercelConfig().rewrites ?? []) {
       expect(source).not.toMatch(/[*(:]/);
     }
