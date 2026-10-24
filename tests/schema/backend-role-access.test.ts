@@ -182,14 +182,29 @@ describe("backend role access", () => {
 
     await asServiceRole(async () => {
       // Pay first: the PAID transition enqueues the buyer's participant to the Sheets outbox.
-      // (Tickets are discontinued, so the ticket-based attach_participant flow is retired; the
-      // backend role updates the buyer's own participant instead.)
       const confirmation = await db.query<{ result: string }>(
         `select public.confirm_payment(
            '${order.reference}','${order.wompiReference}','tx-rla-2','APPROVED',
            ${String(order.totalInCents)},'COP','CARD','APROBADA','{"id":"tx-rla-2"}'::jsonb,'wompi') ->> 'result' as result`,
       );
       expect(confirmation.rows[0]?.result).toBe("APPLIED");
+
+      // Tickets are discontinued: the second admission is attached through the order and the
+      // participant rows. This is also the privilege probe for the order-row lock
+      // (`FOR UPDATE` needs UPDATE on public.orders for the backend role).
+      const attached = await db.query<{
+        value: { found: boolean; unit: number; remainingUnassigned: number };
+      }>(
+        `select public.attach_participant(
+           '${order.reference}','rla-participants@example.com',
+           '{"firstName":"Beto","lastName":"Gómez","nationalId":"987654321",
+             "email":"beto@example.com","phone":"573001112233","city":"Cali",
+             "consents":{"dataProcessing":true,"futureEvents":false}}'::jsonb,
+           'v1') as value`,
+      );
+      expect(attached.rows[0]?.value.found).toBe(true);
+      expect(attached.rows[0]?.value.unit).toBe(2);
+      expect(attached.rows[0]?.value.remainingUnassigned).toBe(0);
 
       const participant = await db.query<{ id: string; email: string }>(
         `select id, email from public.participants where order_id = '${order.orderId}'::uuid limit 1`,

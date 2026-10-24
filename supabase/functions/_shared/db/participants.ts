@@ -5,18 +5,15 @@
  * module only calls them and re-validates the returned shapes. `found:false` covers an
  * unknown reference AND a wrong email AND a participant that belongs to another order — the
  * three are indistinguishable from outside on purpose.
+ *
+ * Tickets are discontinued: the admission a participant takes is derived from
+ * `order_items.quantity` inside SQL, so nothing here carries a ticket token.
  */
 
 import { AppError } from "../domain/errors.ts";
 import { mapSqlErrorToAppError } from "./orders.ts";
 import type { DbClient } from "./client.ts";
 import type { Json } from "./database.types.ts";
-
-export type AttachedTicket = {
-  readonly token: string;
-  readonly unit: number;
-  readonly status: string;
-};
 
 export type ParticipantConsentSummary = {
   readonly dataProcessing: boolean;
@@ -30,7 +27,8 @@ export type AttachParticipantResult =
   | {
       readonly found: true;
       readonly orderReference: string;
-      readonly ticket: AttachedTicket;
+      /** 1-based admission ordinal inside the order (the buyer's own row is unit 1). */
+      readonly unit: number;
       readonly participant: {
         readonly participantId: string;
         readonly firstName: string;
@@ -57,7 +55,6 @@ export type ParticipantGateway = {
     readonly orderReference: string;
     readonly buyerEmail: string;
     readonly participant: Json;
-    readonly ticketToken?: string | undefined;
     readonly policyVersion?: string | undefined;
   }): Promise<AttachParticipantResult>;
   updateParticipant(input: {
@@ -87,7 +84,6 @@ export function createParticipantGateway(client: DbClient): ParticipantGateway {
         p_order_reference: input.orderReference,
         p_buyer_email: input.buyerEmail,
         p_participant: input.participant,
-        ...(input.ticketToken === undefined ? {} : { p_ticket_token: input.ticketToken }),
         ...(input.policyVersion === undefined ? {} : { p_policy_version: input.policyVersion }),
       });
       if (error !== null) {

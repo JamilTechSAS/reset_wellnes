@@ -549,10 +549,14 @@ validates the vocabulary and clears the schedule for terminal results;
 The initial schedule is applied by a BEFORE INSERT trigger on `payments`, so every creation path
 (order, retry, recovery) is covered without touching `create_order`.
 
-**Participants** (`20261003210013`): `attach_participant(reference, email, payload, ticket_token?,
-policy_version?)` creates a participant and assigns it to the next (or a named) unassigned
-active ticket, with the ticket row locked and `SKIP LOCKED` so concurrent calls take different
-units; `update_participant(reference, email, participant_id, payload, …)` edits only a
+**Participants** (`20261003210013`, re-grained in `20261024130000`):
+`attach_participant(reference, email, payload, policy_version?)` creates a participant and
+assigns it to the next free admission of the order. Capacity is
+`sum(order_items.quantity)` and assignment is the first order line still below its quantity, so
+the line's ticket type / stage attribution stays correct for the Sheets export. The order row
+is locked with `FOR UPDATE`, which serializes concurrent calls on the same order (a
+participant count above capacity raises `PT409 NO_ASSIGNABLE_UNIT`); no ticket row, token or QR
+is involved. `update_participant(reference, email, participant_id, payload, …)` edits only a
 participant of that order. Both normalize/validate the payload in SQL (`PT400` with stable
 details) and append consent evidence — never update history. Unknown reference, wrong email and
 a foreign participant id all return `{found:false}` / `NOT_FOUND` identically.

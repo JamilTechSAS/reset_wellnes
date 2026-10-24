@@ -22,7 +22,6 @@ const logger = createLogger({
 
 const REFERENCE = "EVT-2026-000001";
 const PARTICIPANT_ID = "44444444-4444-4444-8444-444444444444";
-const TOKEN = "TKT_0123456789ABCDEFGHJK";
 
 const VALID_PARTICIPANT = {
   firstName: "  Ana ",
@@ -53,11 +52,11 @@ function gateway(overrides: Partial<ParticipantGateway> = {}): {
   const attachParticipant = vi.fn<ParticipantGateway["attachParticipant"]>().mockResolvedValue({
     found: true,
     orderReference: REFERENCE,
-    ticket: { token: TOKEN, unit: 1, status: "ACTIVE" },
+    unit: 2,
     participant: { participantId: PARTICIPANT_ID, firstName: "Ana", lastName: "Pérez" },
     consents: CONSENTS,
     consentsAppended: 2,
-    remainingUnassigned: 2,
+    remainingUnassigned: 0,
   });
   const updateParticipant = vi.fn<ParticipantGateway["updateParticipant"]>().mockResolvedValue({
     found: true,
@@ -89,7 +88,9 @@ describe("participant request parsing", () => {
   it("normalizes the participant block and strips unknown keys", () => {
     const parsed = parseParticipantRequest({
       participant: { ...VALID_PARTICIPANT, pricePaidCents: 0, ticketStatus: "ACTIVE" },
-      ticketToken: ` ${TOKEN} `,
+      // Tickets are discontinued: a legacy ticket token in the body must never reach the
+      // database and is not part of the parsed request.
+      ticketToken: "TKT_0123456789ABCDEFGHJK",
       consentPolicyVersion: "2026-v1",
       injected: "ignored",
     });
@@ -103,7 +104,7 @@ describe("participant request parsing", () => {
       instagram: "ana.perez",
       consents: { dataProcessing: true, futureEvents: false },
     });
-    expect(parsed.ticketToken).toBe(TOKEN);
+    expect(parsed).not.toHaveProperty("ticketToken");
     expect(parsed.policyVersion).toBe("2026-v1");
     expect(JSON.stringify(parsed.participantJson)).not.toContain("pricePaidCents");
     expect(JSON.stringify(parsed.participantJson)).not.toContain("ticketStatus");
@@ -131,11 +132,8 @@ describe("participant request parsing", () => {
     }
   });
 
-  it("rejects a non-object body and an oversized token/policy version", () => {
+  it("rejects a non-object body and an oversized policy version", () => {
     expect(() => parseParticipantRequest(null)).toThrow(AppError);
-    expect(() =>
-      parseParticipantRequest({ participant: VALID_PARTICIPANT, ticketToken: "x".repeat(200) }),
-    ).toThrow(AppError);
     expect(() =>
       parseParticipantRequest({
         participant: VALID_PARTICIPANT,
@@ -146,7 +144,7 @@ describe("participant request parsing", () => {
 });
 
 describe("attach participant", () => {
-  it("returns only the safe identifiers and the assigned unit", async () => {
+  it("returns only the safe identifiers and the assigned admission", async () => {
     const { gateway: g, attachParticipant } = gateway();
     const result = await handleAttachParticipant({
       reference: REFERENCE,
@@ -163,15 +161,15 @@ describe("attach participant", () => {
       orderReference: REFERENCE,
       buyerEmail: "buyer@example.com",
       participant: { nationalId: "1020456789" },
-      ticketToken: undefined,
       policyVersion: undefined,
     });
+    expect(sent).not.toHaveProperty("ticketToken");
     expect(result).toEqual({
       orderReference: REFERENCE,
-      ticket: { token: TOKEN, unit: 1, status: "ACTIVE" },
+      unit: 2,
       participant: { participantId: PARTICIPANT_ID, firstName: "Ana", lastName: "Pérez" },
       consents: CONSENTS,
-      remainingUnassigned: 2,
+      remainingUnassigned: 0,
     });
     // The response never echoes cédula, email or phone back over the wire.
     const serialized = JSON.stringify(result);

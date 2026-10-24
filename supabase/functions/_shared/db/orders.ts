@@ -72,6 +72,7 @@ export type OrderErrorDetail =
   | "TICKET_TYPE_INACTIVE"
   | "QUANTITY_LIMIT"
   | "SOLD_OUT"
+  | "NO_ASSIGNABLE_UNIT"
   | "IDEMPOTENCY_KEY_CONFLICT"
   | `DISCOUNT_${string}`;
 

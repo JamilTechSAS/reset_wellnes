@@ -1,7 +1,7 @@
 /**
  * Buyer-facing participant endpoints.
  *
- *   POST /orders/{reference}/participants             attach a person to a unit
+ *   POST /orders/{reference}/participants             attach a person to an admission
  *   PUT  /orders/{reference}/participants/{id}        edit a person of the same order
  *
  * Access model: the order reference AND the buyer email, exactly like the status and retry
@@ -10,8 +10,9 @@
  * reference and a participant of another order with the SAME `found:false`.
  *
  * What a client may send is only the participant block (validated and normalized by
- * `parseParticipantInput`, which strips unknown keys) plus an optional target ticket; price,
- * status, ids and order linkage are decided by the backend.
+ * `parseParticipantInput`, which strips unknown keys); price, status, ids, the admission and
+ * the order linkage are decided by the backend. Tickets are discontinued, so there is no
+ * ticket token to send or receive: the admission is the next free unit of the order.
  *
  * Privacy: the response returns the identifiers the buyer provided plus the assigned unit —
  * it never echoes cédula, email or phone back over the wire.
@@ -27,13 +28,11 @@ import type { ParticipantGateway } from "../db/participants.ts";
 
 const REFERENCE_PATTERN = /^EVT-[0-9]{4}-[0-9]{6,}(-[0-9]+)?$/;
 const PARTICIPANT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const MAX_TICKET_TOKEN_LENGTH = 120;
 const MAX_POLICY_VERSION_LENGTH = 64;
 
 export type ParsedParticipantRequest = {
   readonly participant: NormalizedParticipant;
   readonly participantJson: Json;
-  readonly ticketToken: string | undefined;
   readonly policyVersion: string | undefined;
 };
 
@@ -67,14 +66,6 @@ export function parseParticipantRequest(rawBody: unknown): ParsedParticipantRequ
     throw new ParticipantValidationError(parsed.issues);
   }
 
-  const ticketToken =
-    typeof body.ticketToken === "string" && body.ticketToken.trim().length > 0
-      ? body.ticketToken.trim()
-      : undefined;
-  if (ticketToken !== undefined && ticketToken.length > MAX_TICKET_TOKEN_LENGTH) {
-    throw validationError("ticketToken is too long", { context: { surface: "participants" } });
-  }
-
   const policyVersion =
     typeof body.consentPolicyVersion === "string" && body.consentPolicyVersion.trim().length > 0
       ? body.consentPolicyVersion.trim()
@@ -88,7 +79,6 @@ export function parseParticipantRequest(rawBody: unknown): ParsedParticipantRequ
   return {
     participant: parsed.value,
     participantJson: asJson(parsed.value),
-    ticketToken,
     policyVersion,
   };
 }
@@ -115,7 +105,8 @@ function requireEmail(email: string): string {
 
 export type AttachParticipantResponse = {
   readonly orderReference: string;
-  readonly ticket: { readonly token: string; readonly unit: number; readonly status: string };
+  /** 1-based admission ordinal inside the order (the buyer's own row is unit 1). */
+  readonly unit: number;
   readonly participant: {
     readonly participantId: string;
     readonly firstName: string;
@@ -145,7 +136,6 @@ export async function handleAttachParticipant(input: {
     orderReference: reference,
     buyerEmail: email,
     participant: request.participantJson,
-    ticketToken: request.ticketToken,
     policyVersion: request.policyVersion,
   });
 
@@ -157,13 +147,13 @@ export async function handleAttachParticipant(input: {
 
   input.logger.info("participant attached", {
     reference,
-    ticketUnit: attached.ticket.unit,
+    unit: attached.unit,
     remainingUnassigned: attached.remainingUnassigned,
   });
 
   return {
     orderReference: attached.orderReference,
-    ticket: attached.ticket,
+    unit: attached.unit,
     participant: attached.participant,
     consents: attached.consents,
     remainingUnassigned: attached.remainingUnassigned,

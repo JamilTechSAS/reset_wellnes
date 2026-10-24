@@ -347,7 +347,7 @@ describe("phase 5 schema", () => {
   // Participant assignment
   // -------------------------------------------------------------------------
 
-  it("attaches participants to a paid order with ownership and appends consent history", async () => {
+  it("attaches participants to the admissions of a paid order without tickets", async () => {
     const reference = "EVT-2026-000010";
     const orderId = await queryId(
       db,
@@ -356,6 +356,7 @@ describe("phase 5 schema", () => {
        returning id`,
       [reference, fixture.eventId],
     );
+    // Two admissions bought, no ticket rows: capacity must come from order_items.
     await db.query(
       `insert into public.order_items (order_id, ticket_type_id, pricing_tier_id, quantity, unit_price_cents, line_total_cents, ticket_type_name, pricing_tier_name)
        values ($1, $2, $3, 2, 9500000, 19000000, 'Entrada general', 'Preventa 1')`,
@@ -364,16 +365,6 @@ describe("phase 5 schema", () => {
     const itemId = await queryId(db, "select id from public.order_items where order_id = $1", [
       orderId,
     ]);
-    for (const [unit, token] of [
-      [1, "TKT_00000000000000000001"],
-      [2, "TKT_00000000000000000002"],
-    ] as const) {
-      await db.query(
-        `insert into public.tickets (event_id, order_id, order_item_id, order_item_seq, ticket_type_id, token, price_paid_cents)
-         values ($1, $2, $3, $4, $5, $6, 9500000)`,
-        [fixture.eventId, orderId, itemId, unit, fixture.ticketTypeId, token],
-      );
-    }
 
     // Wrong email and unknown reference are the same answer.
     const wrong = await asJson(
@@ -389,9 +380,10 @@ describe("phase 5 schema", () => {
       [reference, JSON.stringify(PARTICIPANT_PAYLOAD)],
     );
     expect(first.found).toBe(true);
-    expect((first.ticket as { unit: number }).unit).toBe(1);
+    expect(first.unit).toBe(1);
     expect(first.remainingUnassigned).toBe(1);
     expect(first.consentsAppended).toBe(2);
+    expect(first).not.toHaveProperty("ticket");
 
     const second = await asJson(
       db,
@@ -405,8 +397,22 @@ describe("phase 5 schema", () => {
         }),
       ],
     );
-    expect((second.ticket as { unit: number }).unit).toBe(2);
+    expect(second.unit).toBe(2);
     expect(second.remainingUnassigned).toBe(0);
+
+    // The admission is attributed to the order line, which is what the Sheets export reads.
+    const attributed = await db.query<{ order_item_id: string | null }>(
+      "select order_item_id from public.participants where id = $1",
+      [(first.participant as { participantId: string }).participantId],
+    );
+    expect(attributed.rows[0]?.order_item_id).toBe(itemId);
+
+    // No ticket row, token or QR is created by assignment.
+    const tickets = await db.query<{ count: number }>(
+      "select count(*)::int as count from public.tickets where order_id = $1",
+      [orderId],
+    );
+    expect(tickets.rows[0]?.count).toBe(0);
 
     // No assignable unit left: a stable conflict, never a silent overwrite.
     await expectRejection(
@@ -418,7 +424,7 @@ describe("phase 5 schema", () => {
           email: "tercera@example.com",
         }),
       ]),
-      /TICKET_NOT_ASSIGNABLE|no unassigned/,
+      /NO_ASSIGNABLE_UNIT|no unassigned/,
     );
 
     // Consent history is append-only: updating the same participant appends new rows, and

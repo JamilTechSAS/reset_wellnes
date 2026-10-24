@@ -6,7 +6,7 @@
  *   GET  /orders/{reference}              -> buyer-facing status polling
  *   POST /orders/{reference}/retry        -> new payment attempt with a fresh Wompi reference
  *   POST /orders/{reference}/payment-hint -> buyer returns the `?id=` transaction id from Wompi
- *   POST /orders/{reference}/participants -> attach a participant to a ticket (Phase 5)
+ *   POST /orders/{reference}/participants -> attach a participant to an admission (Phase 5)
  *   PUT  /orders/{reference}/participants/{participantId} -> edit a participant of the order
  *
  * This file is a THIN ADAPTER: it reads the request and the environment, delegates to the

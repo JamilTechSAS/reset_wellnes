@@ -299,10 +299,15 @@ Errors: `NOT_FOUND` (unknown reference or wrong email — identical responses),
 
 ### `POST /orders/{reference}/participants` — implemented (Phase 5)
 
-Attaches a person to a **remaining unit** of a paid order and records consent evidence with
-value, timestamp and policy version. Server-side validation (`parseParticipantInput`) strips
-unknown fields, so a client cannot set price, status or ids. Consent to personal data
-processing is mandatory.
+Attaches a person to a **remaining admission** of a paid order and records consent evidence
+with value, timestamp and policy version. Server-side validation (`parseParticipantInput`)
+strips unknown fields, so a client cannot set price, status, ids or the admission. Consent to
+personal data processing is mandatory.
+
+Tickets are discontinued: the order is the source of truth. Capacity is
+`sum(order_items.quantity)` and the buyer's own participant (written by `POST /orders`) already
+occupies one admission, so the companion of a two-admission purchase (`quantity: 2` or the
+`DOUBLE_EXPERIENCE` bundle) is attached with a single call here.
 
 Headers: `X-Buyer-Email: <email>` (or `{ "email": "…" }` in the body).
 
@@ -312,22 +317,22 @@ Headers: `X-Buyer-Email: <email>` (or `{ "email": "…" }` in the body).
                    "email": "ana@example.com", "phone": "+57 300 123 4567", "city": "Bogotá",
                    "instagram": "@ana.perez",
                    "consents": { "dataProcessing": true, "futureEvents": false } },
-  "ticketToken": "TKT_…",          // optional: claim a specific unit
   "consentPolicyVersion": "2026-v1" } // optional
 // response (201)
 { "ok": true, "data": {
   "orderReference": "EVT-2026-000001",
-  "ticket": { "token": "TKT_…", "unit": 2, "status": "ACTIVE" },
+  "unit": 2,
   "participant": { "participantId": "…", "firstName": "Ana", "lastName": "Pérez" },
   "consents": { "dataProcessing": true, "futureEvents": false,
                  "policyVersion": "2026-v1", "capturedAt": "…" },
-  "remainingUnassigned": 1 } }
+  "remainingUnassigned": 0 } }
 ```
 
-The response never echoes cédula, email or phone back over the wire. Without `ticketToken`,
-concurrent calls claim **different units** (database `FOR UPDATE SKIP LOCKED`); a ticket is
+The response never echoes cédula, email or phone back over the wire, and no ticket token or
+QR is issued. `unit` is the 1-based admission ordinal inside the order. Concurrent calls on
+the same order are serialized with `FOR UPDATE` on the order row, so the last admission is
 never assigned twice. Errors: `NOT_FOUND` (unknown reference, wrong email or a participant of
-another order — all identical), `CONFLICT` (`ORDER_NOT_PAID`, `TICKET_NOT_ASSIGNABLE`),
+another order — all identical), `CONFLICT` (`ORDER_NOT_PAID`, `NO_ASSIGNABLE_UNIT`),
 `VALIDATION_ERROR`.
 
 ### `PUT /orders/{reference}/participants/{participantId}` — implemented (Phase 5)

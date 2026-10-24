@@ -496,7 +496,7 @@ isOneToOne: false
           }
           Functions: {
             "attach_participant":
-{ Args: { "p_buyer_email": string,"p_now"?: string,"p_order_reference": string,"p_participant": Json,"p_policy_version"?: string,"p_ticket_token"?: string }; Returns: Json
+{ Args: { "p_buyer_email": string,"p_now"?: string,"p_order_reference": string,"p_participant": Json,"p_policy_version"?: string }; Returns: Json
                            },
 "claim_email_deliveries":
 { Args: { "p_limit"?: number,"p_max_attempts"?: number,"p_now"?: string,"p_stale_after_seconds"?: number }; Returns: {
