@@ -78,7 +78,10 @@ export function defaultScriptLoader(scriptUrl: string): Promise<void> {
     const script = document.createElement("script");
     script.src = scriptUrl;
     script.async = true;
-    script.crossOrigin = "anonymous";
+    // No `crossOrigin` here on purpose. Setting it makes the browser request the SDK in CORS
+    // mode, and ePayco's CDN (`checkout.epayco.co`) answers without `Access-Control-Allow-Origin`:
+    // every checkout then fails with "blocked by CORS policy" and the buyer can never pay. A plain
+    // classic script needs no CORS grant, and `checkout-v2.js` exports `window.ePayco` either way.
 
     script.onload = () => {
       resolve();

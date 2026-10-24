@@ -13,6 +13,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_EPAYCO_SCRIPT_URL,
+  defaultScriptLoader,
   loadEpaycoScript,
   openEpaycoCheckout,
   resetEpaycoLoaderForTesting,
@@ -86,6 +87,30 @@ describe("ePayco Smart Checkout V2 frontend integration", () => {
       await expect(loadEpaycoScript(DEFAULT_EPAYCO_SCRIPT_URL, loader)).rejects.toThrow(
         /Network connection error/,
       );
+    });
+
+    // Regression: `crossOrigin = "anonymous"` made the browser fetch checkout-v2.js in CORS mode.
+    // ePayco's CDN sends no `Access-Control-Allow-Origin`, so the SDK was blocked and no buyer
+    // could open the checkout. A classic script must be injected without the attribute.
+    it("injects the SDK as a classic script, never in CORS mode", async () => {
+      const appended: Element[] = [];
+      const originalAppend = document.head.appendChild.bind(document.head);
+      vi.spyOn(document.head, "appendChild").mockImplementation(<T extends Node>(node: T): T => {
+        if (node instanceof HTMLScriptElement) {
+          appended.push(node);
+          // happy-dom would try to fetch the SDK; this test only inspects the tag it builds.
+          return node;
+        }
+        return originalAppend(node);
+      });
+
+      void defaultScriptLoader(DEFAULT_EPAYCO_SCRIPT_URL).catch(() => undefined);
+
+      expect(appended).toHaveLength(1);
+      const script = appended[0] as HTMLScriptElement;
+      expect(script.src).toBe(DEFAULT_EPAYCO_SCRIPT_URL);
+      expect(script.hasAttribute("crossorigin")).toBe(false);
+      expect(script.crossOrigin).toBeFalsy();
     });
   });
 
