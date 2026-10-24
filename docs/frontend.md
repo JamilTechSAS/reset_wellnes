@@ -118,8 +118,7 @@ discount, tax or total is ever computed in the browser, and `POST /orders` is ne
 | "Continuar al pago"             | `POST /orders/quote`                    | `{eventCode, ticketTypeCode, quantity, bundleCode?, discountCode?}`. Reserves nothing          |
 | "Pagar …"                       | `POST /orders`                          | + header `Idempotency-Key`. Prices come back from the database, with the ePayco session        |
 | ePayco handoff                  | _(browser, ePayco SDK)_                 | `checkout.epayco.co/checkout-v2.js` configured with the backend's `sessionId` and `test` flag  |
-| Return (`/gracias?ref_payco=…`) | `POST /orders/{reference}/payment-hint` | Body `{transactionId}`, header `X-Buyer-Email`. Accelerates the webhook only                   |
-| Return / pending / refresh      | `GET /orders/{reference}`               | Header `X-Buyer-Email`. **The only source of payment truth**                                   |
+| Return (`/gracias?ref_payco=…`) | `POST /orders/{reference}/payment-hint` | Body `{transactionId}`, header `X-Buyer-Email`. Accelerates the webhook only                   |     | Return / pending / refresh | `GET /orders/{reference}` | Header `X-Buyer-Email`. **The only source of payment truth**, and the admission roster |
 | "Intentar pagar de nuevo"       | `POST /orders/{reference}/retry`        | Body + header email; returns a fresh ePayco session for a new attempt                          |
 | "Guardar acompañante"           | `POST /orders/{reference}/participants` | Body `{participant}`, header `X-Buyer-Email`. Only offered after the order is `PAID`           |
 | "Consultar mi compra"           | `GET /orders/{reference}`               | Reference + email typed by the buyer; a wrong email is indistinguishable from an unknown order |
@@ -165,6 +164,12 @@ payment**, so refreshing the page or reopening `/gracias` re-reads the same orde
 and shows the same PAID confirmation again. It never re-creates an order, because a re-render or
 reload cannot change the `Idempotency-Key` of an attempt that already exists; the backend's partial
 unique index is the guarantee, not the frontend.
+
+The confirmation is rebuilt from the order projection, not from the form draft: `admissions`
+carries `quantity`, `assigned` and `remainingUnassigned`, and `participants` lists the assigned
+people in attachment order (unit 1 is the holder, names only). A reload therefore knows whether
+the companion is already registered and hides the form when `remainingUnassigned` is `0`; the
+stored companion data itself is deliberately never persisted in the browser.
 
 ## 6. Idempotency and duplicate protection
 

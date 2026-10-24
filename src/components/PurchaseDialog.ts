@@ -590,7 +590,13 @@ function renderConfirmed(state: PurchaseState, ctx: PurchaseDialogContext): stri
       state.companionStatus === "saved" ||
       state.companionStatus === "unavailable" ||
       state.companionStatus === "submitting");
-  const holder = `${state.participant.firstName} ${state.participant.lastName}`.trim();
+  // The backend's roster is authoritative: after a refresh the local form may be empty, but
+  // unit 1 is always the holder. The local values remain the fallback before a status answer.
+  const backendHolder = state.participants.find((person) => person.unit === 1);
+  const holder =
+    backendHolder === undefined
+      ? `${state.participant.firstName} ${state.participant.lastName}`.trim()
+      : `${backendHolder.firstName} ${backendHolder.lastName}`.trim();
   return `
     <div class="purchase-state tone-positive">
       <span class="purchase-state-icon tone-positive">${renderIcon("check")}</span>

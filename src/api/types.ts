@@ -230,6 +230,25 @@ export type OrderStatus = {
     readonly createdAt: string;
     readonly finalizedAt: string | null;
   }[];
+  /**
+   * How many admissions the order bought and how many already have a person assigned.
+   * The confirmation screen uses `remainingUnassigned` to know whether the companion form
+   * is still needed; the backend derives it from the order lines, never from tickets.
+   */
+  readonly admissions: {
+    readonly quantity: number;
+    readonly assigned: number;
+    readonly remainingUnassigned: number;
+  };
+  /**
+   * Assigned people of a PAID order, in attachment order (unit 1 is the buyer). Names only:
+   * the backend never projects cédula, email, phone, city or participant id here.
+   */
+  readonly participants: readonly {
+    readonly unit: number;
+    readonly firstName: string;
+    readonly lastName: string;
+  }[];
 };
 
 // ---------------------------------------------------------------------------

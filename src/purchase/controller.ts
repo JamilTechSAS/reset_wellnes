@@ -34,6 +34,9 @@ import {
   type PublicEvent,
   type Quote,
 } from "../api/types.ts";
+
+/** One assigned person of the paid order, as projected by `GET /orders/{reference}`. */
+export type OrderParticipant = OrderStatus["participants"][number];
 import type { FrontendConfig } from "../config/env.ts";
 import { selectTicketType } from "./ticket-selection.ts";
 import {
@@ -120,6 +123,12 @@ export type PurchaseState = {
   readonly companionName: string | null;
   /** Admissions still free in the order, as reported by the backend. */
   readonly remainingAdmissions: number | null;
+  /**
+   * People the backend says are assigned to this order (unit 1 is the holder). It is the
+   * refresh-proof source of the confirmation: a saved companion survives a reload even
+   * though the companion form itself is never persisted.
+   */
+  readonly participants: readonly OrderParticipant[];
 };
 
 /**
@@ -192,6 +201,7 @@ function initialState(): PurchaseState {
     companionError: null,
     companionName: null,
     remainingAdmissions: null,
+    participants: [],
   };
 }
 
@@ -359,6 +369,7 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
       companionError: null,
       companionName: null,
       remainingAdmissions: null,
+      participants: [],
     });
   }
 
@@ -450,6 +461,7 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
       companionError: null,
       companionName: null,
       remainingAdmissions: null,
+      participants: [],
     });
 
     const signal = newSignal();
@@ -777,10 +789,21 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
         },
         signal,
       );
+      const attachedParticipant: OrderParticipant = {
+        unit: attached.unit,
+        firstName: attached.participant.firstName,
+        lastName: attached.participant.lastName,
+      };
       emit({
         companionStatus: "saved",
         companionName: `${attached.participant.firstName} ${attached.participant.lastName}`.trim(),
         remainingAdmissions: attached.remainingUnassigned,
+        // Keep the roster in sync locally so the confirmation shows the new person without
+        // waiting for another status round-trip. A unit can never appear twice.
+        participants: [
+          ...state.participants.filter((person) => person.unit !== attached.unit),
+          attachedParticipant,
+        ].sort((left, right) => left.unit - right.unit),
         companionIssues: [],
         companionError: null,
       });
@@ -892,14 +915,39 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
     if (status.status === "PAID") {
       // The session correlation is deliberately kept: a refresh or a reopened return URL must
       // be able to show the same confirmed purchase again (the backend re-answers the same
-      // order). The buyer's own participant occupies the first admission, so a two-admission
-      // purchase starts with one still free until the backend says otherwise.
+      // order). The backend's roster, not local memory, decides whether the companion is
+      // already registered — that is what makes a reload show the truth instead of the form.
+      const participants = status.participants;
+      const remaining = status.admissions.remainingUnassigned;
+      const companions = participants.filter((person) => person.unit > 1);
+      const lastCompanion = companions[companions.length - 1];
+      const companionName =
+        lastCompanion === undefined
+          ? state.companionName
+          : `${lastCompanion.firstName} ${lastCompanion.lastName}`.trim();
+      // A submission in flight owns its status: a background refresh must not replace the
+      // spinner with a form that would send the same person twice. Otherwise the roster is
+      // the truth: a companion row means registered, no free admission means nothing left to
+      // attach (a fully assigned order whose roster is not visible is never called "saved"
+      // with an empty name).
+      const companionStatus: CompanionStatus =
+        state.companionStatus === "submitting"
+          ? "submitting"
+          : companions.length > 0
+            ? "saved"
+            : status.quantity > 1 && remaining <= 0
+              ? "unavailable"
+              : "idle";
       emit({
         step: "confirmed",
         busy: false,
         status,
         problem: null,
-        remainingAdmissions: state.remainingAdmissions ?? Math.max(status.quantity - 1, 0),
+        remainingAdmissions: remaining,
+        participants,
+        companionStatus,
+        companionName,
+        ...(companionStatus === "idle" ? { companionError: null } : {}),
       });
       return;
     }

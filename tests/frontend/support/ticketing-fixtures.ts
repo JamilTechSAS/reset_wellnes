@@ -158,10 +158,11 @@ export function makeCreatedOrder(overrides: Partial<CreatedOrder> = {}): Created
 }
 
 export function makeOrderStatus(overrides: Partial<OrderStatus> = {}): OrderStatus {
+  const quantity = overrides.quantity ?? 1;
   return {
     reference: "EVT-2026-000001",
     status: "PENDING",
-    quantity: 1,
+    quantity,
     totalInCents: 16_000_000,
     currency: "COP",
     createdAt: "2026-10-05T19:00:00.000Z",
@@ -169,6 +170,10 @@ export function makeOrderStatus(overrides: Partial<OrderStatus> = {}): OrderStat
     reservationExpiresAt: "2026-10-05T20:15:00.000Z",
     payment: null,
     paymentAttempts: [],
+    // The order is written with the buyer's own participant, so unit 1 is always assigned.
+    // The projection hides the roster until the order is PAID.
+    admissions: { quantity, assigned: 1, remainingUnassigned: Math.max(quantity - 1, 0) },
+    participants: [],
     ...overrides,
   };
 }
@@ -184,6 +189,20 @@ export function makePaidOrderStatus(overrides: Partial<OrderStatus> = {}): Order
       statusMessage: null,
       approvedAt: "2026-10-05T19:05:00.000Z",
     },
+    participants: [{ unit: 1, firstName: "Ana", lastName: "Pérez" }],
+    ...overrides,
+  });
+}
+
+/** A PAID order whose two admissions are both assigned (the companion is registered). */
+export function makeFullyAssignedOrderStatus(overrides: Partial<OrderStatus> = {}): OrderStatus {
+  return makePaidOrderStatus({
+    quantity: 2,
+    participants: [
+      { unit: 1, firstName: "Ana", lastName: "Pérez" },
+      { unit: 2, firstName: "Beto", lastName: "Gómez" },
+    ],
+    admissions: { quantity: 2, assigned: 2, remainingUnassigned: 0 },
     ...overrides,
   });
 }

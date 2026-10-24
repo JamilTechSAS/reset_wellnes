@@ -28,6 +28,7 @@ import {
   makeCreatedOrder,
   makeEpaycoCheckout,
   makeEvent,
+  makeFullyAssignedOrderStatus,
   makeOrderStatus,
   makePaidOrderStatus,
   makePaymentHint,
@@ -1216,6 +1217,108 @@ describe("companion (second admission) after a confirmed payment", () => {
     expect(state.step).toBe("confirmed");
   });
 
+  it("hydrates a registered companion from the backend roster after a reload", async () => {
+    const api = createFakeApi();
+    api.getOrderStatus.mockResolvedValue(
+      makeFullyAssignedOrderStatus({ quantity: 2, totalInCents: 40_000_000 }),
+    );
+    const first = setup({ api, seed: draftEntry(2), polling });
+    await reachReview(first);
+    await first.controller.submit();
+    await settle();
+    expect(first.controller.getState().companionStatus).toBe("saved");
+    first.controller.dispose();
+
+    // A real reload: a brand-new controller over the same sessionStorage. The companion form
+    // is gone from memory, so only the order projection can say the purchase is complete.
+    const reloaded = setup({ api, seed: Object.fromEntries(first.store.entries), polling });
+    await reloaded.controller.resumeReturn({});
+
+    const state = reloaded.controller.getState();
+    expect(state.step).toBe("confirmed");
+    expect(state.remainingAdmissions).toBe(0);
+    expect(state.status?.admissions).toEqual({
+      quantity: 2,
+      assigned: 2,
+      remainingUnassigned: 0,
+    });
+    expect(state.participants.map((person) => person.unit)).toEqual([1, 2]);
+    expect(state.companionStatus).toBe("saved");
+    expect(state.companionName).toBe("Beto Gómez");
+
+    // Nothing to attach: the form is not offered again and no request is attempted.
+    fillCompanion(reloaded.controller);
+    await reloaded.controller.submitCompanion();
+    expect(api.attachParticipant).not.toHaveBeenCalled();
+  });
+
+  it("hydrates the bundle's registered companion after a reload too", async () => {
+    const api = createFakeApi();
+    api.getOrderStatus.mockResolvedValue(
+      makeFullyAssignedOrderStatus({ quantity: 2, totalInCents: 34_000_000 }),
+    );
+    const env = setup({ api, seed: pendingOrderEntry(), polling });
+    env.controller.setBundleCode("DOUBLE_EXPERIENCE");
+    await env.controller.resumeReturn({});
+
+    const state = env.controller.getState();
+    expect(state.step).toBe("confirmed");
+    expect(state.companionStatus).toBe("saved");
+    expect(state.companionName).toBe("Beto Gómez");
+    expect(state.remainingAdmissions).toBe(0);
+  });
+
+  it("keeps the companion form while an admission is still free after a reload", async () => {
+    const api = createFakeApi();
+    api.getOrderStatus.mockResolvedValue(
+      makePaidOrderStatus({ quantity: 2, totalInCents: 40_000_000 }),
+    );
+    const env = setup({ api, seed: pendingOrderEntry(), polling });
+    await env.controller.resumeReturn({});
+
+    const state = env.controller.getState();
+    expect(state.step).toBe("confirmed");
+    expect(state.remainingAdmissions).toBe(1);
+    expect(state.companionStatus).toBe("idle");
+    expect(state.participants.map((person) => person.unit)).toEqual([1]);
+  });
+
+  it("uses the backend's admission counts, not quantity minus one", async () => {
+    const api = createFakeApi();
+    api.getOrderStatus.mockResolvedValue(
+      makeFullyAssignedOrderStatus({ quantity: 2, totalInCents: 40_000_000 }),
+    );
+    const env = setup({ api, seed: draftEntry(2), polling });
+    await reachConfirmed(env, 2);
+
+    const state = env.controller.getState();
+    expect(state.remainingAdmissions).toBe(0);
+    expect(state.companionStatus).toBe("saved");
+    expect(state.companionName).toBe("Beto Gómez");
+    fillCompanion(env.controller);
+    await env.controller.submitCompanion();
+    expect(api.attachParticipant).not.toHaveBeenCalled();
+  });
+
+  it("never claims a companion when the roster is empty, even if no admission is free", async () => {
+    const api = createFakeApi();
+    api.getOrderStatus.mockResolvedValue(
+      makePaidOrderStatus({
+        quantity: 2,
+        admissions: { quantity: 2, assigned: 2, remainingUnassigned: 0 },
+      }),
+    );
+    const env = setup({ api, seed: draftEntry(2), polling });
+    await reachConfirmed(env, 2);
+
+    const state = env.controller.getState();
+    expect(state.companionStatus).toBe("unavailable");
+    expect(state.companionName).toBeNull();
+    fillCompanion(env.controller);
+    await env.controller.submitCompanion();
+    expect(api.attachParticipant).not.toHaveBeenCalled();
+  });
+
   it("validates the companion before calling the backend", async () => {
     const api = createFakeApi();
     api.getOrderStatus.mockResolvedValue(
@@ -1238,7 +1341,10 @@ describe("companion (second admission) after a confirmed payment", () => {
     const env = setup({ api, seed: draftEntry(1), polling });
     await reachConfirmed(env, 1);
 
-    expect(env.controller.getState().remainingAdmissions).toBe(0);
+    const state = env.controller.getState();
+    expect(state.remainingAdmissions).toBe(0);
+    expect(state.participants.map((person) => person.unit)).toEqual([1]);
+    expect(state.companionStatus).toBe("idle");
     fillCompanion(env.controller);
     await env.controller.submitCompanion();
     expect(api.attachParticipant).not.toHaveBeenCalled();

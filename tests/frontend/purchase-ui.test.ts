@@ -81,6 +81,7 @@ function makeState(overrides: Partial<PurchaseState> = {}): PurchaseState {
     companionError: null,
     companionName: null,
     remainingAdmissions: null,
+    participants: [],
     ...overrides,
   };
 }
@@ -386,6 +387,49 @@ describe("purchase step rendering", () => {
       CONTEXT,
     );
     expect(step.body).toContain("Acompañante registrado: Beto Gómez");
+    expect(step.body).not.toContain('data-action="attach-companion"');
+  });
+
+  it("hides the companion form when the backend reports every admission assigned", () => {
+    const status = makePaidOrderStatus({
+      quantity: 2,
+      totalInCents: 40_000_000,
+      admissions: { quantity: 2, assigned: 2, remainingUnassigned: 0 },
+      participants: [
+        { unit: 1, firstName: "Ana", lastName: "Pérez" },
+        { unit: 2, firstName: "Beto", lastName: "Gómez" },
+      ],
+    });
+    // A reload has no local form values; the roster and the counts come from the backend.
+    const step = renderPurchaseStep(
+      makeState({
+        step: "confirmed",
+        status,
+        quantity: 2,
+        participant: EMPTY_PARTICIPANT_FORM,
+        remainingAdmissions: 0,
+        participants: status.participants,
+        companionStatus: "saved",
+        companionName: "Beto Gómez",
+      }),
+      CONTEXT,
+    );
+
+    expect(step.body).not.toContain('data-action="attach-companion"');
+    expect(step.body).not.toContain('data-companion-field="firstName"');
+    expect(step.body).toContain("Acompañante registrado: Beto Gómez");
+    expect(step.body).toContain("Ana Pérez");
+  });
+
+  it("never shows the companion form just because two admissions were bought", () => {
+    const status = makePaidOrderStatus({
+      quantity: 2,
+      admissions: { quantity: 2, assigned: 2, remainingUnassigned: 0 },
+    });
+    const step = renderPurchaseStep(
+      makeState({ step: "confirmed", status, quantity: 2, remainingAdmissions: 0 }),
+      CONTEXT,
+    );
     expect(step.body).not.toContain('data-action="attach-companion"');
   });
 
