@@ -19,6 +19,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "functions:check": "node scripts/check-functions.ts",
+    "sheets:check": "node scripts/sheets-connector-check.ts",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm run functions:check && npm run test",
     "db:start": "supabase start",
     "db:stop": "supabase stop",

@@ -250,7 +250,7 @@ guardrail. Set them in the deploy environment (Vercel → Environment Variables)
 file, which is git-ignored.
 
 Never `VITE_`-prefix, and never ship: `SUPABASE_SECRET_KEY` / service-role key, `WOMPI_PRIVATE_KEY`,
-`WOMPI_INTEGRITY_SECRET`, `WOMPI_EVENTS_SECRET`, `RESEND_API_KEY`, `GOOGLE_PRIVATE_KEY`,
+`WOMPI_INTEGRITY_SECRET`, `WOMPI_EVENTS_SECRET`, `RESEND_API_KEY`, `GOOGLE_APPS_SCRIPT_SECRET`,
 `MAINTENANCE_API_TOKEN`, the database URL. Nothing in `src/` reads them; the only Supabase key the
 browser ever sees is Wompi's **public** key, which the backend returns in the checkout payload.
 

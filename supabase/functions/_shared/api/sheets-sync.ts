@@ -1,17 +1,17 @@
 /**
  * Google Sheets projection worker.
  *
- * Runs inside the maintenance invocation, AFTER all payment/ticket work is committed, and
- * writes the client's operational spreadsheet from `public.operational_export`. It is an
- * outbox drain, not a checkout dependency: a Google outage delays the sheet and nothing
- * else. Payments, ticket issuance and check-in never call Google.
+ * Runs inside the maintenance invocation, AFTER all payment and participant work is committed,
+ * and writes the client's operational spreadsheet from `public.operational_export`. It is an
+ * outbox drain, not a checkout dependency: a Google outage delays the sheet and nothing else.
+ * Payments, participant assignment and check-in never call Google.
  *
  * Semantics:
- *   * One sync always writes the COMPLETE grid (header + every ticket row), so the sheet is
- *     a snapshot of PostgreSQL, not a delta log. A row missed by an earlier failure is
+ *   * One sync always writes the COMPLETE grid (header + every participant row), so the sheet
+ *     is a snapshot of PostgreSQL, not a delta log. A row missed by an earlier failure is
  *     healed by the next successful sync.
  *   * Claimed queue rows are marked SYNCED only for rows still SYNCING after the write;
- *     a ticket that changed mid-write was re-queued by its trigger and stays pending.
+ *     a participant that changed mid-write was re-queued by its trigger and stays pending.
  *   * On failure the claimed rows go back to FAILED with a backoff, except those that have
  *     spent the attempt budget: they stay FAILED and visible until new data re-queues them.
  *   * The worker never throws: it reports a summary. Maintenance must keep running even
@@ -22,8 +22,6 @@ import {
   buildProjectionGrid,
   buildStatusRows,
   SHEETS_CLAIM_BATCH_SIZE,
-  SHEETS_DEFAULT_DATA_SHEET,
-  SHEETS_DEFAULT_STATUS_SHEET,
   SHEETS_MAX_ATTEMPTS,
   SHEETS_MAX_ROWS,
   sheetsRetryDelaySeconds,
@@ -31,7 +29,7 @@ import {
 import { toAppError } from "../domain/errors.ts";
 import type { Logger } from "../logging/logger.ts";
 import type { SheetsGateway } from "../db/sheets.ts";
-import type { SheetsClient, SheetsRange } from "../integrations/google/sheets-client.ts";
+import type { SheetsClient, SheetsWriteResult } from "../integrations/google/sheets-client.ts";
 
 export type SheetsSyncSummary = {
   /** True when the projection is not configured (no credentials or disabled by config). */
@@ -42,7 +40,7 @@ export type SheetsSyncSummary = {
   readonly failedTickets: number;
   /** Rows that spent the attempt budget; they stay FAILED until new data arrives. */
   readonly exhaustedTickets: number;
-  /** Ticket rows written to the sheet (excludes the header). */
+  /** Participant rows acknowledged by the connector (excludes the header). */
   readonly rowsWritten: number;
   readonly statusTabWritten: boolean;
   /** Bounded, non-secret failure description; `null` on success. */
@@ -51,11 +49,9 @@ export type SheetsSyncSummary = {
 
 export type RunSheetsSyncInput = {
   readonly sheets: SheetsGateway;
-  /** `undefined` when Google credentials are absent; the projection is then skipped. */
+  /** `undefined` when the Apps Script connector is not configured; the projection is skipped. */
   readonly client: SheetsClient | undefined;
   readonly timezone: string;
-  readonly dataSheet?: string;
-  readonly statusSheet?: string;
   readonly logger: Logger;
   readonly now?: () => Date;
 };
@@ -74,11 +70,6 @@ function emptySummary(skipped: boolean, configured: boolean): SheetsSyncSummary 
   };
 }
 
-/** Quotes a sheet name for A1 notation (`O'Brien` -> `'O''Brien'`). */
-export function sheetRange(sheetName: string): string {
-  return `'${sheetName.replace(/'/g, "''")}'!A1`;
-}
-
 export async function runSheetsSync(input: RunSheetsSyncInput): Promise<SheetsSyncSummary> {
   const { logger } = input;
   const client = input.client;
@@ -86,8 +77,6 @@ export async function runSheetsSync(input: RunSheetsSyncInput): Promise<SheetsSy
     return emptySummary(true, false);
   }
   const now = input.now ?? (() => new Date());
-  const dataSheet = input.dataSheet ?? SHEETS_DEFAULT_DATA_SHEET;
-  const statusSheet = input.statusSheet ?? SHEETS_DEFAULT_STATUS_SHEET;
 
   const claimed = await input.sheets.claimProjections({
     limit: SHEETS_CLAIM_BATCH_SIZE,
@@ -109,14 +98,23 @@ export async function runSheetsSync(input: RunSheetsSyncInput): Promise<SheetsSy
   const bounded = rows.slice(0, SHEETS_MAX_ROWS);
   const grid = buildProjectionGrid(bounded, { timezone: input.timezone });
 
-  const ranges: SheetsRange[] = [
-    {
-      range: sheetRange(dataSheet),
+  let write: SheetsWriteResult;
+  try {
+    write = await client.writeProjection({
+      grid: "data",
       values: [grid.header, ...grid.rows],
-    },
-  ];
-
-  const write = await client.writeRanges({ ranges });
+    });
+  } catch (error) {
+    // The worker must never throw: a connector client that throws would leave the claimed
+    // projections SYNCING until stale recovery instead of recording a normal retryable failure.
+    logger.error("google sheets connector call threw", { error: toAppError(error).code });
+    write = {
+      ok: false,
+      retryable: true,
+      error: "the Apps Script connector call failed",
+      httpStatus: undefined,
+    };
+  }
   if (!write.ok) {
     const retryable = write.retryable;
     const retryAt = new Date(
@@ -185,8 +183,9 @@ export async function runSheetsSync(input: RunSheetsSyncInput): Promise<SheetsSy
       timezone: input.timezone,
       note: "Proyección operativa de solo lectura.",
     });
-    const statusWrite = await client.writeRanges({
-      ranges: [{ range: sheetRange(statusSheet), values: [...statusGrid] }],
+    const statusWrite = await client.writeProjection({
+      grid: "status",
+      values: statusGrid,
     });
     statusTabWritten = statusWrite.ok;
     if (!statusWrite.ok) {
@@ -209,7 +208,7 @@ export async function runSheetsSync(input: RunSheetsSyncInput): Promise<SheetsSy
     syncedTickets: finished.updatedCount,
     failedTickets: 0,
     exhaustedTickets: 0,
-    rowsWritten: grid.rows.length,
+    rowsWritten: write.rowsWritten,
     statusTabWritten,
     error: null,
   };

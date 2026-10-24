@@ -376,10 +376,9 @@ describe("configuration", () => {
     const config = loadConfig({
       ...VALID_SANDBOX_ENV,
       SHEETS_ENABLED: "true",
-      GOOGLE_SERVICE_ACCOUNT_EMAIL: "projection@proyecto.iam.gserviceaccount.com",
-      GOOGLE_PRIVATE_KEY:
-        "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkq\n-----END PRIVATE KEY-----",
-      GOOGLE_SPREADSHEET_ID: "1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789",
+      GOOGLE_APPS_SCRIPT_URL:
+        "https://script.google.com/macros/s/AKfycbxTestDeploymentId1234567890/exec",
+      GOOGLE_APPS_SCRIPT_SECRET: "test_apps_script_secret_0123456789abcdef",
     });
     expect(config.googleSheets.enabled).toBe(true);
     const projection = JSON.stringify(describeConfigForLogs(config));
@@ -391,7 +390,7 @@ describe("configuration", () => {
       config.wompi.eventsSecret,
       config.email.apiKey ?? "",
       config.maintenanceApiToken ?? "",
-      config.googleSheets.enabled ? config.googleSheets.privateKey : "",
+      config.googleSheets.enabled ? config.googleSheets.appsScriptSecret : "",
     ]) {
       if (secret.length > 0) {
         expect(projection).not.toContain(secret);
@@ -405,8 +404,6 @@ describe("configuration", () => {
     const config = loadConfig(VALID_DEV_ENV);
     expect(config.rateLimitEnabled).toBe(true);
     expect(config.googleSheets.enabled).toBe(false);
-    expect(config.googleSheets.dataSheet).toBe("Datos");
-    expect(config.googleSheets.statusSheet).toBe("Estado");
 
     const off = loadConfig({ ...VALID_DEV_ENV, RATE_LIMIT_ENABLED: "false" });
     expect(off.rateLimitEnabled).toBe(false);
@@ -415,66 +412,79 @@ describe("configuration", () => {
     expect(bad.issues.some((issue) => issue.includes("RATE_LIMIT_ENABLED"))).toBe(true);
   });
 
-  it("requires every Google credential once the projection is enabled", () => {
+  it("requires every Apps Script connector value once the projection is enabled", () => {
     const error = expectConfigError({ ...VALID_DEV_ENV, SHEETS_ENABLED: "true" });
-    for (const name of [
-      "GOOGLE_SERVICE_ACCOUNT_EMAIL",
-      "GOOGLE_PRIVATE_KEY",
-      "GOOGLE_SPREADSHEET_ID",
-    ]) {
+    for (const name of ["GOOGLE_APPS_SCRIPT_URL", "GOOGLE_APPS_SCRIPT_SECRET"]) {
       expect(error.issues.some((issue) => issue.includes(name))).toBe(true);
     }
     // A half-configured deployment must fail at startup instead of writing somewhere else.
     const partial = expectConfigError({
       ...VALID_DEV_ENV,
       SHEETS_ENABLED: "true",
-      GOOGLE_SERVICE_ACCOUNT_EMAIL: "projection@proyecto.iam.gserviceaccount.com",
+      GOOGLE_APPS_SCRIPT_URL:
+        "https://script.google.com/macros/s/AKfycbxTestDeploymentId1234567890/exec",
     });
-    expect(partial.issues.some((issue) => issue.includes("GOOGLE_PRIVATE_KEY"))).toBe(true);
-    expect(partial.issues.some((issue) => issue.includes("GOOGLE_SPREADSHEET_ID"))).toBe(true);
+    expect(partial.issues.some((issue) => issue.includes("GOOGLE_APPS_SCRIPT_SECRET"))).toBe(true);
   });
 
-  it("validates the shape of the Google credentials when enabled", () => {
+  it("validates the Apps Script URL and shared secret when enabled", () => {
     const error = expectConfigError({
       ...VALID_DEV_ENV,
       SHEETS_ENABLED: "true",
-      GOOGLE_SERVICE_ACCOUNT_EMAIL: "someone@gmail.com",
-      GOOGLE_PRIVATE_KEY: "not-a-pem",
-      GOOGLE_SPREADSHEET_ID: "too short",
-      GOOGLE_SHEETS_DATA_TAB: "x".repeat(101),
+      GOOGLE_APPS_SCRIPT_URL: "http://example.com/exec",
+      GOOGLE_APPS_SCRIPT_SECRET: "too short",
     });
-    expect(
-      error.issues.some((issue) => issue.includes("GOOGLE_SERVICE_ACCOUNT_EMAIL must be")),
-    ).toBe(true);
-    expect(error.issues.some((issue) => issue.includes("GOOGLE_PRIVATE_KEY must be"))).toBe(true);
-    expect(error.issues.some((issue) => issue.includes("GOOGLE_SPREADSHEET_ID must be"))).toBe(
+    expect(error.issues.some((issue) => issue.includes("GOOGLE_APPS_SCRIPT_URL must be"))).toBe(
       true,
     );
-    expect(error.issues.some((issue) => issue.includes("GOOGLE_SHEETS_DATA_TAB"))).toBe(true);
+    expect(error.issues.some((issue) => issue.includes("GOOGLE_APPS_SCRIPT_SECRET must be"))).toBe(
+      true,
+    );
 
     const valid = loadConfig({
       ...VALID_DEV_ENV,
       SHEETS_ENABLED: "true",
-      GOOGLE_SERVICE_ACCOUNT_EMAIL: "projection@proyecto.iam.gserviceaccount.com",
-      GOOGLE_PRIVATE_KEY:
-        "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkq\n-----END PRIVATE KEY-----",
-      GOOGLE_SPREADSHEET_ID: "1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789",
-      GOOGLE_SHEETS_DATA_TAB: "Entradas",
+      GOOGLE_APPS_SCRIPT_URL:
+        "https://script.google.com/macros/s/AKfycbxTestDeploymentId1234567890/exec",
+      GOOGLE_APPS_SCRIPT_SECRET: "test_apps_script_secret_0123456789abcdef",
     });
     expect(valid.googleSheets.enabled).toBe(true);
     if (valid.googleSheets.enabled) {
-      expect(valid.googleSheets.spreadsheetId).toBe("1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789");
-      expect(valid.googleSheets.dataSheet).toBe("Entradas");
+      expect(valid.googleSheets.appsScriptUrl).toBe(
+        "https://script.google.com/macros/s/AKfycbxTestDeploymentId1234567890/exec",
+      );
     }
   });
 
-  it("accepts present-but-unused Google credentials while the projection is off", () => {
+  it("rejects lookalike and non-deployed Apps Script endpoints", () => {
+    const secret = "test_apps_script_secret_0123456789abcdef";
+    for (const url of [
+      "http://script.google.com/macros/s/AKfycbxTestDeploymentId1234567890/exec",
+      "https://script.google.com.evil.example/macros/s/AKfycbxTestDeploymentId1234567890/exec",
+      "https://script.google.com/macros/s/AKfycbxTestDeploymentId1234567890/dev",
+      "https://script.google.com/macros/s/AKfycbxTestDeploymentId1234567890/exec?x=1",
+      "https://script.google.com/macros/s/AKfycbxTestDeploymentId1234567890/exec#x",
+      "https://user:pass@script.google.com/macros/s/AKfycbxTestDeploymentId1234567890/exec",
+    ]) {
+      const error = expectConfigError({
+        ...VALID_DEV_ENV,
+        SHEETS_ENABLED: "true",
+        GOOGLE_APPS_SCRIPT_URL: url,
+        GOOGLE_APPS_SCRIPT_SECRET: secret,
+      });
+      expect(error.issues.some((issue) => issue.includes("GOOGLE_APPS_SCRIPT_URL must be"))).toBe(
+        true,
+      );
+    }
+  });
+
+  it("accepts present-but-unused connector values while the projection is off", () => {
     // A deployment can carry the variables before enabling the projection; nothing is
-    // validated until SHEETS_ENABLED=true, and no Google call is ever made.
+    // validated until SHEETS_ENABLED=true, and no connector call is ever made.
     const config = loadConfig({
       ...VALID_DEV_ENV,
-      GOOGLE_SERVICE_ACCOUNT_EMAIL: "not-even-an-email",
-      GOOGLE_SPREADSHEET_ID: "not a valid id",
+      GOOGLE_APPS_SCRIPT_URL: "not a url",
+      GOOGLE_APPS_SCRIPT_SECRET: "short",
     });
     expect(config.googleSheets.enabled).toBe(false);
   });

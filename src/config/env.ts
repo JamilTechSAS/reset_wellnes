@@ -5,7 +5,7 @@
  * bundle. Nothing in this module can read a private key or a server credential: Vite exposes
  * an `import.meta.env` entry to the bundle only when it is prefixed `VITE_`, and the backend
  * secrets (`SUPABASE_SECRET_KEY`, `WOMPI_PRIVATE_KEY`, integrity/events secrets, Resend key,
- * Google service account) are never configured on the frontend at all.
+ * Google Apps Script secret) are never configured on the frontend at all.
  *
  * Every variable has a development-safe default so the app runs with zero configuration
  * locally; the production defaults below point at the real hosted backend so a `vite build`

@@ -61,13 +61,13 @@ async function run(config: BackendConfig, authorization: string | null): Promise
     config.email.enabled && config.email.apiKey !== undefined
       ? createResendClient({ apiKey: config.email.apiKey })
       : undefined;
-  // The projection is optional: without credentials the sync is skipped and every other
-  // job runs untouched. Credentials live only in the server environment (never in SQL).
+  // The projection is optional: without the connector the sync is skipped and every other
+  // job runs untouched. The shared secret lives only in the server environment (never in SQL);
+  // the spreadsheet ID and tab names live in Apps Script Script Properties.
   const sheetsClient = config.googleSheets.enabled
     ? createSheetsClient({
-        serviceAccountEmail: config.googleSheets.serviceAccountEmail,
-        privateKeyPem: config.googleSheets.privateKey,
-        spreadsheetId: config.googleSheets.spreadsheetId,
+        url: config.googleSheets.appsScriptUrl,
+        secret: config.googleSheets.appsScriptSecret,
       })
     : undefined;
 

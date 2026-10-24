@@ -234,7 +234,16 @@ describe("maintenance orchestration", () => {
     claimProjections.mockRejectedValue(new Error("database error"));
     const { rateLimits } = rateLimitStub();
     const sheetsClient = {
-      writeRanges: vi.fn().mockResolvedValue({ ok: true, updatedRanges: 1, updatedCells: 1 }),
+      writeProjection: vi.fn().mockResolvedValue({
+        ok: true,
+        grid: "data",
+        written: true,
+        rowsWritten: 0,
+        updatedRanges: 1,
+        updatedCells: 1,
+      }),
+      health: vi.fn(),
+      selfTest: vi.fn(),
     };
 
     const result = await runMaintenance({

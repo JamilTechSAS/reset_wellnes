@@ -21,6 +21,7 @@ export default defineConfig([
       "dist/**",
       "supabase/functions/_shared/db/database.types.ts",
       "supabase/.temp/**",
+      "integrations/google-apps-script/**",
       "Reset-web-para-programador/**",
       "client-handover/**",
       "public/**",

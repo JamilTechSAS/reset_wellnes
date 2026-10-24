@@ -9,8 +9,8 @@
  *
  * Privacy: the projection contains exactly the columns the client needs operationally
  * (including cédula/email/phone, which the brief requires for the door). It is written to
- * the client's spreadsheet with a service account; the sheet is shared only with the
- * client's Google account. Nothing here is exposed publicly.
+ * the client's spreadsheet through the signed Apps Script connector; the sheet is shared
+ * only with the client's authorized Google accounts. Nothing here is exposed publicly.
  */
 
 import { formatCopCents, copCents, CURRENCY_COP } from "./money.ts";
@@ -166,7 +166,7 @@ export type ProjectionGrid = {
 };
 
 /**
- * Builds the data grid: header row plus one row per ticket. Empty cells are empty
+ * Builds the data grid: header row plus one row per participant. Empty cells are empty
  * strings (never the text "null"), so the sheet reads naturally.
  */
 export function buildProjectionGrid(
