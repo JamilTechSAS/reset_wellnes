@@ -26,6 +26,7 @@ export default defineConfig({
         marca: resolve(__dirname, "marca-y-colaboracion.html"),
         faq: resolve(__dirname, "preguntas-frecuentes.html"),
         terminos: resolve(__dirname, "terminos-y-condiciones.html"),
+        gracias: resolve(__dirname, "gracias.html"),
       },
     },
   },
