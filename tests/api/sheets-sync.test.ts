@@ -25,7 +25,7 @@ function claimedProjection(
   overrides: Partial<ClaimedSheetProjection> = {},
 ): ClaimedSheetProjection {
   return {
-    ticketId: "11111111-1111-4111-8111-111111111111",
+    participantId: "11111111-1111-4111-8111-111111111111",
     eventId: "22222222-2222-4222-8222-222222222222",
     status: "SYNCING",
     attemptCount: 1,
@@ -160,7 +160,7 @@ describe("Google Sheets sync worker", () => {
     expect(firstWrite?.ranges[0]?.values).toHaveLength(2); // header + one ticket
     expect(firstWrite?.ranges[0]?.values[0]?.length).toBe(22);
     expect(finishProjections).toHaveBeenCalledWith({
-      ticketIds: [claimedProjection().ticketId],
+      participantIds: [claimedProjection().participantId],
       status: "SYNCED",
     });
     expect(summary.syncedTickets).toBe(1);
@@ -183,7 +183,7 @@ describe("Google Sheets sync worker", () => {
     const { sheets, client, finishProjections } = setup({
       claims: [
         claimedProjection({ attemptCount: 2 }),
-        claimedProjection({ ticketId: "33333333-3333-4333-8333-333333333333", attemptCount: 2 }),
+        claimedProjection({ participantId: "33333333-3333-4333-8333-333333333333", attemptCount: 2 }),
       ],
       write: { ok: false, retryable: true, error: "sheets API returned HTTP 503", httpStatus: 503 },
     });

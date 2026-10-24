@@ -364,6 +364,31 @@ isOneToOne: true
       referencedColumns: ["id"]
     }
                   ]
+                },"sheets_participant_projections": {
+                  Row: {
+                    "attempt_count": number,"created_at": string,"event_id": string,"last_error": string | null,"last_synced_at": string | null,"next_attempt_at": string | null,"participant_id": string,"status": Database["public"]['Enums']["sheets_projection_status"],"updated_at": string
+                  }
+                  Insert: {
+                    "attempt_count"?: number,"created_at"?: string,"event_id": string,"last_error"?: string | null,"last_synced_at"?: string | null,"next_attempt_at"?: string | null,"participant_id": string,"status"?: Database["public"]['Enums']["sheets_projection_status"],"updated_at"?: string
+                  }
+                  Update: {
+                    "attempt_count"?: number,"created_at"?: string,"event_id"?: string,"last_error"?: string | null,"last_synced_at"?: string | null,"next_attempt_at"?: string | null,"participant_id"?: string,"status"?: Database["public"]['Enums']["sheets_projection_status"],"updated_at"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "sheets_participant_projections_event_id_fkey"
+      columns: ["event_id"]
+isOneToOne: false
+      referencedRelation: "events"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "sheets_participant_projections_participant_id_fkey"
+      columns: ["participant_id"]
+isOneToOne: true
+      referencedRelation: "participants"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"ticket_types": {
                   Row: {
                     "code": string,"created_at": string,"description": string | null,"event_id": string,"id": string,"is_active": boolean,"max_per_order": number | null,"min_per_order": number,"name": string,"updated_at": string
@@ -600,6 +625,30 @@ isOneToOne: false
 { Args: { "p_buyer_email": string,"p_now"?: string,"p_order_reference": string,"p_reservation_minutes": number }; Returns: Json
                            },
 "sheet_projection_stats":
+{ Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"claim_participant_sheet_projections":
+{ Args: { "p_limit"?: number,"p_max_attempts"?: number,"p_now"?: string,"p_stale_after_seconds"?: number }; Returns: {
+              "attempt_count": number,
+"created_at": string,
+"event_id": string,
+"last_error": string | null,
+"last_synced_at": string | null,
+"next_attempt_at": string | null,
+"participant_id": string,
+"status": Database["public"]['Enums']["sheets_projection_status"],
+"updated_at": string
+            }[]
+                          SetofOptions: {
+        from: "*"
+        to: "sheets_participant_projections"
+        isOneToOne: false
+        isSetofReturn: true
+      } },
+"finish_participant_sheet_projections":
+{ Args: { "p_error"?: string,"p_next_attempt_at"?: string,"p_now"?: string,"p_participant_ids": (string)[],"p_status": Database["public"]['Enums']["sheets_projection_status"] }; Returns: Json
+                           },
+"participant_sheet_projection_stats":
 { Args: Record<PropertyKey, never>; Returns: Json
                            },
 "update_participant":

@@ -438,17 +438,9 @@ export async function handleEpaycoWebhook(
     await raiseAlertSafely(input.alerts, confirmationAlert, logger);
   }
 
-  // 6. Queue emails if paid
-  if (confirmation.orderStatus === "PAID" && confirmation.ticketsExpected > 0) {
-    try {
-      await payments.queueTicketEmails(confirmation.orderId);
-    } catch (e) {
-      logger.error("failed to queue ticket emails after epayco confirmation", {
-        orderId: confirmation.orderId,
-        error: toAppError(e).code,
-      });
-    }
-  }
+  // 6. Tickets are discontinued: no ticket-confirmation email is queued here. The welcome
+  //    email is deferred until its HTML design is provided. Buyer data reaches Google Sheets
+  //    through the participant projection enqueued by `confirm_payment` on the PAID transition.
 
   // 7. Finalize webhook event in ledger
   // RECONCILIATION_REQUIRED (late approval, reversal after approval) WAS recorded by

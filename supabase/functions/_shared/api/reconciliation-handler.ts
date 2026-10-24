@@ -292,13 +292,10 @@ async function confirmAndFinish(
     return retrySoon(input, "CONFIRMATION_FAILED");
   }
 
-  let emailsQueued = 0;
-  if (confirmation.orderStatus === "PAID" && confirmation.ticketsExpected > 0) {
-    // A recovery that just moved the order to PAID must also queue the confirmation
-    // emails; the outbox function is idempotent, so a later webhook replay queues nothing.
-    const queued = await deps.payments.queueTicketEmails(confirmation.orderId);
-    emailsQueued = queued.queued;
-  }
+  // Tickets are discontinued: a recovery that moves an order to PAID queues no ticket email.
+  // The welcome email is deferred until its HTML design is provided. Buyer data reaches Google
+  // Sheets through the participant projection enqueued by `confirm_payment`.
+  const emailsQueued = 0;
 
   const result = mapSweepOutcome({
     providerStatus: args.providerStatus,

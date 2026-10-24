@@ -418,14 +418,10 @@ async function processClaimedEvent(args: {
   }
 
   // -------------------------------------------------------------------------
-  // 8. Queue the confirmation emails. Only for a paid order with issued tickets, and
-  //    only through the idempotent outbox function: a replay queues nothing.
+  // 8. Tickets are discontinued: no ticket-confirmation email is queued. The welcome email
+  //    is deferred until its HTML design is provided.
   // -------------------------------------------------------------------------
-  let queued = 0;
-  if (confirmation.orderStatus === "PAID" && confirmation.ticketsExpected > 0) {
-    const queueResult = await payments.queueTicketEmails(confirmation.orderId);
-    queued = queueResult.queued;
-  }
+  const queued = 0;
 
   // -------------------------------------------------------------------------
   // 9. Record the outcome on the ledger.
@@ -460,21 +456,6 @@ async function processClaimedEvent(args: {
       orderReference: confirmation.orderReference,
       orderStatus: confirmation.orderStatus,
       reference: confirmation.wompiReference,
-    });
-  }
-
-  if (
-    confirmation.ticketsExpected > 0 &&
-    confirmation.ticketsIssued < confirmation.ticketsExpected &&
-    confirmation.orderStatus === "PAID"
-  ) {
-    // Either a replay (tickets already existed) or a genuine gap. Both are logged so an
-    // operator can tell them apart from the ledger; nothing is invented here.
-    logger.warn("ticket issuance did not reach the expected count", {
-      eventId,
-      orderReference: confirmation.orderReference,
-      issued: confirmation.ticketsIssued,
-      expected: confirmation.ticketsExpected,
     });
   }
 

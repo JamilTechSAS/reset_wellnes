@@ -129,7 +129,7 @@ export async function runSheetsSync(input: RunSheetsSyncInput): Promise<SheetsSy
     let failedTickets = 0;
     if (remaining.length > 0) {
       const finished = await input.sheets.finishProjections({
-        ticketIds: remaining.map((row) => row.ticketId),
+        participantIds: remaining.map((row) => row.participantId),
         status: "FAILED",
         error: write.error,
         // Only a retryable failure earns a retry time; anything else still gets one because
@@ -141,7 +141,7 @@ export async function runSheetsSync(input: RunSheetsSyncInput): Promise<SheetsSy
     }
     if (budgetSpent.length > 0) {
       const finished = await input.sheets.finishProjections({
-        ticketIds: budgetSpent.map((row) => row.ticketId),
+        participantIds: budgetSpent.map((row) => row.participantId),
         status: "FAILED",
         error: write.error,
       });
@@ -171,7 +171,7 @@ export async function runSheetsSync(input: RunSheetsSyncInput): Promise<SheetsSy
   }
 
   const finished = await input.sheets.finishProjections({
-    ticketIds: claimed.map((row) => row.ticketId),
+    participantIds: claimed.map((row) => row.participantId),
     status: "SYNCED",
   });
 

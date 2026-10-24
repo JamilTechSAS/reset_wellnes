@@ -339,11 +339,9 @@ export async function handlePaymentHint(input: {
     });
   }
 
-  let emailsQueued = 0;
-  if (confirmation.orderStatus === "PAID" && confirmation.ticketsExpected > 0) {
-    const queued = await input.gateway.queueTicketEmails(confirmation.orderId);
-    emailsQueued = queued.queued;
-  }
+  // Tickets are discontinued: no ticket-confirmation email is queued. The welcome email is
+  // deferred until its HTML design is provided.
+  const emailsQueued = 0;
 
   const outcome = mapSweepOutcome({
     providerStatus: transaction.status,
