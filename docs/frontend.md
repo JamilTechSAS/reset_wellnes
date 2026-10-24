@@ -123,7 +123,7 @@ discount, tax or total is ever computed in the browser, and `POST /orders` is ne
 | "Guardar acompañante"           | `POST /orders/{reference}/participants` | Body `{participant}`, header `X-Buyer-Email`. Only offered after the order is `PAID`           |
 | "Consultar mi compra"           | `GET /orders/{reference}`               | Reference + email typed by the buyer; a wrong email is indistinguishable from an unknown order |
 
-Never used by the frontend: `POST /check-in`, `GET /check-in/{token}`, `POST /webhooks/epayco`,
+Never used by the frontend: `POST /check-in`, `GET /check-in/{token}`, `POST /webhooks-epayco`,
 `POST /orders-maintenance`. The browser never talks to PostgreSQL, PostgREST or GraphQL.
 
 ### Error envelope
