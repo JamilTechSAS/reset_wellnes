@@ -192,7 +192,14 @@ export type OrderGateway = {
  * Numeric and string fields are still re-validated by the caller (`domain/pricing.ts` and
  * the response type), which is where a drift would be caught.
  */
-export function createOrderGateway(client: DbClient): OrderGateway {
+export function createOrderGateway(
+  client: DbClient,
+  /**
+   * The provider this deployment charges with. It is stored on the attempt-1 payment row so a
+   * pending ePayco order is never later reconciled against the wrong provider (H15 follow-up).
+   */
+  paymentProvider: "epayco" | "wompi",
+): OrderGateway {
   return {
     async quote(request: QuoteRequest): Promise<QuoteResult> {
       if (request.bundleCode !== undefined) {
@@ -239,6 +246,7 @@ export function createOrderGateway(client: DbClient): OrderGateway {
           : { p_idempotency_key: request.idempotencyKey }),
         ...(request.ipAddress === undefined ? {} : { p_ip_address: request.ipAddress }),
         ...(request.userAgent === undefined ? {} : { p_user_agent: request.userAgent }),
+        p_payment_provider: paymentProvider,
       };
 
       if (request.bundleCode !== undefined) {

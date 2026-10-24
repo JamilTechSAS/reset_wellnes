@@ -72,6 +72,7 @@ describe("ePayco Apify client (Smart Checkout V2)", () => {
           currency: string;
           invoice: string;
           confirmation: string;
+          method: string;
           response: string;
           test: boolean;
         };
@@ -82,6 +83,8 @@ describe("ePayco Apify client (Smart Checkout V2)", () => {
         expect(body.currency).toBe("COP");
         expect(body.invoice).toBe("EVT-2026-000001");
         expect(body.confirmation).toBe("https://api.example.com/webhooks-epayco");
+        // The delivery verb must be explicit, or ePayco may never POST the signed confirmation.
+        expect(body.method).toBe("POST");
         expect(body.response).toBe("https://example.com/gracias");
         expect(body.test).toBe(true);
 

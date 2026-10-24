@@ -197,6 +197,16 @@ The checkout payload is secret-free: the ePayco session id plus the public flags
 the database wrote. No private key ever reaches the browser. A supplied code that cannot be
 applied fails the order instead of silently charging the full price.
 
+The order also records the provider on its attempt-1 payment row. `create_order` takes
+`p_payment_provider` and refuses a missing value (`VALIDATION_ERROR`), so a payment can never be
+stored under the wrong provider's default and then be reconciled against it.
+
+When the ePayco session is created, `confirmation` is sent together with an explicit
+`method: "POST"`. Smart Checkout treats the pair as the webhook registration: without the verb it
+does not reliably deliver the signed confirmation, and a paid order stays PENDING because the
+backend never sees it. The webhook URL is always `<API_BASE_URL>/webhooks-epayco` — never the
+frontend origin.
+
 ### `GET /orders/{reference}` — implemented (Phase 4)
 
 Buyer-facing status, safe fields only. The order reference is sequential and therefore

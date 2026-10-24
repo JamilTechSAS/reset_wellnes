@@ -171,7 +171,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
     const client = createServiceRoleClient(config);
     context = {
       config,
-      orders: createOrderGateway(client),
+      orders: createOrderGateway(client, config.paymentProvider),
       payments: createPaymentGateway(client),
       orderStatus: createOrderStatusGateway(client),
       participants: createParticipantGateway(client),

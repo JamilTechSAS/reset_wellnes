@@ -485,6 +485,13 @@ names), `participants` (normalized), `consents` (both kinds, append-only), `paym
 (attempt 1, pending), and `discount_redemptions` when a code was applied. Any failure rolls all
 of it back.
 
+**The provider is written at creation, never inferred.** `create_order` and
+`create_bundle_order` take `p_payment_provider` as their last parameter and refuse a missing or
+unknown value (`PT400 INVALID_PROVIDER`), so the attempt-1 row can never fall back to the column
+default. The Edge Function always passes the configured `PAYMENT_PROVIDER`; without this, an
+ePayco order was stored as a Wompi attempt and the reconciliation sweep would query the wrong
+provider for it.
+
 ## 10. Migration and evolution strategy
 
 - **Migrations are append-only once applied.** Naming is the Supabase CLI convention

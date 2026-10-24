@@ -38,7 +38,7 @@ type OrderResult = {
 async function seed(db: PGlite): Promise<void> {
   await db.exec(`
     do $$
-    declare v_event uuid; v_tt uuid;
+    declare v_event uuid; v_tt uuid; v_tier uuid;
     begin
       insert into public.events (code, name, starts_at, status, capacity, venue_name, city)
         values ('${EVENT}', 'Evento H15', now() + interval '60 days', 'PUBLISHED', 50,
@@ -48,7 +48,11 @@ async function seed(db: PGlite): Promise<void> {
         values (v_event, 'GENERAL', 'Entrada general', 1, 10) returning id into v_tt;
       insert into public.pricing_tiers
         (ticket_type_id, name, sequence, price_cents, quantity_limit, sales_starts_at)
-        values (v_tt, 'Única', 1, 1000000, 40, now() - interval '1 day');
+        values (v_tt, 'Única', 1, 1000000, 40, now() - interval '1 day')
+        returning id into v_tier;
+      insert into public.ticket_bundles
+        (event_id, ticket_type_id, pricing_tier_id, code, name, included_admissions, price_cents)
+        values (v_event, v_tt, v_tier, 'DOUBLE', 'Doble', 2, 1800000);
     end $$;
   `);
 }
@@ -57,7 +61,7 @@ async function createOrder(db: PGlite): Promise<OrderResult> {
   const result = await db.query<{ o: OrderResult }>(
     `select public.create_order(
        '${EVENT}','GENERAL',1,15,'buyer@example.com','Comprador','3001234567',
-       '${PARTICIPANT}'::jsonb,null,null,'181.10.20.30','vitest/1.0') as o`,
+       '${PARTICIPANT}'::jsonb,null,null,'181.10.20.30','vitest/1.0','epayco') as o`,
   );
   const order = result.rows[0]?.o;
   if (order === undefined) {
@@ -174,6 +178,67 @@ describe("explicit provider (migrations applied)", () => {
   });
 });
 
+describe("provider recorded at creation time (migration 20261024150000)", () => {
+  let db: PGlite;
+
+  beforeAll(async () => {
+    db = new PGlite();
+    await applyMigrations(db);
+    await seed(db);
+  }, 30_000);
+
+  afterAll(async () => {
+    await db.close();
+  });
+
+  beforeEach(async () => {
+    await db.exec(`
+      delete from public.email_deliveries; delete from public.tickets;
+      delete from public.consents; delete from public.participants;
+      delete from public.payment_events; delete from public.payments;
+      delete from public.order_items; delete from public.orders;
+      update public.pricing_tiers set quantity_reserved = 0, quantity_sold = 0;
+    `);
+  });
+
+  it("stores the epayco provider on the attempt-1 payment row", async () => {
+    const order = await createOrder(db);
+    // The staging bug: this used to be 'wompi' because the insert relied on the column default.
+    expect(await providerOf(db, order.orderId)).toBe("epayco");
+  });
+
+  it.each([[null], [""], ["stripe"]])(
+    "refuses an order whose provider is %j instead of guessing",
+    async (provider) => {
+      const arg = provider === null ? "null" : `'${provider}'`;
+      await expect(
+        db.query(
+          `select public.create_order(
+             '${EVENT}','GENERAL',1,15,'buyer@example.com','Comprador','3001234567',
+             '${PARTICIPANT}'::jsonb,null,null,'181.10.20.30','vitest/1.0',${arg}) as o`,
+        ),
+      ).rejects.toThrow(/INVALID_PROVIDER|Payment provider must be/);
+
+      const state = await db.query<{ orders: number; reserved: number }>(
+        `select (select count(*)::int from public.orders) as orders,
+                (select quantity_reserved from public.pricing_tiers where name = 'Única') as reserved`,
+      );
+      expect(state.rows[0]).toEqual({ orders: 0, reserved: 0 });
+    },
+  );
+
+  it("forwards the provider through a bundle order", async () => {
+    const result = await db.query<{ o: OrderResult }>(
+      `select public.create_bundle_order(
+         '${EVENT}','GENERAL',2,15,'buyer@example.com','Comprador','3001234567',
+         '${PARTICIPANT}'::jsonb,'DOUBLE',null,null,'181.10.20.30','vitest/1.0','epayco') as o`,
+    );
+    const order = result.rows[0]?.o;
+    expect(order).toBeDefined();
+    expect(await providerOf(db, order!.orderId)).toBe("epayco");
+  });
+});
+
 describe("repair of rows written before the fix", () => {
   let db: PGlite;
 
@@ -190,10 +255,24 @@ describe("repair of rows written before the fix", () => {
     await db.close();
   });
 
+  /** That schema predates the provider parameter, so the old 12-arg signature is the only one. */
+  async function createOrderLegacy(): Promise<OrderResult> {
+    const result = await db.query<{ o: OrderResult }>(
+      `select public.create_order(
+         '${EVENT}','GENERAL',1,15,'buyer@example.com','Comprador','3001234567',
+         '${PARTICIPANT}'::jsonb,null,null,'181.10.20.30','vitest/1.0') as o`,
+    );
+    const order = result.rows[0]?.o;
+    if (order === undefined) {
+      throw new Error("create_order returned no row");
+    }
+    return order;
+  }
+
   it("re-attributes only rows with unambiguous Wompi evidence", async () => {
-    const wompiByWebhook = await createOrder(db);
-    const epaycoByWebhook = await createOrder(db);
-    const wompiByHint = await createOrder(db);
+    const wompiByWebhook = await createOrderLegacy();
+    const epaycoByWebhook = await createOrderLegacy();
+    const wompiByHint = await createOrderLegacy();
 
     // The bug as it happened: the Wompi webhook called without a provider.
     await db.query(

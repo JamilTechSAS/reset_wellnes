@@ -144,7 +144,7 @@ async function createOrder(
     `select public.create_order(
        '${EVENT}','GENERAL',${String(quantity)},${String(options.minutes ?? 15)},
        '${email}','Comprador','3001234567','${PARTICIPANT}'::jsonb,
-       null,null,'181.10.20.30','vitest/1.0') as o`,
+       null,null,'181.10.20.30','vitest/1.0','epayco') as o`,
   );
   const order = result.rows[0]?.o;
   if (order === undefined) {

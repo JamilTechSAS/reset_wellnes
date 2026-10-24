@@ -95,7 +95,7 @@ describe("backend role access", () => {
       const result = await db.query<{ o: OrderResult }>(
         `select public.create_order(
            '${EVENT}','GENERAL',${String(quantity)},15,'${email}','Comprador','3001234567',
-           '${PARTICIPANT}'::jsonb,null,'${idempotencyKey}','181.10.20.30','vitest/1.0') as o`,
+           '${PARTICIPANT}'::jsonb,null,'${idempotencyKey}','181.10.20.30','vitest/1.0','epayco') as o`,
       );
       const order = result.rows[0]?.o;
       if (order === undefined) {

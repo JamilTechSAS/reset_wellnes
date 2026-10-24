@@ -108,14 +108,14 @@ function orderSql(options: {
       '${EVENT}','GENERAL',${String(options.quantity)},${String(options.minutes ?? 15)},
       '${email}','Comprador','3001234567','${participant}'::jsonb,
       '${options.bundleCode}',${codeArg},${keyArg},
-      '181.10.20.30','vitest/1.0') as o`;
+      '181.10.20.30','vitest/1.0','epayco') as o`;
   }
 
   // Optional parameters are discount code, idempotency key, IP and user agent.
   return `select public.create_order(
     '${EVENT}','GENERAL',${String(options.quantity)},${String(options.minutes ?? 15)},
     '${email}','Comprador','3001234567','${participant}'::jsonb,
-    ${codeArg},${keyArg},'181.10.20.30','vitest/1.0') as o`;
+    ${codeArg},${keyArg},'181.10.20.30','vitest/1.0','epayco') as o`;
 }
 
 async function quote(
