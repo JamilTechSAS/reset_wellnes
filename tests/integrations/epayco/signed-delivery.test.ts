@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildSignedDeliveryRecord } from "@shared/integrations/epayco/signed-delivery.ts";
+import { buildSignedDeliveryRecord } from "@shared/integrations/epayco/verify.ts";
 
 const DELIVERY = {
   refPayco: "390987456",

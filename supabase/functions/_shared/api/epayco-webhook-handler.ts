@@ -19,8 +19,11 @@
  */
 
 import { verifyEpaycoSignature } from "../integrations/epayco/signature.ts";
-import { epaycoStatusFromCode, verifyEpaycoRecord } from "../integrations/epayco/verify.ts";
-import { buildSignedDeliveryRecord } from "../integrations/epayco/signed-delivery.ts";
+import {
+  buildSignedDeliveryRecord,
+  epaycoStatusFromCode,
+  verifyEpaycoRecord,
+} from "../integrations/epayco/verify.ts";
 import type { EpaycoTransactionData } from "../integrations/epayco/types.ts";
 import { EpaycoApiError, type EpaycoClient } from "../integrations/epayco/client.ts";
 import type { PaymentGateway } from "../db/payments.ts";
