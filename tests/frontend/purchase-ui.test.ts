@@ -14,7 +14,6 @@ import { NetworkError } from "../../src/api/client.ts";
 import { EVENT_CONTENT_CONFIG } from "../../src/config/event-content.ts";
 import { loadFrontendConfig } from "../../src/config/env.ts";
 import { mountPurchaseDialog, renderPurchaseStep } from "../../src/components/PurchaseDialog.ts";
-import { renderTicketCard } from "../../src/components/TicketCard.ts";
 import { createPurchaseController, type PurchaseState } from "../../src/purchase/controller.ts";
 import { EMPTY_PARTICIPANT_FORM } from "../../src/purchase/validation.ts";
 import {
@@ -25,7 +24,6 @@ import {
   makeEvent,
   makePaidOrderStatus,
   makeQuote,
-  TEST_TICKET_TOKEN,
 } from "./support/ticketing-fixtures.ts";
 import type { CreatedOrder } from "../../src/api/types.ts";
 
@@ -77,6 +75,12 @@ function makeState(overrides: Partial<PurchaseState> = {}): PurchaseState {
     verificationAttempts: 0,
     verificationStartedAt: null,
     hintOutcome: null,
+    companion: EMPTY_PARTICIPANT_FORM,
+    companionIssues: [],
+    companionStatus: "idle",
+    companionError: null,
+    companionName: null,
+    remainingAdmissions: null,
     ...overrides,
   };
 }
@@ -295,7 +299,7 @@ describe("purchase step rendering", () => {
   it("verifies the payment without ever claiming it succeeded", () => {
     const step = renderPurchaseStep(makeState({ step: "verifying" }), CONTEXT);
     expect(step.title).toBe("Verificando tu pago");
-    expect(step.body).toContain("Confirmamos tu compra directamente con Wompi");
+    expect(step.body).toContain("Confirmamos tu compra directamente con ePayco");
     expect(step.body).not.toContain("pago fue confirmado");
     // While a submission is being verified the buyer may still close the dialog.
     expect(step.closable).toBe(true);
@@ -312,40 +316,77 @@ describe("purchase step rendering", () => {
     expect(step.body).not.toContain("pago fue confirmado");
   });
 
-  it("renders the confirmed step with the ticket, the QR and honest email wording", () => {
+  it("renders a branded thank-you from the PAID order, with no ticket, token or QR", () => {
     const status = makePaidOrderStatus();
     const step = renderPurchaseStep(
       makeState({ step: "confirmed", status, reference: status.reference }),
       CONTEXT,
     );
 
-    expect(step.title).toBe("Tu entrada está lista");
-    expect(step.body).toContain("¡Tu pago fue confirmado!");
-    expect(step.body).toContain(TEST_TICKET_TOKEN);
-    expect(step.body).toContain("<svg");
-    expect(step.body).toContain("Ana Pérez");
-    expect(step.body).toContain("1 de 1");
+    expect(step.title).toBe("Tu compra está confirmada");
+    expect(step.body).toContain("¡Gracias por tu compra!");
+    expect(step.body).toContain(TICKET_EVENT.eventName);
+    expect(step.body).toContain("EVT-2026-000001");
+    expect(step.body).toContain("$160.000");
     expect(step.body).toContain("Para el día del evento");
-    // The backend has queued but not sent the email: do not claim it was sent.
-    expect(step.body).toContain("Estamos enviando una copia a tu correo electrónico.");
-    expect(step.body).not.toContain("Enviamos tu entrada a tu correo electrónico.");
-  });
-
-  it("says the email was sent only when the backend reports every delivery sent", () => {
-    const status = makePaidOrderStatus({
-      confirmation: { queued: 0, sent: 1, failed: 0, ready: true },
-    });
-    const step = renderPurchaseStep(makeState({ step: "confirmed", status }), CONTEXT);
-    expect(step.body).toContain("Enviamos tu entrada a tu correo electrónico.");
-  });
-
-  it("keeps the buyer calm and informed when an email could not be sent", () => {
-    const status = makePaidOrderStatus({
-      confirmation: { queued: 0, sent: 0, failed: 1, ready: true },
-    });
-    const step = renderPurchaseStep(makeState({ step: "confirmed", status }), CONTEXT);
-    expect(step.body).toContain("No pudimos enviar el correo todavía. Tu entrada es válida");
+    // No ticket artifact of any kind reaches the buyer.
+    expect(step.body).not.toContain("TKT_");
+    expect(step.body).not.toContain("ticket-card");
+    expect(step.body).not.toContain("QR");
+    expect(step.body).not.toContain("código de entrada");
+    // No purchase email is implemented yet, so nothing may promise one.
+    expect(step.body).not.toContain("correo electrónico");
     expect(step.body).not.toContain("Enviamos tu entrada");
+  });
+
+  it("asks for the second person of a two-admission purchase", () => {
+    const status = makePaidOrderStatus({ quantity: 2, totalInCents: 40_000_000 });
+    const step = renderPurchaseStep(makeState({ step: "confirmed", status, quantity: 2 }), CONTEXT);
+
+    expect(step.body).toContain("Registra la segunda persona");
+    expect(step.body).toContain('data-companion-field="firstName"');
+    expect(step.body).toContain('data-companion-field="dataProcessing"');
+    expect(step.body).toContain('data-action="attach-companion"');
+    expect(step.body).toContain("$400.000");
+  });
+
+  it("names the companion form after Comparte esta experiencia in the bundle", () => {
+    const status = makePaidOrderStatus({ quantity: 2, totalInCents: 34_000_000 });
+    const step = renderPurchaseStep(
+      makeState({
+        step: "confirmed",
+        status,
+        quantity: 2,
+        bundleCode: "DOUBLE_EXPERIENCE",
+      }),
+      CONTEXT,
+    );
+
+    expect(step.body).toContain("Registra a tu acompañante");
+    expect(step.body).toContain("$340.000");
+  });
+
+  it("does not ask for a companion when only one admission was bought", () => {
+    const status = makePaidOrderStatus({ quantity: 1 });
+    const step = renderPurchaseStep(makeState({ step: "confirmed", status, quantity: 1 }), CONTEXT);
+    expect(step.body).not.toContain('data-action="attach-companion"');
+  });
+
+  it("confirms a saved companion instead of asking again", () => {
+    const status = makePaidOrderStatus({ quantity: 2, totalInCents: 40_000_000 });
+    const step = renderPurchaseStep(
+      makeState({
+        step: "confirmed",
+        status,
+        quantity: 2,
+        companionStatus: "saved",
+        companionName: "Beto Gómez",
+        remainingAdmissions: 0,
+      }),
+      CONTEXT,
+    );
+    expect(step.body).toContain("Acompañante registrado: Beto Gómez");
+    expect(step.body).not.toContain('data-action="attach-companion"');
   });
 
   it("never exposes the buyer's personal data on the confirmation screen", () => {
@@ -450,57 +491,6 @@ describe("purchase step rendering", () => {
     for (const forbidden of ["SQLSTATE", "stack", "supabase", "PGRST", "service_role"]) {
       expect(html.toLowerCase()).not.toContain(forbidden.toLowerCase());
     }
-  });
-});
-
-describe("digital ticket card", () => {
-  const ticket = {
-    token: TEST_TICKET_TOKEN,
-    unit: 2,
-    quantity: 3,
-    status: "ACTIVE",
-    assigned: true,
-    participantName: "Ana Pérez",
-  };
-
-  it("renders the event, the holder, the position and the code", () => {
-    const html = renderTicketCard(TICKET_EVENT, ticket);
-    expect(html).toContain("Re set Sunset — Vol. 1");
-    expect(html).toContain("21 de noviembre de 2026");
-    expect(html).toContain("Teatro Mayor · Bogotá");
-    expect(html).toContain("Ana Pérez");
-    expect(html).toContain("2 de 3");
-    expect(html).toContain(TEST_TICKET_TOKEN);
-    expect(html).toContain("Válida");
-  });
-
-  it("encodes the ticket token in the QR without printing it inside the SVG", () => {
-    const html = renderTicketCard(TICKET_EVENT, ticket);
-    const svg = /<svg[\s\S]*?<\/svg>/.exec(html)?.[0] ?? "";
-    expect(svg).toContain("viewBox=");
-    expect(svg).not.toContain(TEST_TICKET_TOKEN);
-    expect(svg).not.toContain("1023456789");
-  });
-
-  it("labels an unassigned seat honestly instead of inventing a holder", () => {
-    const html = renderTicketCard(TICKET_EVENT, {
-      ...ticket,
-      assigned: false,
-      participantName: null,
-    });
-    expect(html).toContain("Pendiente de asignar");
-    expect(html).not.toContain("Titular registrado");
-  });
-
-  it("shows a cancelled ticket as cancelled", () => {
-    const html = renderTicketCard(TICKET_EVENT, { ...ticket, status: "CANCELLED" });
-    expect(html).toContain("Anulada");
-  });
-
-  it("abstracts the raw token away from screen readers with a labelled article", () => {
-    const html = renderTicketCard(TICKET_EVENT, ticket, { labelledById: "ticket-2-label" });
-    expect(html).toContain('aria-labelledby="ticket-2-label"');
-    expect(html).toContain('id="ticket-2-label"');
   });
 });
 
@@ -736,7 +726,7 @@ describe("purchase dialog", () => {
     expect(container.querySelector<HTMLButtonElement>(".purchase-close")?.disabled).toBe(false);
   });
 
-  it("shows the ticket after a paid order and leaves nothing behind on dispose", async () => {
+  it("shows the confirmation after a paid order and leaves nothing behind on dispose", async () => {
     store.setItem(
       "ticket:pending-order:v1",
       JSON.stringify({ reference: "EVT-2026-000001", buyerEmail: "ana@example.com" }),
@@ -749,15 +739,54 @@ describe("purchase dialog", () => {
     await flush();
 
     expect(container.querySelector("#purchase-body")?.textContent).toContain(
-      "¡Tu pago fue confirmado!",
+      "¡Gracias por tu compra!",
     );
-    expect(container.querySelectorAll(".ticket-card")).toHaveLength(1);
-    expect(container.querySelector(".ticket-card-qr svg")).not.toBeNull();
+    expect(container.querySelector(".ticket-card")).toBeNull();
+    expect(container.querySelector(".ticket-card-qr")).toBeNull();
+    expect(container.querySelector("#purchase-body")?.textContent).not.toContain("TKT_");
 
     const overlay = container.querySelector<HTMLElement>(".purchase-overlay");
     dialog.dispose();
     expect(overlay?.isConnected).toBe(false);
     expect(document.body.style.overflow).toBe("");
+  });
+
+  it("attaches the companion from the confirmation form", async () => {
+    store.setItem(
+      "ticket:pending-order:v1",
+      JSON.stringify({ reference: "EVT-2026-000001", buyerEmail: "ana@example.com" }),
+    );
+    api.getOrderStatus.mockResolvedValue(
+      makePaidOrderStatus({ quantity: 2, totalInCents: 40_000_000 }),
+    );
+    const { dialog } = openDialog();
+
+    dialog.open({ resume: {} });
+    await flush();
+    await flush();
+
+    const type = (selector: string, value: string): void => {
+      const input = container.querySelector<HTMLInputElement>(selector);
+      expect(input).not.toBeNull();
+      input!.value = value;
+      input!.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    type("#pf-companion-first-name", "Beto");
+    type("#pf-companion-last-name", "Gómez");
+    type("#pf-companion-national-id", "987654321");
+    type("#pf-companion-email", "beto@example.com");
+    type("#pf-companion-phone", "3001112233");
+    type("#pf-companion-city", "Cali");
+    container.querySelector<HTMLInputElement>("#pf-companion-consent-data")?.click();
+
+    container.querySelector<HTMLButtonElement>('[data-action="attach-companion"]')?.click();
+    await flush();
+
+    expect(api.attachParticipant).toHaveBeenCalledTimes(1);
+    expect(container.querySelector("#purchase-body")?.textContent).toContain(
+      "Acompañante registrado: Beto Gómez",
+    );
+    expect(container.querySelector('[data-action="attach-companion"]')).toBeNull();
   });
 
   it("does not throw when it is disposed while a request is in flight", async () => {

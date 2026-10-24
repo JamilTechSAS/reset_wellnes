@@ -6,7 +6,7 @@
  *
  *   `initApp`   — render the landing page and route purchases/legal requests to injected openers.
  *   `bootstrap` — production wiring: build the purchase controller, mount the purchase and legal
- *                 dialogs, and resume a checkout return (`/gracias?id=…`) if the URL is one.
+ *                 dialogs, and resume a checkout return (`/gracias?ref_payco=…`) if the URL is one.
  */
 
 import "./styles/main.css";
@@ -27,9 +27,7 @@ import { mountPurchaseDialog, type PurchaseDialogContext } from "./components/Pu
 import { mountLegalDialog, type LegalDialog } from "./components/LegalDialog.ts";
 import { createPurchaseController } from "./purchase/controller.ts";
 import { parseReturnContext } from "./purchase/return-route.ts";
-import { redirectToWompi } from "./purchase/wompi.ts";
 import { openEpaycoCheckout } from "./purchase/epayco.ts";
-import { isEpaycoCheckout } from "./api/types.ts";
 import { dispatchBuyTicket, onBuyTicket, onOpenLegal } from "./utils/events.ts";
 import type { BuyTicketEventDetail, LegalTabId } from "./types/content.ts";
 import { initClientInteractions } from "./utils/client-interactions.ts";
@@ -159,22 +157,18 @@ export function bootstrap(): { cleanup: () => void } {
   const controller = createPurchaseController({
     config: FRONTEND_CONFIG,
     onCheckout: (checkout) => {
-      if (isEpaycoCheckout(checkout)) {
-        void openEpaycoCheckout({
-          checkout,
-          onResponse: () => {
-            void controller.refreshStatus();
-          },
-          onClosed: () => {
-            void controller.refreshStatus();
-          },
-          onError: () => {
-            // ePayco error handled inside checkout hooks and polling
-          },
-        });
-      } else {
-        redirectToWompi(FRONTEND_CONFIG.wompiCheckoutUrl, checkout);
-      }
+      void openEpaycoCheckout({
+        checkout,
+        onResponse: () => {
+          void controller.refreshStatus();
+        },
+        onClosed: () => {
+          void controller.refreshStatus();
+        },
+        onError: () => {
+          // ePayco errors surface through the checkout hooks and the polling loop.
+        },
+      });
     },
   });
 
@@ -198,7 +192,7 @@ export function bootstrap(): { cleanup: () => void } {
     appCleanup = app.cleanup;
   }
 
-  // Initialize client-delivered page interactions (menu, modal, reveal, form, tickets)
+  // Initialize client-delivered page interactions (menu, modal, reveal, form, sales stage)
   const clientCleanup = initClientInteractions({
     salesConfig: {
       apiBaseUrl: FRONTEND_CONFIG.apiBaseUrl,
@@ -221,7 +215,7 @@ export function bootstrap(): { cleanup: () => void } {
     legal.open(detail.tab);
   });
 
-  // A direct return from Wompi (`/gracias?id=…`) resumes automatically.
+  // A direct return from ePayco (`/gracias?ref_payco=…`) resumes automatically.
   const returnContext = parseReturnContext(new URL(window.location.href));
   if (returnContext.isReturn) {
     dialog.open({

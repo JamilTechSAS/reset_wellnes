@@ -280,8 +280,7 @@ export const EVENT_CONTENT_CONFIG: EventLandingConfig = {
         id: "faq-entrega",
         question: "¿Cómo y cuándo recibo mi entrada?",
         answer:
-          "Al confirmarse tu pago, el sistema genera tu entrada digital con código QR y la envía al correo que registres. El remitente definitivo del correo está pendiente de confirmación por parte de la organización.",
-        isPending: true,
+          "No hay boletas ni códigos QR: al confirmarse tu pago, tu compra queda registrada a nombre del titular y visible en esta página con su referencia. El día del evento solo necesitas tu documento de identidad.",
       },
       {
         id: "faq-pagos",
@@ -341,7 +340,7 @@ export const EVENT_CONTENT_CONFIG: EventLandingConfig = {
     buttonText: "COMPRAR MI ENTRADA",
     trustBadges: [
       "Pago procesado de forma segura por ePayco",
-      "Entrada digital con código QR enviada a tu correo",
+      "Compra registrada a nombre del titular, sin boletas físicas",
       "Confirmación de la orden con su referencia de compra",
     ],
     ticketOptionsTitle: "Entradas",

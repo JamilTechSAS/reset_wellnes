@@ -9,12 +9,13 @@
  *      │
  *      └──► form ──quote──► review ──create──► submitting ──► verifying ──poll──► confirmed
  *             ▲               │                                 │                │
- *             └── issues ◄────┘                                 ├──► pending     └──► (tickets)
+ *             └── issues ◄────┘                                 ├──► pending     └──► companion
  *                                                               └──► problem ──retry──► submitting
  *
  * Payment truth ALWAYS comes from `GET /orders/{reference}` (or the same data re-read after a
- * payment hint). A return from Wompi only tells us *which* order to ask about; it never proves
- * anything.
+ * payment hint). A return from ePayco only tells us *which* order to ask about; it never
+ * proves anything. Tickets are discontinued: the confirmation is the PAID order itself, and
+ * the second person of a two-admission purchase is attached through the participant endpoint.
  */
 
 import {
@@ -25,12 +26,13 @@ import {
   type ApiClient,
 } from "../api/client.ts";
 import { createTicketingApi, type TicketingApi } from "../api/ticketing.ts";
-import type {
-  AvailabilityLabel,
-  OrderStatus,
-  PaymentCheckout,
-  PublicEvent,
-  Quote,
+import {
+  isEpaycoCheckout,
+  type AvailabilityLabel,
+  type EpaycoCheckout,
+  type OrderStatus,
+  type PublicEvent,
+  type Quote,
 } from "../api/types.ts";
 import type { FrontendConfig } from "../config/env.ts";
 import { selectTicketType } from "./ticket-selection.ts";
@@ -88,6 +90,8 @@ export type PurchaseProblem = {
   readonly canEditForm: boolean;
 };
 
+export type CompanionStatus = "idle" | "submitting" | "saved" | "unavailable" | "error";
+
 export type PurchaseState = {
   readonly step: PurchaseStep;
   readonly busy: boolean;
@@ -101,13 +105,21 @@ export type PurchaseState = {
   readonly quote: Quote | null;
   readonly reference: string | null;
   readonly buyerEmail: string | null;
-  readonly checkout: PaymentCheckout | null;
+  readonly checkout: EpaycoCheckout | null;
   readonly status: OrderStatus | null;
   readonly problem: PurchaseProblem | null;
   readonly verificationAttempts: number;
   readonly verificationStartedAt: number | null;
   /** Set when a payment hint was sent, so the UI can explain the acceleration. */
   readonly hintOutcome: string | null;
+  /** Second person of a two-admission purchase; never persisted to storage. */
+  readonly companion: ParticipantFormValues;
+  readonly companionIssues: readonly FieldIssue[];
+  readonly companionStatus: CompanionStatus;
+  readonly companionError: string | null;
+  readonly companionName: string | null;
+  /** Admissions still free in the order, as reported by the backend. */
+  readonly remainingAdmissions: number | null;
 };
 
 /**
@@ -124,8 +136,8 @@ export type PurchaseControllerOptions = {
   readonly client?: ApiClient;
   readonly store?: KeyValueStore;
   readonly now?: () => number;
-  /** Opens the checkout (ePayco Smart Checkout V2 or Wompi). */
-  readonly onCheckout: (checkout: PaymentCheckout, reference: string) => void;
+  /** Opens the ePayco Smart Checkout V2 session. It is the only payment provider. */
+  readonly onCheckout: (checkout: EpaycoCheckout, reference: string) => void;
   readonly polling?: { readonly intervalMs?: number; readonly maxDurationMs?: number };
 };
 
@@ -137,6 +149,8 @@ export type PurchaseController = {
   setBundleCode(bundleCode: "DOUBLE_EXPERIENCE" | null): void;
   setDiscountCode(value: string): void;
   setField(field: ParticipantField, value: string | boolean): void;
+  setCompanionField(field: ParticipantField, value: string | boolean): void;
+  submitCompanion(): Promise<void>;
   requestQuote(): Promise<void>;
   backToForm(): void;
   submit(): Promise<void>;
@@ -172,6 +186,12 @@ function initialState(): PurchaseState {
     verificationAttempts: 0,
     verificationStartedAt: null,
     hintOutcome: null,
+    companion: EMPTY_PARTICIPANT_FORM,
+    companionIssues: [],
+    companionStatus: "idle",
+    companionError: null,
+    companionName: null,
+    remainingAdmissions: null,
   };
 }
 
@@ -275,6 +295,22 @@ function describeError(error: unknown, context: ErrorContext = "order"): Purchas
   };
 }
 
+/**
+ * A checkout payload that is not ePayco means the deployment is misconfigured, not that the
+ * buyer did something wrong. Never open another gateway silently.
+ */
+function providerUnavailable(): PurchaseProblem {
+  return {
+    kind: "upstream",
+    title: "Pasarela de pago no disponible",
+    message:
+      "El pago con ePayco no está disponible en este momento. Escríbenos y lo revisamos contigo.",
+    canRetry: false,
+    canRetryPayment: false,
+    canEditForm: false,
+  };
+}
+
 /** Maps the backend's `details.issues[]` onto form fields. */
 function issuesFromError(error: ApiError): readonly FieldIssue[] {
   return error.issues.flatMap((issue) => {
@@ -312,6 +348,18 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
   function abortInFlight(): void {
     inFlight?.abort();
     inFlight = undefined;
+  }
+
+  /** A new purchase starts with no companion data and no assumption about the order. */
+  function resetCompanion(): void {
+    emit({
+      companion: EMPTY_PARTICIPANT_FORM,
+      companionIssues: [],
+      companionStatus: "idle",
+      companionError: null,
+      companionName: null,
+      remainingAdmissions: null,
+    });
   }
 
   function stopPolling(): void {
@@ -396,6 +444,12 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
       quantity,
       discountCode: savedDiscountCode,
       participant,
+      companion: EMPTY_PARTICIPANT_FORM,
+      companionIssues: [],
+      companionStatus: "idle",
+      companionError: null,
+      companionName: null,
+      remainingAdmissions: null,
     });
 
     const signal = newSignal();
@@ -505,6 +559,18 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
     persistDraft();
   }
 
+  /**
+   * Companion data is deliberately NOT persisted: it is personal data of a third party and
+   * only needs to live for the attach request of this session.
+   */
+  function setCompanionField(field: ParticipantField, value: string | boolean): void {
+    emit({
+      companion: { ...state.companion, [field]: value },
+      companionIssues: state.companionIssues.filter((issue) => issue.field !== field),
+      ...(state.companionStatus === "error" ? { companionStatus: "idle" as const } : {}),
+    });
+  }
+
   async function requestQuote(): Promise<void> {
     const issues = validateParticipantForm(state.participant);
     if (issues.length > 0) {
@@ -572,6 +638,7 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
     }
     idempotencyKey ??= generateIdempotencyKey();
     emit({ step: "submitting", busy: true, problem: null });
+    resetCompanion();
     const signal = newSignal();
     const buyerEmail = state.participant.email.trim().toLowerCase();
     try {
@@ -623,15 +690,22 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
         busy: false,
         reference: order.reference,
         buyerEmail,
-        checkout: order.checkout,
+        checkout: isEpaycoCheckout(order.checkout) ? order.checkout : null,
         step: "verifying",
         verificationAttempts: 0,
         verificationStartedAt: null,
       });
+      if (!isEpaycoCheckout(order.checkout)) {
+        // ePayco is the only provider this site sells with. A different checkout payload is a
+        // configuration error, never something to hand the buyer: say so instead of opening
+        // an unconfigured gateway.
+        emit({ step: "problem", busy: false, problem: providerUnavailable() });
+        return;
+      }
       options.onCheckout(order.checkout, order.reference);
-      // Handing off to Wompi is not the end of this page's job: if the navigation is blocked
-      // (or Wompi opens elsewhere) the buyer would otherwise sit on "verificando" forever.
-      // The loop stops by itself the moment the tab unloads for the real checkout.
+      // Handing off to ePayco is not the end of this page's job: if the modal is blocked the
+      // buyer would otherwise sit on "verificando" forever. The loop stops by itself the
+      // moment the tab unloads for the real checkout.
       void runPolling();
     } catch (error) {
       if (error instanceof AbortError) {
@@ -645,6 +719,85 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
         problem: issues.length > 0 ? null : problem,
         issues,
       });
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Companion (second admission of a two-admission purchase)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Attaches the second person to a PAID order.
+   *
+   * No ticket is created: the backend uses the order's admissions and reports how many are
+   * still free. The request needs the buyer email because the participant endpoint applies the
+   * same reference+email possession rule as the status endpoint.
+   */
+  async function submitCompanion(): Promise<void> {
+    const { reference, buyerEmail } = state;
+    if (reference === null || buyerEmail === null) {
+      return;
+    }
+    if (state.companionStatus === "submitting" || state.companionStatus === "saved") {
+      return;
+    }
+    const quantity = state.status?.quantity ?? 0;
+    if (quantity <= 1 || (state.remainingAdmissions ?? quantity - 1) <= 0) {
+      emit({
+        companionStatus: "unavailable",
+        companionError: "Esta compra no tiene más participantes por registrar.",
+      });
+      return;
+    }
+    const issues = validateParticipantForm(state.companion);
+    if (issues.length > 0) {
+      emit({ companionIssues: issues, companionStatus: "idle", companionError: null });
+      return;
+    }
+    emit({ companionIssues: [], companionStatus: "submitting", companionError: null });
+    const signal = newSignal();
+    try {
+      const attached = await api.attachParticipant(
+        reference,
+        buyerEmail,
+        {
+          firstName: state.companion.firstName.trim(),
+          lastName: state.companion.lastName.trim(),
+          nationalId: state.companion.nationalId,
+          email: state.companion.email.trim().toLowerCase(),
+          phone: state.companion.phone,
+          city: state.companion.city.trim(),
+          ...(state.companion.instagram.trim().length === 0
+            ? {}
+            : { instagram: state.companion.instagram.trim() }),
+          consents: {
+            dataProcessing: state.companion.dataProcessing,
+            futureEvents: state.companion.futureEvents,
+          },
+        },
+        signal,
+      );
+      emit({
+        companionStatus: "saved",
+        companionName: `${attached.participant.firstName} ${attached.participant.lastName}`.trim(),
+        remainingAdmissions: attached.remainingUnassigned,
+        companionIssues: [],
+        companionError: null,
+      });
+    } catch (error) {
+      if (error instanceof AbortError) {
+        return;
+      }
+      if (error instanceof ApiError && error.code === "CONFLICT") {
+        // The backend enforces capacity: the order is already fully assigned. This is also
+        // what a buyer who reopened the confirmation and resubmitted sees.
+        emit({
+          companionStatus: "unavailable",
+          companionError: "Esta compra ya tiene registrados todos sus participantes.",
+        });
+        return;
+      }
+      emit({ companionStatus: "error", companionError: describeError(error).message });
     }
   }
 
@@ -668,7 +821,7 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
           kind: "not_found",
           title: "No pudimos ubicar tu compra en este navegador",
           message:
-            "Usa la referencia de tu orden y el correo con el que compraste para consultar el estado de tu entrada.",
+            "Usa la referencia de tu orden y el correo con el que compraste para consultar el estado de tu compra.",
           canRetry: false,
           canRetryPayment: false,
           canEditForm: false,
@@ -690,9 +843,9 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
    * Loads the public event when the flow did not start from the landing page.
    *
    * A resumed return has an order but no event, and the order status does not carry the event's
-   * name, date or venue — so without this the ticket would show the landing copy, which can
-   * disagree with the event the backend is actually selling. Best-effort: the ticket is issued by
-   * the backend either way, so a failure here only costs the header.
+   * name, date or venue — so without this the confirmation would show the landing copy, which
+   * can disagree with the event the backend actually sold. Best-effort: the order is confirmed
+   * either way, so a failure here only costs the header.
    */
   async function ensureEvent(): Promise<void> {
     if (state.event !== null) {
@@ -707,7 +860,7 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
           selectTicketType(event, config.ticketTypeCode)?.availability ?? event.sales.availability,
       });
     } catch {
-      // Keep the landing-page fallback; the ticket itself is unaffected.
+      // Keep the landing-page fallback; the confirmation itself is unaffected.
     }
   }
 
@@ -738,8 +891,16 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
     const paymentStatus = status.payment?.status;
     if (status.status === "PAID") {
       // The session correlation is deliberately kept: a refresh or a reopened return URL must
-      // be able to show the same ticket again (the backend re-answers the same order).
-      emit({ step: "confirmed", busy: false, status, problem: null });
+      // be able to show the same confirmed purchase again (the backend re-answers the same
+      // order). The buyer's own participant occupies the first admission, so a two-admission
+      // purchase starts with one still free until the backend says otherwise.
+      emit({
+        step: "confirmed",
+        busy: false,
+        status,
+        problem: null,
+        remainingAdmissions: state.remainingAdmissions ?? Math.max(status.quantity - 1, 0),
+      });
       return;
     }
     if (status.status === "FAILED") {
@@ -877,11 +1038,15 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
       });
       emit({
         busy: false,
-        checkout: retry.checkout,
+        checkout: isEpaycoCheckout(retry.checkout) ? retry.checkout : null,
         step: "verifying",
         verificationAttempts: 0,
         verificationStartedAt: null,
       });
+      if (!isEpaycoCheckout(retry.checkout)) {
+        emit({ step: "problem", busy: false, problem: providerUnavailable() });
+        return;
+      }
       options.onCheckout(retry.checkout, retry.reference);
       void runPolling();
     } catch (error) {
@@ -953,6 +1118,8 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
     setBundleCode,
     setDiscountCode,
     setField,
+    setCompanionField,
+    submitCompanion,
     requestQuote,
     backToForm,
     submit,

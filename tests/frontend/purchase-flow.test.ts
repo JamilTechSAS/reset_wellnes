@@ -5,7 +5,7 @@
  * fake `TicketingApi` and assert the properties the phase depends on:
  *   - prices and availability are always the backend's;
  *   - one intentional attempt creates at most one order (and one `Idempotency-Key`);
- *   - a Wompi redirect, and a payment hint, are never treated as proof of payment;
+ *   - an ePayco handoff, and a payment hint, are never treated as proof of payment;
  *   - polling is bounded, stops on a terminal state, and stops on unmount;
  *   - a refresh or a repeated return re-reads the same order and never re-creates it.
  */
@@ -17,13 +17,14 @@ import {
   createPurchaseController,
   type PurchaseController,
 } from "../../src/purchase/controller.ts";
-import type { EpaycoCheckout, PaymentCheckout, WompiCheckout } from "../../src/api/types.ts";
+import type { EpaycoCheckout } from "../../src/api/types.ts";
 import { parseReturnContext } from "../../src/purchase/return-route.ts";
 import {
   createFakeApi,
   createMemoryStore,
   draftEntry,
   firstCreateOrderInput,
+  makeCheckout,
   makeCreatedOrder,
   makeEpaycoCheckout,
   makeEvent,
@@ -36,7 +37,6 @@ import {
   TEST_BUYER_EMAIL,
   TEST_EVENT_CODE,
   TEST_TICKET_TYPE_CODE,
-  TEST_TICKET_TOKEN,
   type FakeTicketingApi,
 } from "./support/ticketing-fixtures.ts";
 
@@ -46,7 +46,7 @@ type Env = {
   readonly api: FakeTicketingApi;
   readonly store: ReturnType<typeof createMemoryStore>;
   readonly clock: { now: number };
-  readonly checkouts: { checkout: PaymentCheckout; reference: string }[];
+  readonly checkouts: { checkout: EpaycoCheckout; reference: string }[];
   readonly controller: PurchaseController;
 };
 
@@ -62,7 +62,7 @@ function setup(
   const api = options.api ?? createFakeApi();
   const store = createMemoryStore(options.seed);
   const clock = { now: Date.parse("2026-10-05T19:00:00.000Z") };
-  const checkouts: { checkout: PaymentCheckout; reference: string }[] = [];
+  const checkouts: { checkout: EpaycoCheckout; reference: string }[] = [];
   const controller = createPurchaseController({
     config: TEST_CONFIG,
     api,
@@ -421,12 +421,10 @@ describe("order creation", () => {
     expect(input.buyer.email).toBe(TEST_BUYER_EMAIL);
     expect(input.participant.nationalId).toBe("1023456789");
 
-    // The checkout the browser opens is exactly the backend's, signature included.
+    // The checkout the browser opens is exactly the backend's ePayco session.
     expect(env.checkouts).toHaveLength(1);
     expect(env.checkouts[0]?.checkout).toEqual(order.checkout);
-    expect((env.checkouts[0]?.checkout as WompiCheckout).integritySignature).toBe(
-      "fixture-integrity-signature",
-    );
+    expect(env.checkouts[0]?.checkout.sessionId).toBe("fixture-epayco-session-123");
     expect(env.checkouts[0]?.reference).toBe(order.reference);
 
     const state = env.controller.getState();
@@ -445,10 +443,9 @@ describe("order creation", () => {
     await env.controller.submit();
 
     expect(env.checkouts).toHaveLength(1);
-    const checkout = env.checkouts[0]?.checkout as EpaycoCheckout;
-    expect(checkout.provider).toBe("epayco");
-    expect(checkout.sessionId).toBe("fixture-epayco-session-123");
-    expect(checkout.test).toBe(true);
+    // The handoff carries the backend's ePayco session verbatim: provider, session id and test
+    // flag all come from the server, never from the browser.
+    expect(env.checkouts[0]?.checkout).toEqual(epaycoCheckout);
     expect(env.checkouts[0]?.reference).toBe(order.reference);
 
     const state = env.controller.getState();
@@ -650,7 +647,7 @@ describe("order creation", () => {
 describe("payment truth", () => {
   const polling = { intervalMs: 100, maxDurationMs: 250 };
 
-  it("never treats the Wompi handoff as proof of payment", async () => {
+  it("never treats the ePayco handoff as proof of payment", async () => {
     const env = setup({ seed: draftEntry(1), polling });
     await reachReview(env);
     await env.controller.submit();
@@ -676,8 +673,7 @@ describe("payment truth", () => {
     const state = env.controller.getState();
     expect(state.step).toBe("confirmed");
     expect(state.status?.status).toBe("PAID");
-    expect(state.status?.tickets).toHaveLength(1);
-    expect(state.status?.tickets[0]?.token).toBe(TEST_TICKET_TOKEN);
+    expect(state.status?.paidAt).toBe("2026-10-05T19:05:00.000Z");
   });
 
   it("stops polling as soon as the order reaches a terminal state", async () => {
@@ -974,7 +970,7 @@ describe("return, refresh and repeated returns", () => {
     expect(env.controller.getState().step).toBe("confirmed");
   });
 
-  it("shows a refresh- or reopen-proof ticket and never creates another order", async () => {
+  it("shows a refresh- or reopen-proof confirmation and never creates another order", async () => {
     const api = createFakeApi();
     api.getOrderStatus.mockResolvedValue(makePaidOrderStatus());
     const env = setup({ api, seed: pendingOrderEntry(), polling });
@@ -986,7 +982,7 @@ describe("return, refresh and repeated returns", () => {
     expect(api.createOrder).not.toHaveBeenCalled();
     const state = env.controller.getState();
     expect(state.step).toBe("confirmed");
-    expect(state.status?.tickets.map((ticket) => ticket.token)).toEqual([TEST_TICKET_TOKEN]);
+    expect(state.status?.reference).toBe("EVT-2026-000001");
   });
 
   it("re-reads the same order after a real page reload (new controller, same session)", async () => {
@@ -1004,7 +1000,7 @@ describe("return, refresh and repeated returns", () => {
 
     expect(api.createOrder).toHaveBeenCalledTimes(1);
     expect(second.controller.getState().step).toBe("confirmed");
-    expect(second.controller.getState().status?.tickets[0]?.token).toBe(TEST_TICKET_TOKEN);
+    expect(second.controller.getState().status?.status).toBe("PAID");
   });
 
   it("asks for the reference and email when this browser has no stored order", async () => {
@@ -1125,5 +1121,158 @@ describe("polling lifecycle", () => {
     const count = seen.length;
     env.controller.setQuantity(2);
     expect(seen.length).toBe(count);
+  });
+});
+
+describe("companion (second admission) after a confirmed payment", () => {
+  const polling = { intervalMs: 100, maxDurationMs: 1_000 };
+
+  function fillCompanion(controller: PurchaseController): void {
+    controller.setCompanionField("firstName", "Beto");
+    controller.setCompanionField("lastName", "Gómez");
+    controller.setCompanionField("nationalId", "987654321");
+    controller.setCompanionField("email", "beto@example.com");
+    controller.setCompanionField("phone", "3001112233");
+    controller.setCompanionField("city", "Cali");
+    controller.setCompanionField("dataProcessing", true);
+  }
+
+  async function reachConfirmed(env: Env, quantity: number): Promise<void> {
+    await reachReview(env);
+    await env.controller.submit();
+    await settle();
+    expect(env.controller.getState().step).toBe("confirmed");
+    expect(env.controller.getState().status?.quantity).toBe(quantity);
+  }
+
+  it("attaches the companion of two regular General tickets to the PAID order", async () => {
+    const api = createFakeApi();
+    api.getOrderStatus.mockResolvedValue(
+      makePaidOrderStatus({ quantity: 2, totalInCents: 40_000_000 }),
+    );
+    const env = setup({ api, seed: draftEntry(2), polling });
+    await reachConfirmed(env, 2);
+
+    // The buyer's own participant occupies the first admission.
+    expect(env.controller.getState().remainingAdmissions).toBe(1);
+
+    fillCompanion(env.controller);
+    await env.controller.submitCompanion();
+
+    expect(api.attachParticipant).toHaveBeenCalledTimes(1);
+    const [reference, buyerEmail, payload] = api.attachParticipant.mock.calls[0] ?? [];
+    expect(reference).toBe("EVT-2026-000001");
+    expect(buyerEmail).toBe(TEST_BUYER_EMAIL);
+    expect(payload).toMatchObject({
+      firstName: "Beto",
+      lastName: "Gómez",
+      nationalId: "987654321",
+      email: "beto@example.com",
+      city: "Cali",
+      consents: { dataProcessing: true, futureEvents: false },
+    });
+    expect(payload).not.toHaveProperty("ticketToken");
+
+    const state = env.controller.getState();
+    expect(state.companionStatus).toBe("saved");
+    expect(state.companionName).toBe("Beto Gómez");
+    expect(state.remainingAdmissions).toBe(0);
+  });
+
+  it("works identically for the Doble experiencia bundle", async () => {
+    const api = createFakeApi();
+    api.getOrderStatus.mockResolvedValue(
+      makePaidOrderStatus({ quantity: 2, totalInCents: 34_000_000 }),
+    );
+    const env = setup({ api, seed: draftEntry(2), polling });
+    env.controller.setBundleCode("DOUBLE_EXPERIENCE");
+    await reachConfirmed(env, 2);
+    expect(env.controller.getState().bundleCode).toBe("DOUBLE_EXPERIENCE");
+
+    fillCompanion(env.controller);
+    await env.controller.submitCompanion();
+
+    expect(api.attachParticipant).toHaveBeenCalledTimes(1);
+    expect(env.controller.getState().companionStatus).toBe("saved");
+  });
+
+  it("reports a fully assigned order without inventing a retry", async () => {
+    const api = createFakeApi();
+    api.getOrderStatus.mockResolvedValue(
+      makePaidOrderStatus({ quantity: 2, totalInCents: 40_000_000 }),
+    );
+    api.attachParticipant.mockRejectedValue(
+      new ApiError({ code: "CONFLICT", status: 409, message: "no admission left" }),
+    );
+    const env = setup({ api, seed: draftEntry(2), polling });
+    await reachConfirmed(env, 2);
+
+    fillCompanion(env.controller);
+    await env.controller.submitCompanion();
+
+    const state = env.controller.getState();
+    expect(state.companionStatus).toBe("unavailable");
+    expect(state.companionError).toContain("todos sus participantes");
+    expect(state.step).toBe("confirmed");
+  });
+
+  it("validates the companion before calling the backend", async () => {
+    const api = createFakeApi();
+    api.getOrderStatus.mockResolvedValue(
+      makePaidOrderStatus({ quantity: 2, totalInCents: 40_000_000 }),
+    );
+    const env = setup({ api, seed: draftEntry(2), polling });
+    await reachConfirmed(env, 2);
+
+    await env.controller.submitCompanion();
+
+    const state = env.controller.getState();
+    expect(state.companionStatus).toBe("idle");
+    expect(state.companionIssues.length).toBeGreaterThan(0);
+    expect(api.attachParticipant).not.toHaveBeenCalled();
+  });
+
+  it("does not offer a companion for a single admission", async () => {
+    const api = createFakeApi();
+    api.getOrderStatus.mockResolvedValue(makePaidOrderStatus({ quantity: 1 }));
+    const env = setup({ api, seed: draftEntry(1), polling });
+    await reachConfirmed(env, 1);
+
+    expect(env.controller.getState().remainingAdmissions).toBe(0);
+    fillCompanion(env.controller);
+    await env.controller.submitCompanion();
+    expect(api.attachParticipant).not.toHaveBeenCalled();
+  });
+
+  it("never persists the companion's personal data", async () => {
+    const api = createFakeApi();
+    api.getOrderStatus.mockResolvedValue(
+      makePaidOrderStatus({ quantity: 2, totalInCents: 40_000_000 }),
+    );
+    const env = setup({ api, seed: draftEntry(2), polling });
+    await reachConfirmed(env, 2);
+    fillCompanion(env.controller);
+
+    const stored = [...env.store.entries.values()].join("\n");
+    expect(stored).not.toContain("beto@example.com");
+    expect(stored).not.toContain("987654321");
+  });
+});
+
+describe("payment provider", () => {
+  it("refuses to open a checkout that is not ePayco", async () => {
+    const api = createFakeApi();
+    api.createOrder.mockResolvedValue(makeCreatedOrder({ checkout: makeCheckout() }));
+    const env = setup({ api, seed: draftEntry(1) });
+
+    await reachReview(env);
+    await env.controller.submit();
+
+    expect(env.checkouts).toHaveLength(0);
+    const state = env.controller.getState();
+    expect(state.step).toBe("problem");
+    expect(state.problem?.title).toBe("Pasarela de pago no disponible");
+    // The order exists, so the buyer can still look it up with the reference.
+    expect(env.store.getItem("ticket:pending-order:v1")).not.toBeNull();
   });
 });

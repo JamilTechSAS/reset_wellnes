@@ -10,11 +10,13 @@
  *   POST /orders                               create the order (Idempotency-Key)
  *   GET  /orders/{reference}                   buyer status (reference + X-Buyer-Email)
  *   POST /orders/{reference}/retry             new attempt, fresh reference
- *   POST /orders/{reference}/payment-hint      nudge confirmation with Wompi's ?id=
+ *   POST /orders/{reference}/payment-hint      nudge confirmation with the provider's id
+ *   POST /orders/{reference}/participants      attach a companion to a paid admission
  */
 
 import type { ApiClient } from "./client.ts";
 import type {
+  AttachedParticipant,
   CreatedOrder,
   OrderStatus,
   PaymentHint,
@@ -82,6 +84,12 @@ export type TicketingApi = {
     transactionId: string,
     signal?: AbortSignal,
   ): Promise<PaymentHint>;
+  attachParticipant(
+    reference: string,
+    buyerEmail: string,
+    participant: ParticipantPayload,
+    signal?: AbortSignal,
+  ): Promise<AttachedParticipant>;
 };
 
 export function createTicketingApi(client: ApiClient): TicketingApi {
@@ -196,6 +204,32 @@ export function createTicketingApi(client: ApiClient): TicketingApi {
         method: "POST",
         path: `/orders/${encodeURIComponent(reference)}/payment-hint`,
         body: { transactionId },
+        headers: { "X-Buyer-Email": buyerEmail },
+        ...(signal === undefined ? {} : { signal }),
+      });
+    },
+
+    attachParticipant(
+      reference: string,
+      buyerEmail: string,
+      participant: ParticipantPayload,
+      signal?: AbortSignal,
+    ): Promise<AttachedParticipant> {
+      return client.request<AttachedParticipant>({
+        method: "POST",
+        path: `/orders/${encodeURIComponent(reference)}/participants`,
+        body: {
+          participant: {
+            firstName: participant.firstName,
+            lastName: participant.lastName,
+            nationalId: participant.nationalId,
+            email: participant.email,
+            phone: participant.phone,
+            city: participant.city,
+            ...(participant.instagram === undefined ? {} : { instagram: participant.instagram }),
+            consents: participant.consents,
+          },
+        },
         headers: { "X-Buyer-Email": buyerEmail },
         ...(signal === undefined ? {} : { signal }),
       });

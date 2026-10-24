@@ -20,8 +20,6 @@ export type FrontendConfig = {
   readonly eventCode: string;
   /** Ticket type code inside that event. */
   readonly ticketTypeCode: string;
-  /** Wompi Web Checkout base URL; the environment is chosen by the public key. */
-  readonly wompiCheckoutUrl: string;
 };
 
 /** Local Supabase Edge Functions (the value `npm run functions:serve` serves). */
@@ -57,13 +55,10 @@ export const DEFAULT_EVENT_CODE = "RESET-SUNSET-2026";
  */
 export const DEFAULT_TICKET_TYPE_CODE = "GENERAL";
 
-export const DEFAULT_WOMPI_CHECKOUT_URL = "https://checkout.wompi.co/p/";
-
 export type FrontendEnv = {
   readonly VITE_API_BASE_URL?: string | undefined;
   readonly VITE_EVENT_CODE?: string | undefined;
   readonly VITE_TICKET_TYPE_CODE?: string | undefined;
-  readonly VITE_WOMPI_CHECKOUT_URL?: string | undefined;
   /**
    * Vite's own `import.meta.env.PROD`: true in a `vite build`, false in `vite dev` and in the
    * test runner. It selects the default backend: hosted for a real build, the local stack
@@ -82,10 +77,6 @@ function withoutTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
 }
 
-function ensureTrailingSlash(value: string): string {
-  return value.endsWith("/") ? value : `${value}/`;
-}
-
 export function loadFrontendConfig(env: FrontendEnv): FrontendConfig {
   const isProductionBuild = env.PROD === true;
   return {
@@ -95,9 +86,6 @@ export function loadFrontendConfig(env: FrontendEnv): FrontendConfig {
     ),
     eventCode: (clean(env.VITE_EVENT_CODE) ?? DEFAULT_EVENT_CODE).toUpperCase(),
     ticketTypeCode: (clean(env.VITE_TICKET_TYPE_CODE) ?? DEFAULT_TICKET_TYPE_CODE).toUpperCase(),
-    wompiCheckoutUrl: ensureTrailingSlash(
-      clean(env.VITE_WOMPI_CHECKOUT_URL) ?? DEFAULT_WOMPI_CHECKOUT_URL,
-    ),
   };
 }
 
@@ -115,7 +103,7 @@ function envString(value: unknown): string | undefined {
 /**
  * Configuration resolved once for the running bundle.
  *
- * The four values are listed explicitly instead of passing the whole `import.meta.env`: what a
+ * The values are listed explicitly instead of passing the whole `import.meta.env`: what a
  * browser bundle may read from the environment is the shortest possible list, and both the
  * TypeScript build and `tests/frontend/hosted-config.test.ts` keep it that way.
  */
@@ -123,6 +111,5 @@ export const FRONTEND_CONFIG: FrontendConfig = loadFrontendConfig({
   VITE_API_BASE_URL: envString(import.meta.env.VITE_API_BASE_URL),
   VITE_EVENT_CODE: envString(import.meta.env.VITE_EVENT_CODE),
   VITE_TICKET_TYPE_CODE: envString(import.meta.env.VITE_TICKET_TYPE_CODE),
-  VITE_WOMPI_CHECKOUT_URL: envString(import.meta.env.VITE_WOMPI_CHECKOUT_URL),
   PROD: import.meta.env.PROD,
 });

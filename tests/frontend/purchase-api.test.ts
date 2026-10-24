@@ -18,7 +18,11 @@ import {
 import { createTicketingApi } from "../../src/api/ticketing.ts";
 import type { ApiClient } from "../../src/api/client.ts";
 import type { WompiCheckout } from "../../src/api/types.ts";
-import { makeCheckout, makePaidOrderStatus } from "./support/ticketing-fixtures.ts";
+import {
+  makeAttachedParticipant,
+  makeCheckout,
+  makePaidOrderStatus,
+} from "./support/ticketing-fixtures.ts";
 
 type FetchCall = { readonly url: string; readonly init: RequestInit | undefined };
 type HeaderBag = Record<string, string>;
@@ -417,7 +421,7 @@ describe("ticketing endpoints", () => {
     expect(headersOf(calls[0])["X-Buyer-Email"]).toBe("ana@example.com");
   });
 
-  it("forwards Wompi's transaction id as a payment hint", async () => {
+  it("forwards the provider transaction id as a payment hint", async () => {
     const { client, calls } = recordingClient();
     await createTicketingApi(client).sendPaymentHint(
       "EVT-2026-000001",
@@ -435,7 +439,42 @@ describe("ticketing endpoints", () => {
     const api = createTicketingApi(recordingClient(makePaidOrderStatus()).client);
     const status = await api.getOrderStatus("EVT-2026-000001", "ana@example.com");
     expect(status.status).toBe("PAID");
-    expect(status.tickets[0]?.token).toBe("TKT_6Q0F7Y8Z1A2B3C4D5E6F");
+    expect(status.paidAt).toBe("2026-10-05T19:05:00.000Z");
+    // Tickets are discontinued: the status carries no ticket/token list at all.
+    expect(status).not.toHaveProperty("tickets");
+  });
+
+  it("attaches a companion with the buyer email and no ticket token", async () => {
+    const { client, calls } = recordingClient(makeAttachedParticipant());
+    const attached = await createTicketingApi(client).attachParticipant(
+      "EVT-2026-000001",
+      "ana@example.com",
+      {
+        firstName: "Beto",
+        lastName: "Gómez",
+        nationalId: "987654321",
+        email: "beto@example.com",
+        phone: "3001112233",
+        city: "Cali",
+        consents: { dataProcessing: true, futureEvents: false },
+      },
+    );
+
+    expect(calls[0]?.method).toBe("POST");
+    expect(calls[0]?.path).toBe("/orders/EVT-2026-000001/participants");
+    expect(headersOf(calls[0])["X-Buyer-Email"]).toBe("ana@example.com");
+    const body = calls[0]?.body as Record<string, unknown>;
+    expect(body).not.toHaveProperty("ticketToken");
+    expect(body.participant).toMatchObject({
+      firstName: "Beto",
+      lastName: "Gómez",
+      nationalId: "987654321",
+      email: "beto@example.com",
+      city: "Cali",
+      consents: { dataProcessing: true, futureEvents: false },
+    });
+    expect(attached.unit).toBe(2);
+    expect(attached.remainingUnassigned).toBe(0);
   });
 
   it("passes the checkout payload through with no client-side mutation", async () => {

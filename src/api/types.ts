@@ -206,22 +206,6 @@ export type CreatedOrder = {
 
 export type OrderStatusValue = "PENDING" | "PAID" | "FAILED" | "EXPIRED" | "CANCELLED";
 
-export type OrderTicket = {
-  readonly token: string;
-  readonly unit: number;
-  readonly status: string;
-  readonly assigned: boolean;
-  readonly pricePaidCents: number;
-  readonly participantName: string | null;
-};
-
-export type OrderConfirmationStatus = {
-  readonly queued: number;
-  readonly sent: number;
-  readonly failed: number;
-  readonly ready: boolean;
-};
-
 export type OrderStatus = {
   readonly reference: string;
   readonly status: string;
@@ -246,8 +230,6 @@ export type OrderStatus = {
     readonly createdAt: string;
     readonly finalizedAt: string | null;
   }[];
-  readonly tickets: readonly OrderTicket[];
-  readonly confirmation: OrderConfirmationStatus | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -281,4 +263,30 @@ export type PaymentHint = {
   readonly orderStatus: string;
   readonly paymentStatus: string;
   readonly outcome: PaymentHintOutcome;
+};
+
+// ---------------------------------------------------------------------------
+// POST /orders/{reference}/participants
+// ---------------------------------------------------------------------------
+
+/**
+ * The backend's answer to attaching one person to a paid order. Tickets are discontinued, so
+ * an assignment is an admission inside the order, not a ticket: `unit` is its 1-based ordinal
+ * and `remainingUnassigned` says how many admissions are still free.
+ */
+export type AttachedParticipant = {
+  readonly orderReference: string;
+  readonly unit: number;
+  readonly participant: {
+    readonly participantId: string;
+    readonly firstName: string;
+    readonly lastName: string;
+  };
+  readonly consents: {
+    readonly dataProcessing: boolean;
+    readonly futureEvents: boolean;
+    readonly policyVersion: string;
+    readonly capturedAt: string;
+  };
+  readonly remainingUnassigned: number;
 };

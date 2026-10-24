@@ -15,7 +15,6 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_EVENT_CODE,
   DEFAULT_TICKET_TYPE_CODE,
-  DEFAULT_WOMPI_CHECKOUT_URL,
   HOSTED_API_BASE_URL,
   LOCAL_API_BASE_URL,
   loadFrontendConfig,
@@ -124,12 +123,8 @@ describe("event and ticket identifiers", () => {
     );
   });
 
-  it("keeps Wompi Web Checkout reachable with its trailing slash", () => {
-    expect(loadFrontendConfig({}).wompiCheckoutUrl).toBe(DEFAULT_WOMPI_CHECKOUT_URL);
-    expect(DEFAULT_WOMPI_CHECKOUT_URL).toBe("https://checkout.wompi.co/p/");
-    expect(
-      loadFrontendConfig({ VITE_WOMPI_CHECKOUT_URL: "https://checkout.wompi.co/p" }),
-    ).toMatchObject({ wompiCheckoutUrl: "https://checkout.wompi.co/p/" });
+  it("exposes no second payment provider: ePayco is the only checkout", () => {
+    expect(loadFrontendConfig({})).not.toHaveProperty("wompiCheckoutUrl");
   });
 });
 
@@ -137,12 +132,7 @@ describe("production-facing hygiene", () => {
   it("reads only the public VITE_ variables documented for the frontend", () => {
     const source = readFileSync(path.join(ROOT, CONFIG_MODULE), "utf8");
     const names = [...new Set(source.match(/VITE_[A-Z0-9_]+/g) ?? [])].sort();
-    expect(names).toEqual([
-      "VITE_API_BASE_URL",
-      "VITE_EVENT_CODE",
-      "VITE_TICKET_TYPE_CODE",
-      "VITE_WOMPI_CHECKOUT_URL",
-    ]);
+    expect(names).toEqual(["VITE_API_BASE_URL", "VITE_EVENT_CODE", "VITE_TICKET_TYPE_CODE"]);
 
     const docs = readFileSync(path.join(ROOT, "docs", "frontend.md"), "utf8");
     for (const name of names) {

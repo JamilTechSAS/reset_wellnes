@@ -1,17 +1,16 @@
 /**
  * Phase 6B pure helpers: money/date formatting, form validation, browser-local persistence,
- * payment-return parsing, the Wompi handoff URL and the ticket QR.
+ * payment-return parsing, form normalization and session persistence.
  *
  * These are the modules where a mistake would be invisible in a happy-path click-through, so
- * they are exercised directly and adversarially (corrupt storage, Wompi sending nothing,
- * hostile ticket tokens, and the email status that must never over-claim).
+ * they are exercised directly and adversarially (corrupt storage, a provider return that
+ * carries nothing, and hostile form input).
  */
 
 import { describe, expect, it } from "vitest";
 import {
   availabilityIsPurchasable,
   availabilityLabel,
-  describeEmailStatus,
   formatCopCents,
   formatEventDate,
   formatEventTime,
@@ -37,9 +36,6 @@ import {
   savePendingOrder,
 } from "../../src/purchase/persistence.ts";
 import { parseReturnContext } from "../../src/purchase/return-route.ts";
-import { buildWompiCheckoutUrl } from "../../src/purchase/wompi.ts";
-import { renderTicketQrSvg } from "../../src/purchase/qr.ts";
-import { makeCheckout, makeTicketToken } from "./support/ticketing-fixtures.ts";
 
 const VALID_FORM: ParticipantFormValues = {
   firstName: "Ana",
@@ -110,52 +106,6 @@ describe("availability", () => {
     expect(availabilityIsPurchasable("SOLD_OUT")).toBe(false);
     expect(availabilityIsPurchasable("NOT_STARTED")).toBe(false);
     expect(availabilityIsPurchasable("CLOSED")).toBe(false);
-  });
-});
-
-describe("describeEmailStatus", () => {
-  it("never claims the email was sent when the backend has not reported it", () => {
-    for (const confirmation of [
-      null,
-      { queued: 1, sent: 0, failed: 0, ready: false },
-      { queued: 0, sent: 0, failed: 0, ready: false },
-      { queued: 0, sent: 0, failed: 1, ready: false },
-    ]) {
-      const status = describeEmailStatus(confirmation, 1);
-      expect(status.message).not.toContain("Enviamos tu entrada");
-      expect(status.kind).not.toBe("sent");
-    }
-  });
-
-  it("says sent only when every expected delivery is sent", () => {
-    expect(describeEmailStatus({ queued: 0, sent: 1, failed: 0, ready: true }, 1)).toEqual({
-      kind: "sent",
-      message: "Enviamos tu entrada a tu correo electrónico.",
-    });
-  });
-
-  it("reports partial and in-flight delivery honestly", () => {
-    expect(describeEmailStatus({ queued: 1, sent: 1, failed: 0, ready: false }, 2)).toEqual({
-      kind: "sending",
-      message: "Ya enviamos 1 de 2. El resto está en camino.",
-    });
-    expect(describeEmailStatus({ queued: 1, sent: 0, failed: 0, ready: false }, 1)).toEqual({
-      kind: "sending",
-      message: "Estamos enviando una copia a tu correo electrónico.",
-    });
-  });
-
-  it("tells the buyer a failed email does not invalidate the ticket", () => {
-    const status = describeEmailStatus({ queued: 0, sent: 0, failed: 1, ready: false }, 1);
-    expect(status.kind).toBe("failed");
-    expect(status.message).toContain("Tu entrada es válida");
-  });
-
-  it("does not claim delivery when the outbox counts fewer rows than expected", () => {
-    // Two tickets expected, zero outbox rows: unknown, not sent.
-    expect(describeEmailStatus({ queued: 0, sent: 0, failed: 0, ready: false }, 2).kind).toBe(
-      "unknown",
-    );
   });
 });
 
@@ -541,83 +491,5 @@ describe("parseReturnContext", () => {
       ),
     );
     expect(Object.keys(context).sort()).toEqual(["isReturn", "reference", "transactionId"]);
-  });
-});
-
-describe("Wompi checkout URL", () => {
-  it("carries the backend-signed values verbatim, never a recomputed signature", () => {
-    const checkout = makeCheckout();
-    const url = new URL(buildWompiCheckoutUrl("https://checkout.wompi.co/p/", checkout));
-
-    expect(url.origin + url.pathname).toBe("https://checkout.wompi.co/p/");
-    expect(url.searchParams.get("public-key")).toBe(checkout.publicKey);
-    expect(url.searchParams.get("currency")).toBe("COP");
-    expect(url.searchParams.get("amount-in-cents")).toBe("16000000");
-    expect(url.searchParams.get("reference")).toBe(checkout.reference);
-    expect(url.searchParams.get("signature:integrity")).toBe(checkout.integritySignature);
-    expect(url.searchParams.get("redirect-url")).toBe("http://localhost:3000/gracias");
-    expect(url.searchParams.get("expiration-time")).toBe("2026-10-05T20:15:00.000Z");
-    expect(url.searchParams.get("customer-data:email")).toBe("ana@example.com");
-  });
-
-  it("omits the optional parameters when the backend did not send them", () => {
-    const url = new URL(
-      buildWompiCheckoutUrl(
-        "https://checkout.wompi.co/p/",
-        makeCheckout({
-          redirectUrl: null,
-          expirationTime: null,
-          customerData: {
-            email: null,
-            fullName: null,
-            phoneNumber: null,
-            phoneNumberPrefix: null,
-          },
-        }),
-      ),
-    );
-    expect(url.searchParams.get("redirect-url")).toBeNull();
-    expect(url.searchParams.get("expiration-time")).toBeNull();
-    expect(url.searchParams.get("customer-data:email")).toBeNull();
-  });
-
-  it("appends with & when the checkout base already has a query string", () => {
-    const url = buildWompiCheckoutUrl("https://checkout.wompi.co/p/?env=test", makeCheckout());
-    expect(url).toContain("/p/?env=test&public-key=");
-  });
-
-  it("never leaks a private key into the browser URL", () => {
-    const url = buildWompiCheckoutUrl("https://checkout.wompi.co/p/", makeCheckout());
-    expect(url).not.toContain("priv");
-    expect(url).not.toContain("integrity_secret");
-  });
-});
-
-describe("ticket QR", () => {
-  it("renders a scalable SVG from the backend ticket token", () => {
-    const token = makeTicketToken("A1");
-    const svg = renderTicketQrSvg(token);
-    expect(svg.startsWith("<svg")).toBe(true);
-    expect(svg).toContain("viewBox=");
-    expect(svg).toContain("<path");
-    // Scalable: no fixed pixel size, so the code stays crisp in the ticket card.
-    expect(svg).not.toMatch(/width="\d+px"/);
-  });
-
-  it("encodes the token instead of exposing it in the markup", () => {
-    const token = makeTicketToken("A1");
-    expect(renderTicketQrSvg(token)).not.toContain(token);
-  });
-
-  it("is deterministic for one token and different for two", () => {
-    const first = makeTicketToken("A1");
-    const second = makeTicketToken("B2");
-    expect(renderTicketQrSvg(first)).toBe(renderTicketQrSvg(first));
-    expect(renderTicketQrSvg(first)).not.toBe(renderTicketQrSvg(second));
-  });
-
-  it("accepts the longest ticket token the backend can issue", () => {
-    const token = `TKT_${"9".repeat(20)}`;
-    expect(() => renderTicketQrSvg(token)).not.toThrow();
   });
 });

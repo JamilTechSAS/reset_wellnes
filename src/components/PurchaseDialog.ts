@@ -2,7 +2,11 @@
  * Purchase dialog (Phase 6B).
  *
  * The single UI surface of the buyer journey: quantity, participant data, server quote,
- * order creation, Wompi handoff, payment return, confirmation and the digital ticket.
+ * order creation, ePayco handoff, payment return and the branded confirmation.
+ *
+ * Tickets are discontinued: nothing here issues, renders or looks up a ticket, a QR code or a
+ * token. A PAID order is the confirmation, and a two-admission purchase completes when the
+ * companion is attached as a participant.
  *
  * It is a pure render of the controller state — every number shown comes from a backend
  * response, every state comes from the state machine. The one exception is the price
@@ -15,7 +19,7 @@
  * desktop, and the primary action never scrolls out of reach.
  */
 
-import type { AvailabilityLabel, OrderStatus, PublicEvent, Quote } from "../api/types.ts";
+import type { AvailabilityLabel, PublicEvent, Quote } from "../api/types.ts";
 import type { FrontendConfig } from "../config/env.ts";
 import type { LegalTabId } from "../types/content.ts";
 import type { PurchaseController, PurchaseProblem, PurchaseState } from "../purchase/controller.ts";
@@ -24,18 +28,23 @@ import {
   formatEventTime,
   formatCopCents,
   availabilityLabel,
-  describeEmailStatus,
 } from "../purchase/format.ts";
 import { issuesForField, type ParticipantField } from "../purchase/validation.ts";
 import { selectTicketType } from "../purchase/ticket-selection.ts";
-import { renderTicketCard, type TicketCardEvent } from "./TicketCard.ts";
 import { escapeHtml, renderIcon } from "../utils/dom.ts";
 import { dispatchOpenLegal } from "../utils/events.ts";
+
+export type PurchaseEventSummary = {
+  readonly eventName: string;
+  readonly dateLabel: string;
+  readonly timeLabel: string;
+  readonly venueLabel: string;
+};
 
 export type PurchaseDialogContext = {
   readonly config: FrontendConfig;
   /** Landing-page copy, so the dialog looks right even before the API answers. */
-  readonly fallbackEvent: TicketCardEvent;
+  readonly fallbackEvent: PurchaseEventSummary;
   readonly contactHref: string;
   readonly contactLabel: string;
 };
@@ -43,8 +52,8 @@ export type PurchaseDialogContext = {
 export type OpenPurchaseOptions = {
   /**
    * Resume a checkout return instead of starting a fresh purchase. `transactionId` is the
-   * `?id=` Wompi appended (a hint only). With no stored order this shows the recovery form,
-   * which is also what the "consultar mi compra" entry point uses.
+   * `?ref_payco=` ePayco appended (a hint only). With no stored order this shows the recovery
+   * form, which is also what the "consultar mi compra" entry point uses.
    */
   readonly resume?: { readonly transactionId?: string | undefined } | undefined;
   readonly quantity?: number | undefined;
@@ -63,7 +72,10 @@ export type PurchaseDialog = {
 const FOCUSABLE =
   'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
 
-function toTicketEvent(state: PurchaseState, fallback: TicketCardEvent): TicketCardEvent {
+function toEventSummary(
+  state: PurchaseState,
+  fallback: PurchaseEventSummary,
+): PurchaseEventSummary {
   const event = state.event;
   if (event === null) {
     return fallback;
@@ -105,6 +117,8 @@ function field(args: {
   readonly issues: readonly { readonly field: ParticipantField; readonly message: string }[];
   readonly required?: boolean;
   readonly maxlength?: number;
+  /** Marks the input as companion data, which the dialog handles separately. */
+  readonly companion?: boolean;
 }): string {
   const messages = issuesForField(args.issues, args.field);
   const describedBy = [
@@ -122,7 +136,7 @@ function field(args: {
         class="field-input"
         id="${args.id}"
         name="${args.field}"
-        data-field="${args.field}"
+        ${args.companion === true ? `data-companion-field="${args.field}"` : `data-field="${args.field}"`}
         type="${args.type ?? "text"}"
         ${args.inputmode === undefined ? "" : `inputmode="${args.inputmode}"`}
         ${args.autocomplete === undefined ? "" : `autocomplete="${args.autocomplete}"`}
@@ -223,7 +237,7 @@ function verificationNote(state: PurchaseState): string {
 // Steps
 // ---------------------------------------------------------------------------
 
-function renderLoading(fallback: TicketCardEvent): string {
+function renderLoading(fallback: PurchaseEventSummary): string {
   return `
     <div class="purchase-state" role="status">
       <span class="purchase-state-icon">${renderIcon("loader")}</span>
@@ -319,13 +333,13 @@ function renderForm(state: PurchaseState, ctx: PurchaseDialogContext, showProble
     <section class="purchase-section" aria-labelledby="purchase-data-title">
       <h3 class="purchase-section-title" id="purchase-data-title">Tus datos</h3>
       <p class="purchase-section-note">
-        Los usamos para emitir tu entrada y verificarte en la entrada del evento.
+        Los usamos para registrar tu compra y verificarte en la entrada del evento.
       </p>
       <div class="field-grid">
         ${field({ id: "pf-first-name", field: "firstName", label: "Nombre", value: p.firstName, autocomplete: "given-name", issues: state.issues, required: true, maxlength: 80 })}
         ${field({ id: "pf-last-name", field: "lastName", label: "Apellido", value: p.lastName, autocomplete: "family-name", issues: state.issues, required: true, maxlength: 80 })}
         ${field({ id: "pf-national-id", field: "nationalId", label: "Cédula", value: p.nationalId, inputmode: "numeric", autocomplete: "off", hint: "6 a 12 dígitos", issues: state.issues, required: true, maxlength: 12 })}
-        ${field({ id: "pf-email", field: "email", label: "Correo electrónico", value: p.email, type: "email", inputmode: "email", autocomplete: "email", hint: "Aquí recibirás tu entrada", issues: state.issues, required: true, maxlength: 254 })}
+        ${field({ id: "pf-email", field: "email", label: "Correo electrónico", value: p.email, type: "email", inputmode: "email", autocomplete: "email", hint: "Lo usamos para confirmar tu compra", issues: state.issues, required: true, maxlength: 254 })}
         ${field({ id: "pf-phone", field: "phone", label: "Celular", value: p.phone, inputmode: "tel", autocomplete: "tel", issues: state.issues, required: true, maxlength: 15 })}
         ${field({ id: "pf-city", field: "city", label: "Ciudad", value: p.city, autocomplete: "address-level2", issues: state.issues, required: true, maxlength: 80 })}
         ${field({ id: "pf-instagram", field: "instagram", label: "Usuario Instagram", value: p.instagram, autocomplete: "off", placeholder: "@reset.wll", issues: state.issues, maxlength: 30 })}
@@ -377,8 +391,6 @@ function renderForm(state: PurchaseState, ctx: PurchaseDialogContext, showProble
 }
 
 function renderFormFooter(state: PurchaseState): string {
-  const isWompi = state.checkout !== null && !("provider" in state.checkout);
-  const providerLabel = isWompi ? "Wompi" : "ePayco";
   return `
     <div class="purchase-foot-inner">
       <button type="button" class="btn btn-primary btn-block btn-lg" data-action="quote" ${
@@ -387,7 +399,7 @@ function renderFormFooter(state: PurchaseState): string {
         <span>${state.busy ? "Calculando…" : "Continuar"}</span>
         ${state.busy ? renderIcon("loader") : renderIcon("arrow-right")}
       </button>
-      <p class="purchase-trust">${renderIcon("lock")}<span>Pago procesado de forma segura por ${providerLabel}</span></p>
+      <p class="purchase-trust">${renderIcon("lock")}<span>Pago procesado de forma segura por ePayco</span></p>
     </div>
   `;
 }
@@ -456,20 +468,16 @@ function renderBusy(title: string, message: string): string {
 }
 
 function renderVerifying(state: PurchaseState, ctx: PurchaseDialogContext): string {
-  const isEpayco = state.checkout !== null && "provider" in state.checkout;
-  const providerLabel = isEpayco ? "ePayco" : "Wompi";
   const checkoutNote =
     state.checkout === null
       ? ""
-      : isEpayco
-        ? `<p class="purchase-state-text">Completa tu pago seguro en la ventana de ePayco.</p>`
-        : `<p class="purchase-state-text">Cuando termines en Wompi volverás aquí automáticamente.</p>`;
+      : `<p class="purchase-state-text">Completa tu pago seguro en la ventana de ePayco.</p>`;
   return `
     <div class="purchase-state" role="status">
       <span class="purchase-state-icon">${renderIcon("hourglass")}</span>
       <h3 class="purchase-state-title">Verificando tu pago</h3>
       <p class="purchase-state-text">
-        Esto puede tardar unos segundos. Confirmamos tu compra directamente con ${providerLabel}, no con la
+        Esto puede tardar unos segundos. Confirmamos tu compra directamente con ePayco, no con la
         página de regreso.
       </p>
       ${checkoutNote}
@@ -483,15 +491,13 @@ function renderVerifying(state: PurchaseState, ctx: PurchaseDialogContext): stri
 }
 
 function renderPending(state: PurchaseState, ctx: PurchaseDialogContext): string {
-  const isEpayco = state.checkout !== null && "provider" in state.checkout;
-  const providerLabel = isEpayco ? "ePayco" : "Wompi";
   return `
     <div class="purchase-state">
       <span class="purchase-state-icon tone-warning">${renderIcon("hourglass")}</span>
       <h3 class="purchase-state-title">Tu pago sigue en proceso</h3>
       <p class="purchase-state-text">
-        Aún no tenemos confirmación de ${providerLabel}. Si ya pagaste, la confirmación llega en unos
-        minutos y te enviaremos la entrada por correo. Puedes consultar de nuevo cuando quieras.
+        Aún no tenemos confirmación de ePayco. Si ya pagaste, la confirmación llega en unos
+        minutos y podrás verla aquí. Puedes consultar de nuevo cuando quieras.
       </p>
       ${
         state.reference === null
@@ -515,26 +521,82 @@ function renderPendingFooter(): string {
   `;
 }
 
-/** Maps the honest email status onto the note colours. */
-function emailTone(kind: string): string {
-  if (kind === "sent") return "positive";
-  if (kind === "failed") return "negative";
-  return "neutral";
+function renderCompanionForm(state: PurchaseState): string {
+  if (state.companionStatus === "saved") {
+    return `<p class="inline-note tone-positive">${renderIcon("check")}<span>Acompañante registrado: ${escapeHtml(state.companionName ?? "")}.</span></p>`;
+  }
+  if (state.companionStatus === "unavailable") {
+    return `<p class="inline-note tone-warning">${renderIcon("alert")}<span>${escapeHtml(state.companionError ?? "Esta compra no tiene más participantes por registrar.")}</span></p>`;
+  }
+  const p = state.companion;
+  const isBundle = state.bundleCode === "DOUBLE_EXPERIENCE";
+  return `
+    <section class="purchase-section" aria-labelledby="companion-title">
+      <h3 class="purchase-section-title" id="companion-title">${isBundle ? "Registra a tu acompañante" : "Registra la segunda persona"}</h3>
+      <p class="purchase-section-note">
+        Tu compra incluye dos entradas y la primera está a tu nombre. Completa los datos de la segunda persona.
+      </p>
+      <div class="field-grid">
+        ${field({ id: "pf-companion-first-name", field: "firstName", label: "Nombre", value: p.firstName, autocomplete: "off", issues: state.companionIssues, required: true, maxlength: 80, companion: true })}
+        ${field({ id: "pf-companion-last-name", field: "lastName", label: "Apellido", value: p.lastName, autocomplete: "off", issues: state.companionIssues, required: true, maxlength: 80, companion: true })}
+        ${field({ id: "pf-companion-national-id", field: "nationalId", label: "Cédula", value: p.nationalId, inputmode: "numeric", autocomplete: "off", hint: "6 a 12 dígitos", issues: state.companionIssues, required: true, maxlength: 12, companion: true })}
+        ${field({ id: "pf-companion-email", field: "email", label: "Correo electrónico", value: p.email, type: "email", inputmode: "email", autocomplete: "off", issues: state.companionIssues, required: true, maxlength: 254, companion: true })}
+        ${field({ id: "pf-companion-phone", field: "phone", label: "Celular", value: p.phone, inputmode: "tel", autocomplete: "off", issues: state.companionIssues, required: true, maxlength: 15, companion: true })}
+        ${field({ id: "pf-companion-city", field: "city", label: "Ciudad", value: p.city, autocomplete: "off", issues: state.companionIssues, required: true, maxlength: 80, companion: true })}
+        ${field({ id: "pf-companion-instagram", field: "instagram", label: "Usuario Instagram", value: p.instagram, autocomplete: "off", placeholder: "@reset.wll", issues: state.companionIssues, maxlength: 30, companion: true })}
+      </div>
+
+      <div class="consent-list">
+        <div class="consent-row">
+          <input type="checkbox" id="pf-companion-consent-data" data-companion-field="dataProcessing" ${
+            p.dataProcessing ? "checked" : ""
+          } />
+          <span class="consent-text">
+            <label for="pf-companion-consent-data">La persona autoriza el tratamiento de sus datos personales para esta compra. <em>(Obligatorio)</em></label>
+          </span>
+        </div>
+        ${
+          issuesForField(state.companionIssues, "dataProcessing").length === 0
+            ? ""
+            : `<p class="field-error" id="pf-companion-consent-data-error">${renderIcon("alert")}<span>${escapeHtml(issuesForField(state.companionIssues, "dataProcessing").join(" "))}</span></p>`
+        }
+      </div>
+
+      ${
+        state.companionStatus === "error" && state.companionError !== null
+          ? `<p class="inline-note tone-negative">${renderIcon("alert")}<span>${escapeHtml(state.companionError)}</span></p>`
+          : ""
+      }
+
+      <button type="button" class="btn btn-primary btn-block" data-action="attach-companion" ${
+        state.companionStatus === "submitting" ? "disabled" : ""
+      }>
+        <span>${state.companionStatus === "submitting" ? "Guardando…" : "Guardar acompañante"}</span>
+        ${state.companionStatus === "submitting" ? renderIcon("loader") : renderIcon("arrow-right")}
+      </button>
+    </section>
+  `;
 }
 
 function renderConfirmed(state: PurchaseState, ctx: PurchaseDialogContext): string {
-  const status: OrderStatus | null = state.status;
-  const tickets = status?.tickets ?? [];
-  const event = toTicketEvent(state, ctx.fallbackEvent);
-  const email = describeEmailStatus(status?.confirmation ?? null, status?.quantity ?? 0);
+  const status = state.status;
+  const event = toEventSummary(state, ctx.fallbackEvent);
+  const quantity = status?.quantity ?? state.quantity;
+  const total = status?.totalInCents ?? 0;
+  const remaining = state.remainingAdmissions ?? Math.max(quantity - 1, 0);
+  const showCompanion =
+    quantity > 1 &&
+    (remaining > 0 ||
+      state.companionStatus === "saved" ||
+      state.companionStatus === "unavailable" ||
+      state.companionStatus === "submitting");
+  const holder = `${state.participant.firstName} ${state.participant.lastName}`.trim();
   return `
     <div class="purchase-state tone-positive">
       <span class="purchase-state-icon tone-positive">${renderIcon("check")}</span>
-      <h3 class="purchase-state-title">¡Tu pago fue confirmado!</h3>
+      <h3 class="purchase-state-title">¡Gracias por tu compra!</h3>
       <p class="purchase-state-text">${escapeHtml(event.eventName)} · ${escapeHtml(event.dateLabel)}</p>
     </div>
-
-    <p class="inline-note tone-${emailTone(email.kind)}">${renderIcon(email.kind === "failed" ? "alert" : "mail")}<span>${escapeHtml(email.message)}</span></p>
 
     ${
       status === null
@@ -542,29 +604,21 @@ function renderConfirmed(state: PurchaseState, ctx: PurchaseDialogContext): stri
         : `<p class="purchase-reference">Referencia de tu compra: <strong>${escapeHtml(status.reference)}</strong></p>`
     }
 
-    <div class="ticket-stack">
-      ${tickets
-        .map((ticket) =>
-          renderTicketCard(
-            event,
-            {
-              token: ticket.token,
-              unit: ticket.unit,
-              quantity: status?.quantity ?? tickets.length,
-              status: ticket.status,
-              assigned: ticket.assigned,
-              participantName: ticket.participantName,
-            },
-            { labelledById: `ticket-${ticket.unit}-label` },
-          ),
-        )
-        .join("")}
-    </div>
+    <section class="purchase-section">
+      <h3 class="purchase-section-title">Tu compra</h3>
+      <div class="review-lines">
+        ${holder.length === 0 ? "" : `<div class="review-line"><span>Titular</span><strong>${escapeHtml(holder)}</strong></div>`}
+        <div class="review-line"><span>Entradas</span><strong>${quantity}</strong></div>
+        <div class="review-line"><span>Total</span><strong>${escapeHtml(formatCopCents(total))}</strong></div>
+      </div>
+    </section>
+
+    ${showCompanion ? renderCompanionForm(state) : ""}
 
     <section class="purchase-section purchase-instructions">
       <h3 class="purchase-section-title">Para el día del evento</h3>
       <ul>
-        <li>Presenta el código QR de cada entrada desde tu teléfono o impreso.</li>
+        <li>Tu compra quedó registrada a nombre del titular y sus acompañantes.</li>
         <li>Lleva tu documento de identidad original.</li>
         <li>Llega 20 minutos antes; el registro abre a las 2:30 p. m.</li>
       </ul>
@@ -716,7 +770,7 @@ export function renderPurchaseStep(
       };
     case "confirmed":
       return {
-        title: "Tu entrada está lista",
+        title: "Tu compra está confirmada",
         body: renderConfirmed(state, ctx),
         foot: renderConfirmedFooter(),
         closable: true,
@@ -830,8 +884,7 @@ export function mountPurchaseDialog(options: {
     const isEditingForm =
       isHandlingInput &&
       isOpen &&
-      state.step === "form" &&
-      lastStep === "form" &&
+      state.step === lastStep &&
       document.activeElement instanceof HTMLInputElement &&
       bodyEl?.contains(document.activeElement) === true;
 
@@ -842,9 +895,10 @@ export function mountPurchaseDialog(options: {
       // is not supported) and disrupts mobile keyboards/IME.
       const activeInput = document.activeElement as HTMLInputElement;
       const fieldName = activeInput.dataset.field as ParticipantField | undefined;
-      if (fieldName !== undefined) {
+      const companionField = activeInput.dataset.companionField as ParticipantField | undefined;
+      if (fieldName !== undefined || companionField !== undefined) {
         const fieldEl = activeInput.closest(".field") ?? activeInput.closest(".consent-list");
-        if (fieldEl !== null && !state.issues.some((i) => i.field === fieldName)) {
+        if (fieldEl !== null) {
           fieldEl.classList.remove("has-error");
           activeInput.removeAttribute("aria-invalid");
           fieldEl.querySelector(".field-error")?.remove();
@@ -871,7 +925,7 @@ export function mountPurchaseDialog(options: {
       titleEl?.focus();
       return;
     }
-    if (state.issues.length > 0 && bodyEl !== null) {
+    if ((state.issues.length > 0 || state.companionIssues.length > 0) && bodyEl !== null) {
       const firstInvalid = bodyEl.querySelector<HTMLElement>(
         ".has-error .field-input, .consent-row input[aria-invalid='true'], .has-error input",
       );
@@ -890,7 +944,7 @@ export function mountPurchaseDialog(options: {
       case "verifying":
         return "Estamos verificando tu pago.";
       case "confirmed":
-        return "Tu pago fue confirmado.";
+        return "Tu pago fue confirmado y tu compra quedó registrada.";
       case "problem":
         return state.problem?.message ?? "Ocurrió un problema.";
       default:
@@ -1040,6 +1094,9 @@ export function mountPurchaseDialog(options: {
       case "retry-payment":
         void controller.retryPayment();
         break;
+      case "attach-companion":
+        void controller.submitCompanion();
+        break;
       case "recover": {
         const reference = overlay.querySelector<HTMLInputElement>("[data-recover='reference']");
         const email = overlay.querySelector<HTMLInputElement>("[data-recover='email']");
@@ -1061,6 +1118,19 @@ export function mountPurchaseDialog(options: {
       isHandlingInput = true;
       try {
         controller.setField(fieldName, target.type === "checkbox" ? target.checked : target.value);
+      } finally {
+        isHandlingInput = false;
+      }
+      return;
+    }
+    const companionField = target.dataset.companionField as ParticipantField | undefined;
+    if (companionField !== undefined) {
+      isHandlingInput = true;
+      try {
+        controller.setCompanionField(
+          companionField,
+          target.type === "checkbox" ? target.checked : target.value,
+        );
       } finally {
         isHandlingInput = false;
       }

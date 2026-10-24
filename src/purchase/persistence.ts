@@ -13,15 +13,15 @@
  *      a refresh, or reopening the URL can find the authoritative state again. That is the
  *      correlation the confirmation screen needs; it is NOT proof of payment. The entry is
  *      kept after a confirmed payment on purpose: reopening the return URL or refreshing the
- *      page then shows the same ticket again (re-read from the backend) instead of an empty
- *      form. A later purchase simply overwrites it.
+ *      page then shows the same paid order again (re-read from the backend) instead of an
+ *      empty form. A later purchase simply overwrites it.
  *
  *   3. Remember the in-progress form values, so a validation or network failure (and even a
  *      reload) does not force the buyer to retype everything. Consent checkboxes are
  *      deliberately NOT restored checked.
  *
  * `sessionStorage` is used (not `localStorage`): the correlation belongs to this browsing
- * session, and it survives a refresh or a navigation to Wompi and back.
+ * session, and it survives a refresh or a navigation to ePayco and back.
  */
 
 import type { ParticipantFormValues } from "./validation.ts";

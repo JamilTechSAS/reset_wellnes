@@ -5,7 +5,7 @@
  * here — money comes from the backend in centavos and is only formatted, never recalculated.
  */
 
-import type { AvailabilityLabel, OrderConfirmationStatus } from "../api/types.ts";
+import type { AvailabilityLabel } from "../api/types.ts";
 
 // ---------------------------------------------------------------------------
 // Money (integer centavos, COP)
@@ -99,68 +99,6 @@ export function availabilityLabel(availability: AvailabilityLabel): string {
 
 export function availabilityIsPurchasable(availability: AvailabilityLabel): boolean {
   return availability === "AVAILABLE" || availability === "LOW";
-}
-
-// ---------------------------------------------------------------------------
-// Email outbox status (never claimed unless the backend says so)
-// ---------------------------------------------------------------------------
-
-export type EmailStatusKind = "sent" | "sending" | "retrying" | "failed" | "unknown";
-
-export type EmailStatus = {
-  readonly kind: EmailStatusKind;
-  readonly message: string;
-};
-
-/**
- * Turns the backend `confirmation` counters into one honest sentence.
- *
- * `sent` counts deliveries the provider accepted. We only say "enviada" when every expected
- * delivery is in that state; while some are still queued we say it is on its way, and we
- * never claim an email arrived when the backend has not reported it as sent.
- */
-export function describeEmailStatus(
-  confirmation: OrderConfirmationStatus | null,
-  expectedCount: number,
-): EmailStatus {
-  // No outbox row to report (email disabled, or nothing scheduled yet): say nothing about the
-  // email rather than implying one is on its way.
-  const unknown: EmailStatus = {
-    kind: "unknown",
-    message: "Tu entrada quedó registrada. Guárdala desde esta pantalla.",
-  };
-  if (confirmation === null) {
-    return unknown;
-  }
-  const { queued, sent, failed } = confirmation;
-  const expected = Math.max(expectedCount, sent + queued + failed);
-
-  if (expected > 0 && sent >= expected) {
-    return {
-      kind: "sent",
-      message: "Enviamos tu entrada a tu correo electrónico.",
-    };
-  }
-  if (sent > 0) {
-    return {
-      kind: "sending",
-      message: `Ya enviamos ${sent} de ${expected}. El resto está en camino.`,
-    };
-  }
-  if (queued > 0) {
-    return {
-      kind: "sending",
-      message: "Estamos enviando una copia a tu correo electrónico.",
-    };
-  }
-  if (failed > 0) {
-    return {
-      kind: "failed",
-      message:
-        "No pudimos enviar el correo todavía. Tu entrada es válida y puedes guardarla desde esta pantalla.",
-    };
-  }
-  return unknown;
 }
 
 // ---------------------------------------------------------------------------

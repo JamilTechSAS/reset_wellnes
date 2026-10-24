@@ -9,6 +9,7 @@
 
 import { vi, type Mock } from "vitest";
 import type {
+  AttachedParticipant,
   CreatedOrder,
   EpaycoCheckout,
   OrderStatus,
@@ -24,12 +25,6 @@ import type { CreateOrderInput, TicketingApi } from "../../../src/api/ticketing.
 export const TEST_EVENT_CODE = "RESET-SUNSET-2026";
 export const TEST_TICKET_TYPE_CODE = "GENERAL";
 export const TEST_BUYER_EMAIL = "ana@example.com";
-/** A shape-valid ticket token (`TKT_` + 20 Crockford base32 characters). */
-export const TEST_TICKET_TOKEN = "TKT_6Q0F7Y8Z1A2B3C4D5E6F";
-
-export function makeTicketToken(suffix: string): string {
-  return `TKT_${suffix.toUpperCase().padEnd(20, "Z").slice(0, 20)}`;
-}
 
 export function makeEvent(overrides: Partial<PublicEvent["event"]> = {}): PublicEvent {
   return {
@@ -156,7 +151,8 @@ export function makeCreatedOrder(overrides: Partial<CreatedOrder> = {}): Created
     currency: "COP",
     reservationExpiresAt: "2026-10-05T20:15:00.000Z",
     paymentAttempt: 1,
-    checkout: makeCheckout(),
+    // ePayco is the only provider the site sells with, so it is the fixture default too.
+    checkout: makeEpaycoCheckout(),
     ...overrides,
   };
 }
@@ -173,8 +169,6 @@ export function makeOrderStatus(overrides: Partial<OrderStatus> = {}): OrderStat
     reservationExpiresAt: "2026-10-05T20:15:00.000Z",
     payment: null,
     paymentAttempts: [],
-    tickets: [],
-    confirmation: null,
     ...overrides,
   };
 }
@@ -190,19 +184,30 @@ export function makePaidOrderStatus(overrides: Partial<OrderStatus> = {}): Order
       statusMessage: null,
       approvedAt: "2026-10-05T19:05:00.000Z",
     },
-    tickets: [
-      {
-        token: TEST_TICKET_TOKEN,
-        unit: 1,
-        status: "ACTIVE",
-        assigned: true,
-        pricePaidCents: 16_000_000,
-        participantName: "Ana Pérez",
-      },
-    ],
-    confirmation: { queued: 1, sent: 0, failed: 0, ready: false },
     ...overrides,
   });
+}
+
+export function makeAttachedParticipant(
+  overrides: Partial<AttachedParticipant> = {},
+): AttachedParticipant {
+  return {
+    orderReference: "EVT-2026-000001",
+    unit: 2,
+    participant: {
+      participantId: "44444444-4444-4444-8444-444444444444",
+      firstName: "Beto",
+      lastName: "Gómez",
+    },
+    consents: {
+      dataProcessing: true,
+      futureEvents: false,
+      policyVersion: "v1",
+      capturedAt: "2026-10-05T19:06:00.000Z",
+    },
+    remainingUnassigned: 0,
+    ...overrides,
+  };
 }
 
 export function makeRetriedPayment(overrides: Partial<RetriedPayment> = {}): RetriedPayment {
@@ -213,7 +218,7 @@ export function makeRetriedPayment(overrides: Partial<RetriedPayment> = {}): Ret
     totalInCents: 16_000_000,
     currency: "COP",
     reservationExpiresAt: "2026-10-05T20:20:00.000Z",
-    checkout: makeCheckout({ reference: "EVT-2026-000001-2" }),
+    checkout: makeEpaycoCheckout({ reference: "EVT-2026-000001-2" }),
     ...overrides,
   };
 }
@@ -270,6 +275,15 @@ export function createFakeApi(): FakeTicketingApi {
           signal?: AbortSignal,
         ) => Promise<PaymentHint>
       >(),
+    attachParticipant:
+      vi.fn<
+        (
+          reference: string,
+          buyerEmail: string,
+          participant: Parameters<TicketingApi["attachParticipant"]>[2],
+          signal?: AbortSignal,
+        ) => Promise<AttachedParticipant>
+      >(),
   };
 
   api.getEvent.mockResolvedValue(makeEvent());
@@ -283,6 +297,7 @@ export function createFakeApi(): FakeTicketingApi {
   api.getOrderStatus.mockResolvedValue(makeOrderStatus());
   api.retryPayment.mockResolvedValue(makeRetriedPayment());
   api.sendPaymentHint.mockResolvedValue(makePaymentHint());
+  api.attachParticipant.mockResolvedValue(makeAttachedParticipant());
 
   return api;
 }

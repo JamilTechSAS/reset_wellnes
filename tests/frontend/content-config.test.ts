@@ -190,11 +190,17 @@ describe("EVENT_CONTENT_CONFIG", () => {
     expect(includes?.answer).toBe(
       "Todas las experiencias del día, activaciones de marcas, kit de bienvenida y espacios para compartir y conectar.",
     );
+    // Only the payment methods are still waiting on the organiser's confirmation.
     const pending = faq.items.filter((item) => item.isPending === true);
-    expect(pending.length).toBeGreaterThanOrEqual(2);
-    expect(pending.map((item) => item.id)).toEqual(
-      expect.arrayContaining(["faq-entrega", "faq-pagos"]),
-    );
+    expect(pending.map((item) => item.id)).toEqual(["faq-pagos"]);
+
+    // Entry is no longer a digital ticket: the purchase is registered against the holder and
+    // the day of the event only requires an identity document.
+    const delivery = faq.items.find((item) => item.id === "faq-entrega");
+    expect(delivery?.isPending).toBeUndefined();
+    expect(delivery?.answer).toContain("documento de identidad");
+    expect(delivery?.answer).not.toMatch(/env[ií]a al correo/i);
+    expect(delivery?.answer).not.toMatch(/se genera tu entrada/i);
   });
 
   it("gives the buyer the client's real contact channels", () => {
@@ -219,6 +225,7 @@ describe("EVENT_CONTENT_CONFIG", () => {
     const { finalCta } = EVENT_CONTENT_CONFIG;
     expect(finalCta.buttonText).toBe("COMPRAR MI ENTRADA");
     expect(finalCta.trustBadges.length).toBeGreaterThanOrEqual(2);
+    expect(finalCta.trustBadges.join(" ")).not.toMatch(/QR|entrada digital/i);
     expect(finalCta.ticketOptionsTitle).toBeTruthy();
     expect(finalCta.ticketOptionsCaption).toContain("COP");
 
