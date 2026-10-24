@@ -246,20 +246,57 @@ p {
   animation: rise 1.1s var(--ease) 0.5s forwards;
 }
 .hero-cta {
-  display: inline-block;
-  padding-bottom: 0.55rem;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.75rem;
+  text-decoration: none;
+  color: var(--beige);
+  opacity: 0;
+  animation: rise 1s var(--ease) 0.75s forwards;
+}
+/* Supporting line: quieter, invites the action below. */
+.hero-cta-lead {
   font-size: var(--t-cta);
   letter-spacing: 0.22em;
   text-transform: uppercase;
-  text-decoration: none;
-  color: var(--beige);
-  border-bottom: 1.5px solid currentColor;
-  opacity: 0;
-  animation: rise 1s var(--ease) 0.75s forwards;
-  transition: letter-spacing 0.4s var(--ease);
+  color: color-mix(in srgb, var(--beige) 82%, transparent);
 }
-.hero-cta:hover {
-  letter-spacing: 0.28em;
+/* The action: the clear, differentiated button. */
+.hero-cta-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.85rem 1.75rem;
+  background: var(--beige);
+  color: var(--cafe);
+  font-size: var(--t-cta);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  transition:
+    transform 0.3s var(--ease),
+    background 0.3s var(--ease),
+    color 0.3s var(--ease);
+}
+.hero-cta-action::after {
+  content: "→";
+  font-size: 1.1em;
+  line-height: 1;
+}
+.hero-cta:hover .hero-cta-action,
+.hero-cta:focus-visible .hero-cta-action {
+  transform: translateY(-2px);
+  background: var(--bay);
+  color: var(--cafe);
+}
+@media (max-width: 760px) {
+  .hero-cta {
+    align-items: stretch;
+  }
+  .hero-cta-action {
+    justify-content: center;
+  }
 }
 .hero-frase span {
   display: block;
@@ -2160,5 +2197,117 @@ p {
   }
   .aliados-logos img.logo-iveth {
     width: 120px;
+  }
+}
+
+/* ================= GRACIAS (pago confirmado) ================= */
+.gracias {
+  min-height: 100svh;
+  background: var(--beige);
+  color: var(--cafe);
+  padding: clamp(7.5rem, 10vw, 8.5rem) clamp(1.25rem, 6vw, 6.5rem) clamp(4rem, 7vw, 6rem);
+  display: flex;
+  align-items: center;
+}
+.gracias-grid {
+  width: 100%;
+  max-width: 1240px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 520px) 1fr;
+  gap: 3rem clamp(3rem, 8vw, 6rem);
+  align-items: center;
+}
+.gracias-media {
+  position: relative;
+  aspect-ratio: 5 / 6;
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow: 0 30px 60px -30px rgba(81, 50, 41, 0.45);
+}
+.gracias-media img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 40%;
+}
+.gracias-etiqueta {
+  margin: 0 0 1.5rem;
+  font-size: var(--t-etiqueta);
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--cafe) 70%, var(--beige));
+}
+.gracias-titulo {
+  margin: 0 0 2rem;
+  font-family: var(--f-body);
+  font-weight: 400;
+  font-size: var(--t-titulo-seccion);
+  line-height: 1.12;
+  letter-spacing: -0.01em;
+}
+.gracias-titulo span {
+  display: block;
+}
+.gracias-texto > p {
+  margin: 0 0 1.25rem;
+  max-width: 34em;
+  font-size: var(--t-texto-grande);
+  line-height: 1.6;
+  color: color-mix(in srgb, var(--cafe) 85%, var(--beige));
+}
+.gracias-texto > p.gracias-qr {
+  color: var(--cafe);
+  font-weight: 700;
+}
+.gracias-texto > p.gracias-datos {
+  margin: 2rem 0 2.25rem;
+  font-size: 0.8125rem;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--cafe) 70%, var(--beige));
+}
+.gracias-datos span {
+  margin: 0 0.5em;
+}
+.gracias-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 3.25rem;
+  padding: 0 2.25rem;
+  border: 1.5px solid var(--cafe);
+  color: var(--cafe);
+  text-decoration: none;
+  font-size: 0.8125rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  transition:
+    background 0.3s var(--ease),
+    color 0.3s var(--ease);
+}
+.gracias-btn:hover {
+  background: var(--cafe);
+  color: var(--beige);
+}
+@media (max-width: 860px) {
+  .gracias {
+    align-items: flex-start;
+  }
+  .gracias-grid {
+    grid-template-columns: 1fr;
+    gap: 2.5rem;
+  }
+  .gracias-media {
+    width: 100%;
+    aspect-ratio: 4 / 3;
+  }
+  .gracias-media img {
+    object-position: 50% 45%;
+  }
+  .gracias-btn {
+    width: 100%;
   }
 }
