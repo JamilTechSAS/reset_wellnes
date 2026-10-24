@@ -711,6 +711,13 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
     // Skip #comprar since it has its own terms-checking handler above
     if (btn.id === "comprar") return;
 
+    // A CTA that is a link to a real page (e.g. the homepage hero → entradas.html) should just
+    // navigate there, not open the purchase dialog. Only button CTAs open the dialog in place.
+    const href = btn.getAttribute("href");
+    if (btn.tagName === "A" && href !== null && href.length > 0 && !href.startsWith("#")) {
+      return;
+    }
+
     const source = btn.getAttribute("data-buy-source") ?? "cta";
     const handleCtaClick = (event: MouseEvent): void => {
       event.preventDefault();
