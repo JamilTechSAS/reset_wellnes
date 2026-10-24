@@ -70,20 +70,8 @@ type StatusResult = {
   paidAt?: string | null;
   payment?: { attempt: number; status: string; approvedAt: string | null } | null;
   paymentAttempts?: { attempt: number; status: string; wompiReference: string }[];
-  tickets?: {
-    token: string;
-    unit: number;
-    status: string;
-    assigned: boolean;
-    pricePaidCents: number;
-    participant?: {
-      firstName: string | null;
-      lastName: string | null;
-      city: string | null;
-      instagram: string | null;
-    } | null;
-  }[];
-  confirmation?: { queued: number; sent: number; failed: number; ready: boolean } | null;
+  admissions?: { quantity: number; assigned: number; remainingUnassigned: number };
+  participants?: { unit: number; firstName: string; lastName: string }[];
 };
 
 let db: PGlite;
@@ -675,30 +663,65 @@ describe("get_order_status projection", () => {
     expect((await status("EVT-2026-000999")).found).toBe(false);
   });
 
-  it("returns the safe subset while pending and marks the order paid without tickets", async () => {
+  it("returns the safe subset while pending and reports admissions once paid", async () => {
     const order = await createOrder(2);
     const pending = await status(order.reference);
     expect(pending.found).toBe(true);
     expect(pending.status).toBe("PENDING");
     expect(pending.quantity).toBe(2);
-    expect(pending.tickets).toEqual([]);
+    // The buyer's own participant already consumes one admission; the second is free but
+    // cannot be attached until the order is PAID. The roster itself is hidden while pending.
+    expect(pending.admissions).toEqual({ quantity: 2, assigned: 1, remainingUnassigned: 1 });
+    expect(pending.participants).toEqual([]);
+    expect("tickets" in pending).toBe(false);
+    expect("confirmation" in pending).toBe(false);
 
     await confirm({ order, status: "APPROVED", transactionId: "tx-projection-1" });
     const paid = await status(order.reference);
 
     expect(paid.status).toBe("PAID");
-    // Tickets are discontinued: the paid projection carries no ticket rows. The buyer sees
-    // the branded thank-you screen once the order is PAID.
-    expect(paid.tickets).toEqual([]);
-    expect(paid.confirmation?.ready).toBe(false); // no email queued yet for this order
+    expect(paid.admissions).toEqual({ quantity: 2, assigned: 1, remainingUnassigned: 1 });
+    // Names only: no cédula, email, phone, city or participant id in the roster.
+    expect(paid.participants).toEqual([{ unit: 1, firstName: "Ana", lastName: "Pérez" }]);
     expect(paid.paidAt).not.toBeNull();
 
-    // No PII beyond what the buyer supplied is exposed anywhere in the payload.
+    // No PII beyond the names the buyer supplied is exposed anywhere in the payload.
     const serialized = JSON.stringify(paid);
     expect(serialized).not.toContain("1020456789");
     expect(serialized).not.toContain("3001234567");
     expect(serialized).not.toContain("@example.com");
     expect(serialized).not.toContain("181.10.20.30");
+    expect(serialized).not.toContain("Bogotá");
+  });
+
+  it("moves an admission from free to assigned when the companion is attached", async () => {
+    const order = await createOrder(2);
+    await confirm({ order, status: "APPROVED", transactionId: "tx-projection-attach" });
+
+    const companion = JSON.stringify({
+      firstName: "Beto",
+      lastName: "Gómez",
+      nationalId: "987654321",
+      email: "beto@example.com",
+      phone: "3001112233",
+      city: "Cali",
+      consents: { dataProcessing: true, futureEvents: false },
+    });
+    const attached = await db.query<{ a: { unit: number; remainingUnassigned: number } }>(
+      `select public.attach_participant($1, $2, $3::jsonb) as a`,
+      [order.reference, "buyer@example.com", companion],
+    );
+    expect(attached.rows[0]?.a.unit).toBe(2);
+    expect(attached.rows[0]?.a.remainingUnassigned).toBe(0);
+
+    const paid = await status(order.reference);
+    expect(paid.admissions).toEqual({ quantity: 2, assigned: 2, remainingUnassigned: 0 });
+    expect(paid.participants).toEqual([
+      { unit: 1, firstName: "Ana", lastName: "Pérez" },
+      { unit: 2, firstName: "Beto", lastName: "Gómez" },
+    ]);
+    expect(JSON.stringify(paid)).not.toContain("987654321");
+    expect(JSON.stringify(paid)).not.toContain("beto@example.com");
   });
 });
 

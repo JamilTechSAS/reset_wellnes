@@ -1,8 +1,8 @@
 /**
  * Buyer-facing order endpoints.
  *
- *   GET  /orders/{reference}         current state, tickets once paid, confirmation status
- *   POST /orders/{reference}/retry   a new payment attempt with a fresh Wompi reference
+ *   GET  /orders/{reference}         current state, admission roster once paid
+ *   POST /orders/{reference}/retry   a new payment attempt with a fresh provider reference
  *
  * ACCESS MODEL (the question the brief asks explicitly: is the order reference unguessable?)
  *
@@ -16,8 +16,10 @@
  *      the SAME 404, so the endpoint cannot be used to discover which references exist.
  *
  *   The buyer email is compared after normalization (trim + lowercase) and only for the
- *   order that owns the reference. Ticket tokens are returned ONLY for a paid order, and
- *   the retry endpoint returns a checkout payload only after the retry was accepted.
+ *   order that owns the reference. The admission roster (names only) is returned ONLY for
+ *   a paid order, and the retry endpoint returns a checkout payload only after the retry
+ *   was accepted. Ticket generation is discontinued, so no ticket token, QR or per-ticket
+ *   email status exists in this projection.
  */
 
 import { notFoundError, toAppError, validationError } from "../domain/errors.ts";
@@ -71,27 +73,46 @@ export type OrderStatusResponse = {
     readonly createdAt: string;
     readonly finalizedAt: string | null;
   }[];
-  readonly tickets: readonly {
-    readonly token: string;
+  /**
+   * The order's admissions: how many were bought, how many already have a person and how
+   * many are still free. The frontend uses this to decide whether the companion form is
+   * still needed after a refresh.
+   */
+  readonly admissions: {
+    readonly quantity: number;
+    readonly assigned: number;
+    readonly remainingUnassigned: number;
+  };
+  /**
+   * Assigned people of a PAID order, in attachment order (unit 1 is the buyer). Names
+   * only: cédula, email, phone, city and participant id never leave the database.
+   */
+  readonly participants: readonly {
     readonly unit: number;
-    readonly status: string;
-    readonly assigned: boolean;
-    readonly pricePaidCents: number;
-    readonly participantName: string | null;
+    readonly firstName: string;
+    readonly lastName: string;
   }[];
-  readonly confirmation: {
-    readonly queued: number;
-    readonly sent: number;
-    readonly failed: number;
-    readonly ready: boolean;
-  } | null;
 };
 
 function toResponse(status: OrderStatus): OrderStatusResponse {
+  const quantity = status.quantity ?? 0;
+  const participants = (status.participants ?? []).map((participant) => ({
+    unit: participant.unit,
+    firstName: participant.firstName,
+    lastName: participant.lastName,
+  }));
+  // The SQL projection always carries the counts; the fallback only keeps this mapper
+  // total for a gateway double (or an older database) that predates the field.
+  const admissions = status.admissions ?? {
+    quantity,
+    assigned: participants.length,
+    remainingUnassigned: Math.max(quantity - participants.length, 0),
+  };
+
   return {
     reference: status.reference ?? "",
     status: status.status ?? "PENDING",
-    quantity: status.quantity ?? 0,
+    quantity,
     totalInCents: status.totalInCents ?? 0,
     currency: status.currency ?? "COP",
     createdAt: status.createdAt ?? null,
@@ -106,21 +127,8 @@ function toResponse(status: OrderStatus): OrderStatusResponse {
       createdAt: attempt.createdAt,
       finalizedAt: attempt.finalizedAt,
     })),
-    // The buyer's own tickets. `assigned` tells the future frontend whether an attendee
-    // has been attached to a unit yet; the participant's name is included because the
-    // buyer supplied it, and only for the order they just proved they own.
-    tickets: (status.tickets ?? []).map((ticket) => ({
-      token: ticket.token,
-      unit: ticket.unit,
-      status: ticket.status,
-      assigned: ticket.assigned,
-      pricePaidCents: ticket.pricePaidCents,
-      participantName:
-        ticket.participant === null
-          ? null
-          : `${ticket.participant.firstName} ${ticket.participant.lastName}`.trim(),
-    })),
-    confirmation: status.confirmation ?? null,
+    admissions,
+    participants,
   };
 }
 
@@ -160,7 +168,7 @@ export async function handleOrderStatus(options: {
   options.logger.info("order status read", {
     reference,
     status: status.status ?? "unknown",
-    ticketCount: status.tickets?.length ?? 0,
+    assignedAdmissions: status.admissions?.assigned ?? 0,
   });
 
   return toResponse(status);

@@ -1,10 +1,15 @@
 # Data model
 
-**Status: implemented (Phases 2–4).** The schema is created by thirteen migrations and verified
-by test suites including real-PostgreSQL concurrency runs; there is no "target schema" below —
-every table described here exists. See [phases/phase-02.md](phases/phase-02.md),
-[phases/phase-03.md](phases/phase-03.md) and [phases/phase-04.md](phases/phase-04.md) for the
-verification logs and known limitations.
+**Status: implemented and verified** by test suites including real-PostgreSQL concurrency runs;
+there is no "target schema" below — every table described here exists. See
+[phases/phase-02.md](phases/phase-02.md), [phases/phase-03.md](phases/phase-03.md) and
+[phases/phase-04.md](phases/phase-04.md) for the historical verification logs.
+
+**Tickets are discontinued.** A PAID order's admissions are its `participants` rows, derived from
+`order_items.quantity`; `get_order_status` projects `admissions` and a names-only roster, and
+`attach_participant` fills the next free admission without reading `tickets`. The ticket,
+attendance and per-ticket email tables are retained only for historical data (and the legacy
+check-in path), so the ticket sections below describe storage, not current purchase behaviour.
 
 | Migration                                    | Contents                                                                                                                                                       |
 | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |

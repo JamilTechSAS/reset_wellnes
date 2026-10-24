@@ -1,12 +1,17 @@
 # Architecture
 
-Status: Phase 6B (Spanish buyer frontend over the frozen backend). The backend is frozen: the
-PostgreSQL schema, the order path, the payment-confirmation pipeline, check-in, the operational
-export and the public event endpoints are implemented and tested, and the Phase 6A/6B frontend
-is a thin client over them that never reaches the database directly. See
-[phases/phase-01.md](phases/phase-01.md) through [phases/phase-05.md](phases/phase-05.md), plus
-[phases/phase-06a.md](phases/phase-06a.md) and [phases/phase-06b.md](phases/phase-06b.md), for the
-verification logs, and [frontend.md](frontend.md) for the buyer journey.
+Status: ePayco-only, no-ticket purchase flow. The PostgreSQL schema, the order path, the
+payment-confirmation pipeline, participant assignment, check-in, the operational export and the
+public event endpoints are implemented and tested, and the frontend is a thin client over them
+that never reaches the database directly.
+
+**Read the Wompi and ticket sections below as legacy.** The active flow opens an ePayco Smart
+Checkout session and confirms it through `POST /webhooks-epayco`; a PAID order is the
+confirmation, and its participants are the admissions. Tickets, QR codes and ticket emails are no
+longer produced, and the legacy tables/endpoints remain only for historical data. The current
+buyer journey is documented in [frontend.md](frontend.md); endpoint contracts are in
+[api.md](api.md). See [phases/phase-01.md](phases/phase-01.md) through
+[phases/phase-05.md](phases/phase-05.md) for the historical verification logs.
 
 ## 1. System overview
 
@@ -15,10 +20,10 @@ verification logs, and [frontend.md](frontend.md) for the buyer journey.
 Buyer ──────────► Vercel frontend ──────►│ Supabase Edge Functions  │
                   (Spanish site)         │  (Deno, TypeScript)      │
                                          │                          │
-Wompi ──webhook──► /webhooks/wompi ─────►│  ├── portable core       │
+ePayco ─webhook──► /webhooks-epayco ────►│  ├── portable core       │
                                          │  │   (_shared)           │
 Operator ────────► private check-in ────►│  └── adapters (per fn)   │
-(scans QR)                               └───────────┬──────────────┘
+(operator)                               └───────────┬──────────────┘
                                                      │ secret key
                                                      ▼
                                          ┌──────────────────────────┐
@@ -33,7 +38,7 @@ Operator ────────► private check-in ────►│  └─
                                          └──────────────────────────┘
 ```
 
-Authoritative state lives in PostgreSQL. Wompi decides whether money moved. Google Sheets and
+Authoritative state lives in PostgreSQL. ePayco decides whether money moved. Google Sheets and
 the browser are read-only consumers of derived data.
 
 ## 2. Layering
