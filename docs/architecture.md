@@ -49,7 +49,7 @@ The backend is layered so that vendor details cannot leak into business rules:
 | ------------------- | ------------------------------------ | ---------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | Domain              | `_shared/domain/`                    | nothing                      | money, references, order/payment states, tickets, check-in, consents, operators, rate limits, reconciliation, sheets |
 | Configuration       | `_shared/config/`                    | domain-independent           | validated environment model, credential/environment binding                                                          |
-| Vendor integrations | `_shared/integrations/`              | domain                       | Wompi signature/checksum/client; Resend email client; Google Sheets client (Phase 5)                                 |
+| Vendor integrations | `_shared/integrations/`              | domain                       | ePayco checkout/webhook gateways, Resend email client, Google Sheets client (OAuth + values API)                     |
 | Persistence         | `_shared/db/`                        | Supabase client              | service-role client factory, generated types                                                                         |
 | Transport           | `_shared/http/`, `_shared/logging/`  | domain                       | response envelope, CORS, JSON logs with redaction, body/client-IP helpers                                            |
 | API                 | `_shared/api/`                       | domain, db, config           | request schemas, handlers, orchestration (no HTTP specifics)                                                         |
@@ -62,9 +62,9 @@ Two rules make this work in practice:
    imports Deno-only APIs, so the same code runs in Deno (production) and Node (tests).
    Environment access happens exactly once, in the adapter, and is passed in as a plain
    object.
-2. **Vendor logic is isolated.** Wompi specifics live in `_shared/integrations/wompi/`:
-   signature computation, event checksum verification, status mapping, HTTP client. The
-   domain only knows internal statuses (`pending`, `approved`, …), never Wompi's.
+2. **Vendor logic is isolated.** ePayco specifics live in `_shared/integrations/epayco/`:
+   session creation, signature checks, status mapping. The domain only knows internal order
+   statuses (`PENDING`, `PAID`, `FAILED`, `EXPIRED`), never ePayco's response codes.
 
 ## 3. Database responsibilities (Phases 2–3)
 
@@ -72,36 +72,40 @@ PostgreSQL is the source of truth for every business fact. The database does not
 rows; it enforces the invariants the backend relies on, so a bug in an Edge Function cannot
 produce an impossible state:
 
-| Invariant                                        | Enforced by                                                                                           |
-| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
-| Money and quantities are sane                    | integer centavos, `check (… >= 0)`, `check (quantity > 0)`                                            |
-| The price is never client-supplied               | no amount parameter exists in the quote/order functions                                               |
-| A stale quote can never set the price            | the price comes from the reserved row inside the order transaction                                    |
-| Order arithmetic is consistent                   | check `subtotal - quantity_discount - discount_code = total`                                          |
-| Prices are frozen at purchase                    | snapshot columns on `order_items`; catalog FKs never rewrite history                                  |
-| No stage is oversold                             | conditional atomic `update` + inventory check constraint                                              |
-| A retried request never reserves twice           | partial unique index on `orders.idempotency_key`                                                      |
-| A single-use discount code is claimed once       | conditional `update` on `redeemed_count` + append-only ledger                                         |
-| At most one approved payment per order           | partial unique index `payments (order_id) where status = 'approved'`                                  |
-| A Wompi reference / transaction cannot be reused | unique constraints on `wompi_reference` and `wompi_transaction_id`                                    |
-| The same webhook event is processed once         | unique `payment_events.dedupe_key`                                                                    |
-| Payment state never regresses                    | `app_private.payment_transition_rank` inside `confirm_payment`                                        |
-| Exactly one ticket per purchased unit            | unique `tickets (order_item_id, order_item_seq)`                                                      |
-| No duplicate confirmation email                  | unique `email_deliveries.idempotency_key` + `FOR UPDATE SKIP LOCKED` claim + provider idempotency key |
-| No double check-in                               | unique `attendance (ticket_id)`                                                                       |
-| No duplicate confirmation email                  | unique + derived `email_deliveries.idempotency_key`                                                   |
-| Consent history cannot be rewritten              | append-only trigger (UPDATE rejected)                                                                 |
-| Browser roles read and write nothing             | RLS enabled on all tables, no policies, privileges revoked                                            |
+| Invariant                                      | Enforced by                                                                                                   |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Money and quantities are sane                  | integer centavos, `check (… >= 0)`, `check (quantity > 0)`                                                    |
+| The price is never client-supplied             | no amount parameter exists in the quote/order functions                                                       |
+| A stale quote can never set the price          | the price comes from the reserved row inside the order transaction                                            |
+| Order arithmetic is consistent                 | check `subtotal - quantity_discount - discount_code = total`                                                  |
+| Prices are frozen at purchase                  | snapshot columns on `order_items`; catalog FKs never rewrite history                                          |
+| No stage is oversold                           | conditional atomic `update` + inventory check constraint                                                      |
+| A retried request never reserves twice         | partial unique index on `orders.idempotency_key`                                                              |
+| A single-use discount code is claimed once     | conditional `update` on `redeemed_count` + append-only ledger                                                 |
+| At most one approved payment per order         | partial unique index `payments (order_id) where status = 'approved'`                                          |
+| A Wompi-era payment reference cannot be reused | legacy unique constraints on `payments.wompi_reference` and `wompi_transaction_id` (kept for historical rows) |
+| The same webhook event is processed once       | unique `payment_events.dedupe_key`                                                                            |
+| Payment state never regresses                  | `app_private.payment_transition_rank` inside `confirm_payment`                                                |
+| Exactly one ticket per purchased unit          | unique `tickets (order_item_id, order_item_seq)`                                                              |
+| No duplicate confirmation email                | unique `email_deliveries.idempotency_key` + `FOR UPDATE SKIP LOCKED` claim + provider idempotency key         |
+| No double check-in                             | unique `attendance (ticket_id)`                                                                               |
+| No duplicate confirmation email                | unique + derived `email_deliveries.idempotency_key`                                                           |
+| Consent history cannot be rewritten            | append-only trigger (UPDATE rejected)                                                                         |
+| Browser roles read and write nothing           | RLS enabled on all tables, no policies, privileges revoked                                                    |
 
 Structural layout (details in [data-model.md](data-model.md)):
 
 - **Catalog**: `events` → `ticket_types` → `pricing_tiers` (+ `quantity_discounts`),
   `discount_codes`; `pricing_policy` holds the single discount-combination decision.
 - **Sales**: `orders` → `order_items` (+ `discount_redemptions`).
-- **People and admissions**: `participants` → `tickets` → `attendance`, `consents`.
+- **People and admissions**: `participants` (one row per admission on an order; new orders write
+  the buyer's row and `attach_participant` appends companion rows). Legacy `tickets` / `attendance`
+  remain for historical data and are not written by the purchase flow.
 - **Payments**: `payments` (attempts) + `payment_events` (webhook ledger and idempotency).
-- **Messaging**: `email_deliveries` (idempotent sends).
-- **Read model**: `operational_export` (one row per ticket) for the Google Sheets sync.
+- **Messaging**: `email_deliveries` (idempotent sends; no ticket templates are queued).
+- **Read model**: `operational_export` is one row per **participant** of a `PAID` order, and
+  `sheets_participant_projections` is the outbox that decides which participants still need a
+  Sheets sync.
 
 Helper functions live in `app_private` (`set_updated_at`, `next_order_reference`, `reject_update`,
 `active_pricing_tier_id`, `quantity_discount_bps`, `discount_code_amount_cents`,
@@ -117,7 +121,16 @@ on every `npm test` and by a real PostgreSQL instance per phase release.
 
 ## 4. Critical flows
 
-### 4.1 Buying a ticket
+**Current purchase flow (ePayco, no tickets).** `POST /orders` prices from the database and opens
+an ePayco Smart Checkout session; the browser returns from ePayco and the app polls
+`GET /orders/{reference}`; `POST /webhooks-epayco` verifies the transaction with ePayco, calls
+`confirm_payment` and, when the order is `PAID`, enqueues participant projections for Google
+Sheets. The buyer's participant row already exists; companions are added with
+`POST /orders/{reference}/participants` while the order is `PAID`. No ticket, token or QR is
+issued. The detailed contract is in [api.md](api.md) and the buyer journey in
+[frontend.md](frontend.md). The Wompi sequences below are retained as historical design notes.
+
+### 4.1 Legacy: buying a ticket (Wompi path)
 
 ```
 POST /orders/quote                → price from DB, reserves nothing (Phase 3, implemented)
@@ -147,7 +160,7 @@ RPC with the secret key. The TypeScript pricing module is the tested _specificat
 rules and re-checks the returned arithmetic; `tests/schema/pricing-parity.test.ts` fails the build
 if the two ever drift.
 
-### 4.2 Payment confirmation is idempotent by construction (Phase 4, implemented)
+### 4.2 Legacy: Wompi payment confirmation (idempotent by construction)
 
 ```
 webhook received                            POST /webhooks/wompi

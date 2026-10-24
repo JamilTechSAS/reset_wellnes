@@ -99,10 +99,11 @@ The schema is the last line of defence, not just storage:
 
 ## 5. What is explicitly NOT claimed
 
-- The webhook, reconciliation, check-in and Sheets pipelines are implemented and tested against
-  documented fixtures and injected clients, but **no live Wompi delivery, live email send or live
-  Sheets write has been verified** (no credentials). A forged or replayed delivery cannot change
-  state; the live verification is Phase 6.
+- The ePayco webhook, reconciliation, check-in and Sheets pipelines are implemented and tested
+  against documented fixtures and injected clients, but **no live ePayco confirmation, live email
+  send or live Sheets write has been verified on staging** as of 2026-10-24. A forged or replayed
+  delivery cannot change state; the live verification is the staging rollout. Wompi is retired and
+  its historical docs are marked legacy.
 - There is **no** user authentication for buyers (no accounts): identification is by opaque order
   reference + buyer email + rate limiting. That is a deliberate product decision, and it is why
   the order lookup endpoint must stay minimal and rate-limited.
