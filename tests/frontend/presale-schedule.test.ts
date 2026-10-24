@@ -8,13 +8,13 @@ import {
 } from "../../src/purchase/presale-schedule.ts";
 
 describe("presale schedule", () => {
-  // 2026-10-24 10:00 Colombia (UTC-5) == 2026-10-24 15:00:00 UTC.
-  const OPEN_UTC = Date.UTC(2026, 9, 24, 15, 0, 0);
+  // 2026-10-25 10:00 Colombia (UTC-5) == 2026-10-25 15:00:00 UTC.
+  const OPEN_UTC = Date.UTC(2026, 9, 25, 15, 0, 0);
 
   it("pins the opening instant to 10:00 Colombia time (UTC-5)", () => {
-    expect(PRESALE_OPENS_AT_ISO).toBe("2026-10-24T10:00:00-05:00");
+    expect(PRESALE_OPENS_AT_ISO).toBe("2026-10-25T10:00:00-05:00");
     expect(PRESALE_OPENS_AT.getTime()).toBe(OPEN_UTC);
-    expect(PRESALE_SCHEDULE_NOTE).toBe("Inicia el 24 de octubre a las 10:00 a. m.");
+    expect(PRESALE_SCHEDULE_NOTE).toBe("Inicia el 25 de octubre a las 10:00 a. m.");
   });
 
   it("is closed one millisecond before the opening instant", () => {

@@ -447,7 +447,7 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
   if (buyButton) {
     const defaultTier = "preventa";
     const tierPrices: Record<string, string> = {
-      preventa: "$160.000",
+      preventa: "$159.900",
       duo: "$340.000",
       general: "$200.000",
     };
@@ -480,7 +480,7 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
       const selectedRadio = document.querySelector<HTMLInputElement>(".tipo input:checked");
       const tier = selectedRadio?.value ?? defaultTier;
       if (buyPriceSpan) {
-        buyPriceSpan.textContent = tierPrices[tier] ?? "$160.000";
+        buyPriceSpan.textContent = tierPrices[tier] ?? "$159.900";
       }
 
       const selectionUnavailable = selectedRadio?.disabled === true;

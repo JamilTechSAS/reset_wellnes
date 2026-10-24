@@ -246,7 +246,7 @@ describe("Component Rendering", () => {
     expect(options).toHaveLength(EVENT_CONTENT_CONFIG.finalCta.ticketOptions.length);
     const text = section?.textContent ?? "";
     expect(text).toContain("Preventa");
-    expect(text).toContain("$160.000");
+    expect(text).toContain("$159.900");
     expect(text).toContain("Comparte esta experiencia");
     expect(text).toContain("$340.000");
     expect(text).toContain("General");

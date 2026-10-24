@@ -71,8 +71,18 @@
               <label class="tipo is-off" data-tipo="preventa">
                 <input type="radio" name="tipo" value="preventa" disabled checked />
                 <span class="tipo-nombre">Preventa</span>
-                <span class="tipo-precio">$160.000</span>
-                <span class="tipo-nota" data-nota>Inicia el 24 de octubre a las 10:00 a. m.</span>
+                <span class="tipo-precio tipo-precio--oferta">
+                  <span class="precio-desc">20% de descuento</span>
+                  <span class="precio-antes">$200.000</span>
+                  <span class="precio-ahora">$159.900</span>
+                </span>
+                <span class="tipo-nota" data-nota>Inicia el 25 de octubre a las 10:00 a. m.</span>
+              </label>
+              <label class="tipo" data-tipo="general">
+                <input type="radio" name="tipo" value="general" />
+                <span class="tipo-nombre">General</span>
+                <span class="tipo-precio">$200.000</span>
+                <span class="tipo-nota" data-nota></span>
               </label>
               <label class="tipo" data-tipo="duo">
                 <input type="radio" name="tipo" value="duo" />
@@ -81,12 +91,6 @@
                 >
                 <span class="tipo-precio">$340.000</span>
                 <span class="tipo-nota" data-nota>$170.000 por persona</span>
-              </label>
-              <label class="tipo" data-tipo="general">
-                <input type="radio" name="tipo" value="general" />
-                <span class="tipo-nombre">General</span>
-                <span class="tipo-precio">$200.000</span>
-                <span class="tipo-nota" data-nota></span>
               </label>
             </fieldset>
 
@@ -113,7 +117,7 @@
               type="button"
               aria-disabled="true"
             >
-              Comprar entrada · <span id="comprar-precio">$160.000</span>
+              Comprar entrada · <span id="comprar-precio">$159.900</span>
             </button>
             <p class="comprar-ayuda" id="comprar-ayuda">
               Marca la casilla para continuar con el pago.

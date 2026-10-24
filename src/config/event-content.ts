@@ -348,7 +348,7 @@ export const EVENT_CONTENT_CONFIG: EventLandingConfig = {
       {
         id: "ticket-preventa",
         name: "Preventa",
-        priceLabel: "$160.000",
+        priceLabel: "$159.900",
         detail: "Fase actual de venta",
         status: "current",
       },

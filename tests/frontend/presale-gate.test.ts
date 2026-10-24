@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vite
 import { initClientInteractions } from "../../src/utils/client-interactions.ts";
 import { PRESALE_SCHEDULE_NOTE } from "../../src/purchase/presale-schedule.ts";
 
-const OPEN_UTC = Date.UTC(2026, 9, 24, 15, 0, 0); // 2026-10-24 10:00 Colombia (UTC-5)
+const OPEN_UTC = Date.UTC(2026, 9, 25, 15, 0, 0); // 2026-10-25 10:00 Colombia (UTC-5)
 
 function mountTicketSection(): void {
   document.body.innerHTML = `

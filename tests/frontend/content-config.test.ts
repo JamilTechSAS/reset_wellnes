@@ -230,7 +230,7 @@ describe("EVENT_CONTENT_CONFIG", () => {
     expect(finalCta.ticketOptionsCaption).toContain("COP");
 
     expect(finalCta.ticketOptions.map((option) => [option.name, option.priceLabel])).toEqual([
-      ["Preventa", "$160.000"],
+      ["Preventa", "$159.900"],
       ["Comparte esta experiencia", "$340.000"],
       ["General", "$200.000"],
     ]);

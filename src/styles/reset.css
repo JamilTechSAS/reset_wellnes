@@ -1558,7 +1558,7 @@ p {
   padding: 1rem 1.25rem;
   border: 1.5px solid color-mix(in srgb, var(--cafe) 35%, transparent);
   border-radius: 14px;
-  background: color-mix(in srgb, var(--beige) 45%, transparent);
+  background: var(--beige);
   transition:
     border-color 0.25s var(--ease),
     background-color 0.25s var(--ease);
@@ -1604,6 +1604,44 @@ p {
 .tipo.is-off .tipo-precio {
   text-decoration: line-through;
   text-decoration-thickness: 1px;
+}
+
+/* Preventa con descuento: precio anterior tachado, precio nuevo destacado y etiqueta de -20% */
+.tipo-precio--oferta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.25rem;
+  text-align: right;
+  line-height: 1;
+}
+.precio-desc {
+  font-family: var(--f-body);
+  font-size: 0.625rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cafe);
+  background: var(--bay);
+  padding: 0.18rem 0.5rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.precio-antes {
+  font-family: var(--f-serif);
+  font-size: 0.9rem;
+  color: color-mix(in srgb, var(--cafe) 55%, var(--vinnie));
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+}
+.precio-ahora {
+  font-family: var(--f-serif);
+  font-size: var(--t-precio);
+  font-weight: 700;
+  color: var(--cafe);
+}
+/* Mientras la preventa aún no abre (deshabilitada) no se tacha todo el bloque de oferta. */
+.tipo.is-off .tipo-precio--oferta {
+  text-decoration: none;
 }
 
 .acepto {
