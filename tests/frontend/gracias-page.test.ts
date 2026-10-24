@@ -46,7 +46,7 @@ describe("gracias.html metadata and markup", () => {
 
   it("declares the canonical thank-you URL", () => {
     expect(HTML).toContain(
-      '<link rel="canonical" href="https://www.resetwellness.com.co/gracias.html" />',
+      '<link rel="canonical" href="https://www.resetwellness.com.co/gracias" />',
     );
   });
 

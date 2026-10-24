@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 /**
- * CTA routing: a buy CTA that is a link to a real page (the homepage hero → entradas.html) must
+ * CTA routing: a buy CTA that is a link to a real page (the homepage hero → /entradas) must
  * navigate there instead of opening the purchase dialog. Button CTAs still open the dialog.
  */
 
@@ -20,9 +20,9 @@ describe("buy CTA routing", () => {
     document.body.innerHTML = "";
   });
 
-  it("does not open the dialog for a hero link that points to entradas.html", () => {
+  it("does not open the dialog for a hero link that points to /entradas", () => {
     document.body.innerHTML = `
-      <a id="hero-buy-btn" class="hero-cta" data-buy-source="hero" href="entradas.html">
+      <a id="hero-buy-btn" class="hero-cta" data-buy-source="hero" href="/entradas">
         <span class="hero-cta-action">Comprar entrada</span>
       </a>`;
     cleanup = initClientInteractions({ openPurchase });

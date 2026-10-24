@@ -13,8 +13,8 @@
  * The order reference is not added by either provider, so it comes from the (optional) `ref`
  * parameter when present and otherwise from the session's stored pending order.
  *
- * `/gracias` has no HTML file of its own: `vercel.json` rewrites it to `index.html`, whose
- * `bootstrap()` reads this context and resumes the purchase dialog.
+ * `/gracias` is served by `gracias.html` (Vercel `cleanUrls`), whose entry (`src/gracias.ts`)
+ * reads this context and verifies the order authoritatively before showing a confirmed message.
  */
 
 export type ReturnContext = {

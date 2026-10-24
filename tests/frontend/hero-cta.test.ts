@@ -16,7 +16,7 @@ describe("homepage hero CTA", () => {
     document.documentElement.innerHTML = INDEX;
     const cta = document.querySelector<HTMLAnchorElement>("#hero-buy-btn");
     expect(cta).not.toBeNull();
-    expect(cta?.getAttribute("href")).toBe("entradas.html");
+    expect(cta?.getAttribute("href")).toBe("/entradas");
     expect(cta?.getAttribute("data-buy-source")).toBe("hero");
     expect(cta?.classList.contains("hero-cta")).toBe(true);
   });

@@ -351,7 +351,7 @@ function renderForm(state: PurchaseState, ctx: PurchaseDialogContext, showProble
             p.dataProcessing ? "checked" : ""
           } />
           <span class="consent-text">
-            <label for="pf-consent-data">Acepto los </label><a href="terminos-y-condiciones.html" target="_blank" rel="noopener noreferrer" data-legal-tab="participantes">términos y condiciones</a><label for="pf-consent-data"> y autorizo el </label><a href="terminos-y-condiciones.html#privacidad" target="_blank" rel="noopener noreferrer" data-legal-tab="privacidad">tratamiento de mis datos personales</a><label for="pf-consent-data"> conforme a la </label><a href="terminos-y-condiciones.html#privacidad" target="_blank" rel="noopener noreferrer" data-legal-tab="privacidad">política de privacidad</a><label for="pf-consent-data">, para gestionar mi compra y mi ingreso al evento. <em>(Obligatorio)</em></label>
+            <label for="pf-consent-data">Acepto los </label><a href="/terminos-y-condiciones" target="_blank" rel="noopener noreferrer" data-legal-tab="participantes">términos y condiciones</a><label for="pf-consent-data"> y autorizo el </label><a href="/terminos-y-condiciones#privacidad" target="_blank" rel="noopener noreferrer" data-legal-tab="privacidad">tratamiento de mis datos personales</a><label for="pf-consent-data"> conforme a la </label><a href="/terminos-y-condiciones#privacidad" target="_blank" rel="noopener noreferrer" data-legal-tab="privacidad">política de privacidad</a><label for="pf-consent-data">, para gestionar mi compra y mi ingreso al evento. <em>(Obligatorio)</em></label>
           </span>
         </div>
         ${
@@ -364,7 +364,7 @@ function renderForm(state: PurchaseState, ctx: PurchaseDialogContext, showProble
             p.futureEvents ? "checked" : ""
           } />
           <span class="consent-text">
-            <label for="pf-consent-future">Quiero recibir información sobre <strong>próximos eventos</strong> y novedades conforme a la </label><a href="terminos-y-condiciones.html#privacidad" target="_blank" rel="noopener noreferrer" data-legal-tab="privacidad">política de privacidad</a><label for="pf-consent-future">. <em>(Opcional)</em></label>
+            <label for="pf-consent-future">Quiero recibir información sobre <strong>próximos eventos</strong> y novedades conforme a la </label><a href="/terminos-y-condiciones#privacidad" target="_blank" rel="noopener noreferrer" data-legal-tab="privacidad">política de privacidad</a><label for="pf-consent-future">. <em>(Opcional)</em></label>
           </span>
         </div>
       </div>

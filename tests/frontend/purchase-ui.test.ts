@@ -1012,7 +1012,7 @@ describe("purchase dialog", () => {
       ".consent-row a[data-legal-tab='participantes']",
     )!;
     expect(legalLink).not.toBeNull();
-    expect(legalLink.getAttribute("href")).toContain("terminos-y-condiciones.html");
+    expect(legalLink.getAttribute("href")).toContain("/terminos-y-condiciones");
     expect(legalLink.getAttribute("target")).toBe("_blank");
 
     // Clicking the link does NOT check the box
