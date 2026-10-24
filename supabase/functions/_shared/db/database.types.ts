@@ -556,10 +556,10 @@ isOneToOne: false
 { Args: { "p_key": string,"p_limit": number,"p_now"?: string,"p_scope": string,"p_window_seconds": number }; Returns: Json
                            },
 "create_order":
-{ Args: { "p_buyer_email": string,"p_buyer_name": string,"p_buyer_phone": string,"p_discount_code"?: string,"p_event_code": string,"p_idempotency_key"?: string,"p_ip_address"?: string,"p_participant": Json,"p_quantity": number,"p_reservation_minutes": number,"p_ticket_type_code": string,"p_user_agent"?: string }; Returns: Json
+{ Args: { "p_buyer_email": string,"p_buyer_name": string,"p_buyer_phone": string,"p_discount_code"?: string,"p_event_code": string,"p_idempotency_key"?: string,"p_ip_address"?: string,"p_participant": Json,"p_payment_provider"?: string,"p_quantity": number,"p_reservation_minutes": number,"p_ticket_type_code": string,"p_user_agent"?: string }; Returns: Json
                            },
 "create_bundle_order":
-{ Args: { "p_buyer_email": string,"p_buyer_name": string,"p_buyer_phone": string,"p_bundle_code": string,"p_discount_code"?: string,"p_event_code": string,"p_idempotency_key"?: string,"p_ip_address"?: string,"p_participant": Json,"p_quantity": number,"p_reservation_minutes": number,"p_ticket_type_code": string,"p_user_agent"?: string }; Returns: Json
+{ Args: { "p_buyer_email": string,"p_buyer_name": string,"p_buyer_phone": string,"p_bundle_code": string,"p_discount_code"?: string,"p_event_code": string,"p_idempotency_key"?: string,"p_ip_address"?: string,"p_participant": Json,"p_payment_provider"?: string,"p_quantity": number,"p_reservation_minutes": number,"p_ticket_type_code": string,"p_user_agent"?: string }; Returns: Json
                            },
 "expire_pending_orders":
 { Args: { "p_limit"?: number,"p_now"?: string }; Returns: Json

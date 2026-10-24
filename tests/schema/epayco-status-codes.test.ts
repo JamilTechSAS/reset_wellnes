@@ -89,7 +89,7 @@ async function createOrder(quantity = 2): Promise<OrderResult> {
     `select public.create_order(
        '${EVENT}','GENERAL',${String(quantity)},15,
        'buyer@example.com','Comprador','3001234567','${PARTICIPANT}'::jsonb,
-       null,null,'181.10.20.30','vitest/1.0') as o`,
+       null,null,'181.10.20.30','vitest/1.0','epayco') as o`,
   );
   const order = result.rows[0]?.o;
   if (order === undefined) {

@@ -61,6 +61,12 @@ export type CreateSessionParams = {
   readonly invoice: string;
   readonly response?: string | undefined;
   readonly confirmation?: string | undefined;
+  /**
+   * HTTP verb ePayco uses to deliver the confirmation. It MUST be explicit: with `method`
+   * absent Smart Checkout does not reliably POST the signed fields to `confirmation`, and a
+   * delivery that never arrives leaves a paid order PENDING forever.
+   */
+  readonly confirmationMethod?: "POST" | "GET" | undefined;
   readonly test?: boolean | undefined;
   readonly taxBase?: number | undefined;
   readonly tax?: number | undefined;
@@ -176,7 +182,9 @@ export function createEpaycoApifyClient(options: EpaycoApifyClientOptions): Epay
       ip: params.ip,
       invoice: params.invoice,
       ...(params.response ? { response: params.response } : {}),
-      ...(params.confirmation ? { confirmation: params.confirmation } : {}),
+      ...(params.confirmation
+        ? { confirmation: params.confirmation, method: params.confirmationMethod ?? "POST" }
+        : {}),
       taxBase: params.taxBase ?? 0,
       tax: params.tax ?? 0,
       taxIco: params.taxIco ?? 0,

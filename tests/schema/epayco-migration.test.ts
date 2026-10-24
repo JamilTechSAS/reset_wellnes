@@ -98,7 +98,7 @@ describe("ePayco database migration & backward compatibility", () => {
       select public.create_order(
         '${EVENT}', 'GENERAL', 2, 15,
         'carlos@example.com', 'Carlos Gómez', '3007654321', '${PARTICIPANT}'::jsonb,
-        null, null, '181.10.20.30', 'vitest'
+        null, null, '181.10.20.30', 'vitest', 'epayco'
       ) as o;
     `);
     const order = orderRes.rows[0]?.o;
@@ -154,7 +154,7 @@ describe("ePayco database migration & backward compatibility", () => {
       select public.create_order(
         '${EVENT}', 'GENERAL', 1, 15,
         'wompi.buyer@example.com', 'Comprador Wompi', '3001112233', '${PARTICIPANT}'::jsonb,
-        null, null, '181.10.20.30', 'vitest'
+        null, null, '181.10.20.30', 'vitest', 'epayco'
       ) as o;
     `);
     const order = orderRes.rows[0]?.o;

@@ -116,11 +116,11 @@ async function createOrder(
          '${EVENT}','GENERAL',${String(options.quantity)},15,
          '${options.email}','Comprador','3001234567','${participant}'::jsonb,
          'DOUBLE_EXPERIENCE',null,'${options.key}',
-         '181.10.20.30','vitest/1.0') as o`
+         '181.10.20.30','vitest/1.0','epayco') as o`
     : `select public.create_order(
          '${EVENT}','GENERAL',${String(options.quantity)},15,
          '${options.email}','Comprador','3001234567','${participant}'::jsonb,
-         null,'${options.key}','181.10.20.30','vitest/1.0') as o`;
+         null,'${options.key}','181.10.20.30','vitest/1.0','epayco') as o`;
 
   const result = await db.query<{ o: Order }>(sql);
   const order = result.rows[0]?.o;
