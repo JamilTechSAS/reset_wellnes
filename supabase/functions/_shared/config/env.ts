@@ -120,20 +120,17 @@ export type BackendConfig = {
    */
   readonly rateLimitEnabled: boolean;
   /**
-   * Google Sheets operational projection. Optional by design: without credentials the
-   * projection is skipped and every other job runs untouched (`SHEETS_ENABLED=false`).
-   * When enabled, all three credential variables are required so a half-configured
-   * deployment fails at startup instead of writing to the wrong spreadsheet.
+   * Google Sheets operational projection through a signed Apps Script web app. Optional by
+   * design: without the connector the projection is skipped and every other job runs untouched
+   * (`SHEETS_ENABLED=false`). When enabled, both connector variables are required so a
+   * half-configured deployment fails at startup instead of writing somewhere else.
    */
   readonly googleSheets:
-    | { readonly enabled: false; readonly dataSheet: string; readonly statusSheet: string }
+    | { readonly enabled: false }
     | {
         readonly enabled: true;
-        readonly serviceAccountEmail: string;
-        readonly privateKey: string;
-        readonly spreadsheetId: string;
-        readonly dataSheet: string;
-        readonly statusSheet: string;
+        readonly appsScriptUrl: string;
+        readonly appsScriptSecret: string;
       };
   /**
    * How long a PENDING order holds its inventory, in minutes.
@@ -229,6 +226,28 @@ function isHttpUrl(value: string): boolean {
   try {
     const url = new URL(value);
     return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Only the deployed Apps Script web-app endpoint is accepted. This prevents an accidental
+ * arbitrary endpoint or an SSRF-shaped configuration from receiving the shared secret.
+ */
+function isAppsScriptWebAppUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      url.hostname === "script.google.com" &&
+      url.port === "" &&
+      url.username === "" &&
+      url.password === "" &&
+      url.search === "" &&
+      url.hash === "" &&
+      /^\/macros\/s\/[A-Za-z0-9_-]{20,200}\/exec$/.test(url.pathname)
+    );
   } catch {
     return false;
   }
@@ -890,59 +909,45 @@ export function loadConfig(env: EnvRecord, options: LoadConfigOptions = {}): Bac
   // documented in docs/environments.md.
   const rateLimitEnabled = readBoolean(env, "RATE_LIMIT_ENABLED", true, issues);
 
-  // --- Google Sheets projection (optional) --------------------------------
-  // `SHEETS_ENABLED` gates the whole projection. Credentials are only validated when the
-  // projection is on, so a deployment can carry the variables before enabling it.
+  // --- Google Sheets projection through Apps Script (optional) -------------
+  // `SHEETS_ENABLED` gates the whole projection. The connector URL and shared secret are
+  // validated only when the projection is on, so a deployment can carry them before enabling
+  // it. The spreadsheet ID and tab names live in Apps Script Script Properties, never here.
   const sheetsEnabled = readBoolean(env, "SHEETS_ENABLED", false, issues);
-  const sheetsDataSheetRaw = readString(env, "GOOGLE_SHEETS_DATA_TAB") ?? "Datos";
-  const sheetsStatusSheetRaw = readString(env, "GOOGLE_SHEETS_STATUS_TAB") ?? "Estado";
-  for (const [name, value] of [
-    ["GOOGLE_SHEETS_DATA_TAB", sheetsDataSheetRaw],
-    ["GOOGLE_SHEETS_STATUS_TAB", sheetsStatusSheetRaw],
-  ] as const) {
-    if (value.length > 100) {
-      issues.push(`${name} must be at most 100 characters (a Google Sheets tab name limit)`);
-    }
-  }
-  const sheetsServiceAccountEmail = readString(env, "GOOGLE_SERVICE_ACCOUNT_EMAIL");
-  const sheetsPrivateKey = readString(env, "GOOGLE_PRIVATE_KEY");
-  const sheetsSpreadsheetId = readString(env, "GOOGLE_SPREADSHEET_ID");
-  let googleSheets: BackendConfig["googleSheets"] = {
-    enabled: false,
-    dataSheet: sheetsDataSheetRaw,
-    statusSheet: sheetsStatusSheetRaw,
-  };
+  const appsScriptUrlRaw = readString(env, "GOOGLE_APPS_SCRIPT_URL");
+  const appsScriptSecretRaw = readString(env, "GOOGLE_APPS_SCRIPT_SECRET");
+  let googleSheets: BackendConfig["googleSheets"] = { enabled: false };
   if (sheetsEnabled) {
     const missing: string[] = [];
-    if (sheetsServiceAccountEmail === undefined) missing.push("GOOGLE_SERVICE_ACCOUNT_EMAIL");
-    if (sheetsPrivateKey === undefined) missing.push("GOOGLE_PRIVATE_KEY");
-    if (sheetsSpreadsheetId === undefined) missing.push("GOOGLE_SPREADSHEET_ID");
+    if (appsScriptUrlRaw === undefined) missing.push("GOOGLE_APPS_SCRIPT_URL");
+    if (appsScriptSecretRaw === undefined) missing.push("GOOGLE_APPS_SCRIPT_SECRET");
     if (missing.length > 0) {
       issues.push(
         `SHEETS_ENABLED=true requires: ${missing.join(", ")} (projection is optional; set SHEETS_ENABLED=false to disable it)`,
       );
     } else {
-      if (!/^[^@\s]+@[^@\s]+\.iam\.gserviceaccount\.com$/.test(sheetsServiceAccountEmail ?? "")) {
+      let connectorValid = true;
+      if (!isAppsScriptWebAppUrl(appsScriptUrlRaw ?? "")) {
         issues.push(
-          "GOOGLE_SERVICE_ACCOUNT_EMAIL must be a service account address (*.iam.gserviceaccount.com)",
+          "GOOGLE_APPS_SCRIPT_URL must be the deployed https://script.google.com/macros/s/<id>/exec URL",
         );
+        connectorValid = false;
       }
-      if (!(sheetsPrivateKey ?? "").includes("-----BEGIN PRIVATE KEY-----")) {
-        issues.push("GOOGLE_PRIVATE_KEY must be a PKCS#8 PEM private key (BEGIN PRIVATE KEY)");
-      }
-      if (!/^[A-Za-z0-9_-]{10,120}$/.test(sheetsSpreadsheetId ?? "")) {
+      if (
+        (appsScriptSecretRaw ?? "").length < 32 ||
+        (appsScriptSecretRaw ?? "").length > 512 ||
+        /\s/.test(appsScriptSecretRaw ?? "")
+      ) {
         issues.push(
-          "GOOGLE_SPREADSHEET_ID must be the id from the sheet URL (letters, digits, - and _)",
+          "GOOGLE_APPS_SCRIPT_SECRET must be 32-512 characters with no whitespace (the same value as Apps Script HMAC_SECRET)",
         );
+        connectorValid = false;
       }
-      if (issues.length === 0) {
+      if (connectorValid) {
         googleSheets = {
           enabled: true,
-          serviceAccountEmail: sheetsServiceAccountEmail ?? "",
-          privateKey: sheetsPrivateKey ?? "",
-          spreadsheetId: sheetsSpreadsheetId ?? "",
-          dataSheet: sheetsDataSheetRaw,
-          statusSheet: sheetsStatusSheetRaw,
+          appsScriptUrl: appsScriptUrlRaw ?? "",
+          appsScriptSecret: appsScriptSecretRaw ?? "",
         };
       }
     }
@@ -1106,15 +1111,10 @@ export function describeConfigForLogs(config: BackendConfig): Record<string, unk
     rateLimitEnabled: config.rateLimitEnabled,
     googleSheets: {
       enabled: config.googleSheets.enabled,
-      serviceAccountEmail: config.googleSheets.enabled
-        ? config.googleSheets.serviceAccountEmail
+      appsScriptUrl: config.googleSheets.enabled ? "configured" : "(not set)",
+      appsScriptSecret: config.googleSheets.enabled
+        ? `…(len=${config.googleSheets.appsScriptSecret.length})`
         : "(not set)",
-      privateKey: config.googleSheets.enabled
-        ? `…(len=${config.googleSheets.privateKey.length})`
-        : "(not set)",
-      spreadsheetId: config.googleSheets.enabled ? config.googleSheets.spreadsheetId : "(not set)",
-      dataSheet: config.googleSheets.dataSheet,
-      statusSheet: config.googleSheets.statusSheet,
     },
     orderReservationMinutes: config.orderReservationMinutes,
     paymentReturnUrl: config.paymentReturnUrl ?? null,

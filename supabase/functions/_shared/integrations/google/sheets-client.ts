@@ -1,44 +1,56 @@
 /**
- * Google Sheets client (service account).
+ * Google Sheets client — Google Apps Script web-app connector.
  *
- * The operational projection is written server-side with a DEDICATED service identity:
+ * The backend never holds a Google Cloud service-account key. Instead, a standalone Apps
+ * Script project owns the spreadsheet and exposes one signed POST endpoint:
  *
- *   1. build a JWT assertion (RS256, WebCrypto — no third-party dependency) and exchange it
- *      at Google's OAuth token endpoint for an access token scoped to
- *      `https://www.googleapis.com/auth/spreadsheets`;
- *   2. call `values:batchUpdate` on the client's spreadsheet.
+ *   backend -> HTTPS POST /exec -> Apps Script (as its owner) -> configured spreadsheet
  *
- * Verified against the Google Sheets API v4 documentation (read 2026-10-03): the write
- * endpoint is `POST /v4/spreadsheets/{spreadsheetId}/values:batchUpdate` with
- * `{ valueInputOption, data: [{ range, values }] }`; the OAuth JWT-bearer flow posts
- * `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer` plus the signed assertion.
+ * Authentication is an HMAC-SHA256 signature over an exact canonical message:
  *
- * Security properties:
- *   * the private key lives only in the server environment and is never logged, returned or
- *     included in an error (errors carry HTTP status and a bounded provider message);
- *   * the service account has edit access only to the one spreadsheet the client shared
- *     with it (`GOOGLE_SERVICE_ACCOUNT_EMAIL`); it has no database access at all;
- *   * the token is cached in memory until shortly before expiry; worker instances are
- *     short-lived, so no token ever leaves the process.
+ *   v1\n{timestamp}\n{nonce}\n{payloadJson}
  *
- * The client takes an injected `fetch` and `now`, so tests verify the exact JWT signature
- * with a locally generated key and the whole flow without network access.
+ * `payloadJson` is serialized once and carried as a string inside the envelope, so the bytes
+ * signed by this client are exactly the bytes verified by the script. The envelope is:
+ *
+ *   { version: 1, timestamp, nonce, payload: "<json string>", signature: "<base64url>" }
+ *
+ * The script also enforces a short clock-skew window and a nonce cache. The spreadsheet ID
+ * and tab names live only in Apps Script Script Properties; a request can select only the
+ * fixed `data` or `status` grid, never an arbitrary spreadsheet, tab or range.
+ *
+ * The connector is still an outbox drain, not a checkout dependency. A Google outage delays
+ * the sheet and nothing else.
  */
 
-import { AppError } from "../../domain/errors.ts";
+export const SHEETS_REQUEST_VERSION = 1;
+export const SHEETS_MAX_DATA_ROWS = 5_000;
+export const SHEETS_MAX_DATA_COLUMNS = 22;
+export const SHEETS_MAX_STATUS_ROWS = 20;
+export const SHEETS_MAX_STATUS_COLUMNS = 2;
+export const SHEETS_MAX_CLOCK_SKEW_SECONDS = 300;
 
-export const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
-export const GOOGLE_SHEETS_API_BASE = "https://sheets.googleapis.com/v4";
-export const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
+const DEFAULT_TIMEOUT_MS = 15_000;
+const MAX_ERROR_MESSAGE_CHARS = 300;
 
-export type SheetsRange = {
-  /** A1 notation, for example `'Datos'!A1`. */
-  readonly range: string;
-  readonly values: readonly (readonly (string | number | boolean)[])[];
+export type SheetsCell = string | number | boolean;
+export type SheetsGrid = readonly (readonly SheetsCell[])[];
+
+export type SheetsWriteInput = {
+  /** Fixed target. Apps Script maps this to DATA_TAB or STATUS_TAB. */
+  readonly grid: "data" | "status";
+  readonly values: SheetsGrid;
 };
 
 export type SheetsWriteResult =
-  | { readonly ok: true; readonly updatedRanges: number; readonly updatedCells: number }
+  | {
+      readonly ok: true;
+      readonly grid: "data" | "status";
+      readonly written: true;
+      readonly rowsWritten: number;
+      readonly updatedRanges: number;
+      readonly updatedCells: number;
+    }
   | {
       readonly ok: false;
       readonly retryable: boolean;
@@ -47,34 +59,69 @@ export type SheetsWriteResult =
       readonly httpStatus: number | undefined;
     };
 
+export type SheetsHealth = {
+  readonly operation: "health";
+  readonly spreadsheetAccessible: true;
+  readonly dataTab: true;
+  readonly statusTab: true;
+  readonly timeZone: string;
+};
+
+export type SheetsSelfTest = {
+  readonly operation: "self_test";
+  readonly spreadsheetAccessible: true;
+  readonly dataTab: true;
+  readonly statusTab: true;
+  readonly writeReadDelete: true;
+  readonly cleanedUp: true;
+};
+
+export type SheetsOperationResult<T> =
+  | { readonly ok: true; readonly data: T }
+  | {
+      readonly ok: false;
+      readonly retryable: boolean;
+      readonly error: string;
+      readonly httpStatus: number | undefined;
+    };
+
 export type SheetsClient = {
-  writeRanges(input: { readonly ranges: readonly SheetsRange[] }): Promise<SheetsWriteResult>;
+  writeProjection(input: SheetsWriteInput): Promise<SheetsWriteResult>;
+  /** Signed health check for setup and diagnostics. */
+  health(): Promise<SheetsOperationResult<SheetsHealth>>;
+  /** Signed temporary write/read/delete test; never touches participant or status data. */
+  selfTest(): Promise<SheetsOperationResult<SheetsSelfTest>>;
 };
 
 export type SheetsClientOptions = {
-  readonly serviceAccountEmail: string;
-  /** PEM (PKCS#8) private key; literal `\n` escapes from env files are normalized. */
-  readonly privateKeyPem: string;
-  readonly spreadsheetId: string;
+  /** Deployed Apps Script `/exec` URL. */
+  readonly url: string;
+  /** Shared HMAC secret; the same value is stored in Apps Script Script Properties. */
+  readonly secret: string;
   readonly fetchImpl?: typeof globalThis.fetch;
   readonly timeoutMs?: number;
-  /** Injected clock (ms) for token-cache tests. */
+  /** Injected clock (ms) for tests. */
   readonly now?: () => number;
-  readonly tokenUrl?: string;
-  readonly apiBaseUrl?: string;
+  /** Injected nonce generator for deterministic tests. */
+  readonly nonce?: () => string;
 };
 
-const DEFAULT_TIMEOUT_MS = 15_000;
-/** Refresh the token this many seconds before it expires. */
-const TOKEN_REFRESH_MARGIN_SECONDS = 60;
+type ConnectorEnvelope = {
+  readonly version: number;
+  readonly timestamp: number;
+  readonly nonce: string;
+  readonly payload: string;
+  readonly signature: string;
+};
 
-function isRetryableStatus(status: number): boolean {
-  return status === 408 || status === 409 || status === 425 || status === 429 || status >= 500;
+export type SheetsSignedRequest = {
+  readonly envelope: ConnectorEnvelope;
+  readonly body: string;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
-
-// ---------------------------------------------------------------------------
-// base64url helpers (runtime-agnostic: btoa/atob exist in Deno and Node >= 16)
-// ---------------------------------------------------------------------------
 
 function bytesToBase64Url(bytes: Uint8Array): string {
   let binary = "";
@@ -85,264 +132,372 @@ function bytesToBase64Url(bytes: Uint8Array): string {
   return globalThis.btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-function textToBase64Url(text: string): string {
-  return bytesToBase64Url(new TextEncoder().encode(text));
-}
-
 /**
- * Decodes a PKCS#8 PEM (with or without `\n` escapes) into DER bytes.
- * The return type is pinned to an `ArrayBuffer`-backed view so it can be passed directly
- * to `crypto.subtle.importKey` (which rejects `SharedArrayBuffer`-backed views).
+ * The canonical UTF-8 message signed by this client and verified by `lib.js`.
+ * Keep the version, separators and `String(timestamp)` representation in lockstep.
  */
-export function decodePrivateKeyPem(pem: string): Uint8Array<ArrayBuffer> {
-  const normalized = pem.replace(/\\n/g, "\n");
-  const body = normalized
-    .replace(/-----BEGIN PRIVATE KEY-----/g, "")
-    .replace(/-----END PRIVATE KEY-----/g, "")
-    .replace(/\s+/g, "");
-  if (body.length === 0) {
-    throw new AppError("INTERNAL_ERROR", "GOOGLE_PRIVATE_KEY is empty or not a PKCS#8 PEM", {
-      context: { surface: "google-sheets" },
-    });
-  }
-  let binary: string;
-  try {
-    binary = globalThis.atob(body);
-  } catch {
-    throw new AppError("INTERNAL_ERROR", "GOOGLE_PRIVATE_KEY is not valid base64 PEM content", {
-      context: { surface: "google-sheets" },
-    });
-  }
-  const bytes = new Uint8Array(new ArrayBuffer(binary.length));
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes;
+export function canonicalSheetsMessage(
+  timestamp: number,
+  nonce: string,
+  payloadJson: string,
+): string {
+  return `v1\n${String(timestamp)}\n${nonce}\n${payloadJson}`;
 }
 
-async function importPrivateKey(pem: string): Promise<CryptoKey> {
-  try {
-    return await globalThis.crypto.subtle.importKey(
-      "pkcs8",
-      decodePrivateKeyPem(pem),
-      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-      false,
-      ["sign"],
-    );
-  } catch (error) {
-    if (error instanceof AppError) {
-      throw error;
-    }
-    // Never include the key material or a provider message in the error.
-    throw new AppError("INTERNAL_ERROR", "GOOGLE_PRIVATE_KEY could not be imported", {
-      cause: error,
-      context: { surface: "google-sheets" },
-    });
-  }
-}
-
-/** Builds and signs the OAuth assertion. Exported so tests can verify the signature. */
-export async function signServiceAccountJwt(input: {
-  readonly serviceAccountEmail: string;
-  readonly privateKey: CryptoKey;
-  readonly tokenUrl: string;
-  readonly issuedAtSeconds: number;
-  readonly lifetimeSeconds?: number;
-}): Promise<string> {
-  const header = textToBase64Url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
-  const claims = textToBase64Url(
-    JSON.stringify({
-      iss: input.serviceAccountEmail,
-      scope: SHEETS_SCOPE,
-      aud: input.tokenUrl,
-      iat: input.issuedAtSeconds,
-      exp: input.issuedAtSeconds + (input.lifetimeSeconds ?? 3600),
-    }),
+async function importHmacKey(secret: string): Promise<CryptoKey> {
+  return await globalThis.crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
   );
-  const signingInput = `${header}.${claims}`;
+}
+
+async function hmacBase64Url(key: CryptoKey, message: string): Promise<string> {
   const signature = await globalThis.crypto.subtle.sign(
-    "RSASSA-PKCS1-v1_5",
-    input.privateKey,
-    new TextEncoder().encode(signingInput),
+    "HMAC",
+    key,
+    new TextEncoder().encode(message),
   );
-  return `${signingInput}.${bytesToBase64Url(new Uint8Array(signature))}`;
+  return bytesToBase64Url(new Uint8Array(signature));
 }
 
-function describeGoogleError(payload: unknown): string | undefined {
-  if (typeof payload !== "object" || payload === null) {
+/** Exported for tests and for the local connector-check command. */
+export async function signSheetsRequest(input: {
+  readonly secret: string;
+  readonly timestamp: number;
+  readonly nonce: string;
+  readonly payloadJson: string;
+}): Promise<string> {
+  const key = await importHmacKey(input.secret);
+  return hmacBase64Url(
+    key,
+    canonicalSheetsMessage(input.timestamp, input.nonce, input.payloadJson),
+  );
+}
+
+/** Builds the exact body sent to Apps Script. Exported for signature tests. */
+export async function buildSheetsSignedRequest(input: {
+  readonly secret: string;
+  readonly timestamp: number;
+  readonly nonce: string;
+  readonly payloadJson: string;
+}): Promise<SheetsSignedRequest> {
+  const signature = await signSheetsRequest(input);
+  const envelope: ConnectorEnvelope = {
+    version: SHEETS_REQUEST_VERSION,
+    timestamp: input.timestamp,
+    nonce: input.nonce,
+    payload: input.payloadJson,
+    signature,
+  };
+  return { envelope, body: JSON.stringify(envelope) };
+}
+
+function randomNonce(): string {
+  const bytes = new Uint8Array(32);
+  globalThis.crypto.getRandomValues(bytes);
+  return bytesToBase64Url(bytes);
+}
+
+function isRetryableStatus(status: number): boolean {
+  return status === 408 || status === 409 || status === 425 || status === 429 || status >= 500;
+}
+
+function safeMessage(value: unknown): string | undefined {
+  if (typeof value !== "string") {
     return undefined;
   }
-  const error = (payload as { error?: unknown }).error;
-  if (typeof error === "string") {
-    return error.slice(0, 200);
-  }
-  if (typeof error === "object" && error !== null) {
-    const message = (error as { message?: unknown }).message;
-    if (typeof message === "string") {
-      return message.replace(/[\n\r\t]+/g, " ").slice(0, 200);
-    }
-  }
-  return undefined;
+  const normalized = value.replace(/[\n\r\t]+/g, " ").trim();
+  return normalized.length === 0 ? undefined : normalized.slice(0, MAX_ERROR_MESSAGE_CHARS);
 }
+
+type ConnectorFailure = {
+  readonly ok: false;
+  readonly retryable: boolean;
+  readonly error: string;
+  readonly httpStatus: number | undefined;
+};
+
+function failure(
+  error: string,
+  retryable: boolean,
+  httpStatus: number | undefined,
+): ConnectorFailure {
+  return { ok: false, retryable, error, httpStatus };
+}
+
+function readError(body: unknown): { message: string; retryable: boolean } | undefined {
+  if (!isRecord(body) || !isRecord(body.error)) {
+    return undefined;
+  }
+  return {
+    message:
+      safeMessage(body.error.message) ??
+      safeMessage(body.error.code) ??
+      "The Apps Script connector rejected the request",
+    retryable: body.error.retryable === true,
+  };
+}
+
+type PostResult = { readonly ok: true; readonly body: Record<string, unknown> } | ConnectorFailure;
 
 export function createSheetsClient(options: SheetsClientOptions): SheetsClient {
   const fetchImpl = options.fetchImpl ?? globalThis.fetch;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const now = options.now ?? (() => Date.now());
-  const tokenUrl = options.tokenUrl ?? GOOGLE_TOKEN_URL;
-  const apiBaseUrl = (options.apiBaseUrl ?? GOOGLE_SHEETS_API_BASE).replace(/\/+$/, "");
-  const spreadsheetId = options.spreadsheetId;
+  const nonceFactory = options.nonce ?? randomNonce;
 
-  let cachedKey: Promise<CryptoKey> | undefined;
-  let cachedToken: { readonly token: string; readonly expiresAtMs: number } | undefined;
-
-  function privateKey(): Promise<CryptoKey> {
-    cachedKey ??= importPrivateKey(options.privateKeyPem);
-    return cachedKey;
+  let keyPromise: Promise<CryptoKey> | undefined;
+  function key(): Promise<CryptoKey> {
+    keyPromise ??= importHmacKey(options.secret);
+    return keyPromise;
   }
 
-  async function accessToken(): Promise<
-    | { readonly ok: true; readonly token: string }
-    | { readonly ok: false; readonly error: string; readonly httpStatus: number | undefined }
-  > {
-    const nowMs = now();
-    if (
-      cachedToken !== undefined &&
-      cachedToken.expiresAtMs > nowMs + TOKEN_REFRESH_MARGIN_SECONDS * 1000
-    ) {
-      return { ok: true, token: cachedToken.token };
+  async function post(payload: Record<string, unknown>): Promise<PostResult> {
+    // Signing must never throw out of the worker: a thrown error would leave the claimed
+    // projections SYNCING until stale recovery instead of recording a normal failure.
+    let body: string;
+    try {
+      const payloadJson = JSON.stringify(payload);
+      const timestamp = Math.floor(now() / 1000);
+      const nonce = nonceFactory();
+      const signature = await hmacBase64Url(
+        await key(),
+        canonicalSheetsMessage(timestamp, nonce, payloadJson),
+      );
+      body = JSON.stringify({
+        version: SHEETS_REQUEST_VERSION,
+        timestamp,
+        nonce,
+        payload: payloadJson,
+        signature,
+      } satisfies ConnectorEnvelope);
+    } catch {
+      // Never include the secret or a provider message in the error.
+      return failure("connector signing is unavailable", false, undefined);
     }
-
-    const key = await privateKey();
-    const assertion = await signServiceAccountJwt({
-      serviceAccountEmail: options.serviceAccountEmail,
-      privateKey: key,
-      tokenUrl,
-      issuedAtSeconds: Math.floor(nowMs / 1000),
-    });
 
     let response: Response;
     try {
-      response = await fetchImpl(tokenUrl, {
+      response = await fetchImpl(options.url, {
         method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-          assertion,
-        }).toString(),
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body,
+        // ContentService answers through a Google redirect; following it is required.
+        redirect: "follow",
         signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (error) {
-      return {
-        ok: false,
-        httpStatus: undefined,
-        error: error instanceof Error ? `network: ${error.name}` : "network error",
-      };
+      return failure(
+        error instanceof Error ? `network: ${error.name}` : "network error",
+        true,
+        undefined,
+      );
+    }
+
+    let text: string;
+    try {
+      text = await response.text();
+    } catch (error) {
+      return failure(
+        error instanceof Error ? `response body: ${error.name}` : "response body unavailable",
+        true,
+        response.status,
+      );
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = text.length === 0 ? undefined : JSON.parse(text);
+    } catch {
+      // A 200 with an HTML sign-in page or a transient Google error page is malformed, not a
+      // success; retry it through the outbox so it consumes the normal attempt budget.
+      return failure(
+        response.ok
+          ? "connector returned non-JSON"
+          : `connector returned HTTP ${String(response.status)}`,
+        response.ok ? true : isRetryableStatus(response.status),
+        response.status,
+      );
     }
 
     if (!response.ok) {
-      let described: string | undefined;
-      try {
-        described = describeGoogleError(await response.json());
-      } catch {
-        described = undefined;
-      }
-      return {
-        ok: false,
-        httpStatus: response.status,
-        error: described ?? `token endpoint returned HTTP ${String(response.status)}`,
-      };
+      const described = readError(parsed);
+      return failure(
+        described?.message ?? `connector returned HTTP ${String(response.status)}`,
+        described?.retryable ?? isRetryableStatus(response.status),
+        response.status,
+      );
     }
 
-    let payload: unknown;
-    try {
-      payload = await response.json();
-    } catch {
-      return { ok: false, httpStatus: response.status, error: "token endpoint returned non-JSON" };
+    if (!isRecord(parsed)) {
+      return failure("connector returned an invalid JSON body", true, response.status);
     }
-    const token = (payload as { access_token?: unknown }).access_token;
-    const expiresIn = (payload as { expires_in?: unknown }).expires_in;
-    if (typeof token !== "string" || token.length === 0) {
-      return {
-        ok: false,
-        httpStatus: response.status,
-        error: "token response missing access_token",
-      };
+    if (parsed.ok === false) {
+      const described = readError(parsed);
+      if (described === undefined) {
+        return failure("connector returned an invalid error body", true, response.status);
+      }
+      return failure(described.message, described.retryable, response.status);
     }
-    const lifetimeSeconds = typeof expiresIn === "number" && expiresIn > 0 ? expiresIn : 3600;
-    cachedToken = { token, expiresAtMs: nowMs + lifetimeSeconds * 1000 };
-    return { ok: true, token };
+    if (parsed.ok !== true) {
+      return failure("connector response is missing ok:true", true, response.status);
+    }
+    return { ok: true, body: parsed };
+  }
+
+  function readData(body: Record<string, unknown>): Record<string, unknown> | undefined {
+    return isRecord(body.data) ? body.data : undefined;
   }
 
   return {
-    async writeRanges(input): Promise<SheetsWriteResult> {
-      if (input.ranges.length === 0) {
-        return { ok: true, updatedRanges: 0, updatedCells: 0 };
+    async writeProjection(input): Promise<SheetsWriteResult> {
+      const result = await post({
+        operation: "sync",
+        grid: input.grid,
+        values: input.values,
+      });
+      if (!result.ok) {
+        return {
+          ok: false,
+          retryable: result.retryable,
+          error: result.error,
+          httpStatus: result.httpStatus,
+        };
       }
 
-      const token = await accessToken();
-      if (!token.ok) {
-        return { ok: false, retryable: true, httpStatus: token.httpStatus, error: token.error };
-      }
-
-      let response: Response;
-      try {
-        response = await fetchImpl(
-          `${apiBaseUrl}/spreadsheets/${encodeURIComponent(spreadsheetId)}/values:batchUpdate`,
-          {
-            method: "POST",
-            headers: {
-              authorization: `Bearer ${token.token}`,
-              "content-type": "application/json",
-            },
-            body: JSON.stringify({
-              valueInputOption: "RAW",
-              data: input.ranges.map((range) => ({ range: range.range, values: range.values })),
-            }),
-            signal: AbortSignal.timeout(timeoutMs),
-          },
-        );
-      } catch (error) {
+      const data = readData(result.body);
+      const operation = data?.operation;
+      const written = data?.written;
+      const grid = data?.grid;
+      const rowsWritten = data?.rowsWritten;
+      const updatedRanges = data?.updatedRanges;
+      const updatedCells = data?.updatedCells;
+      const expectedRows =
+        input.grid === "data" ? Math.max(0, input.values.length - 1) : input.values.length;
+      if (
+        data === undefined ||
+        operation !== "sync" ||
+        written !== true ||
+        grid !== input.grid ||
+        typeof rowsWritten !== "number" ||
+        !Number.isInteger(rowsWritten) ||
+        rowsWritten !== expectedRows ||
+        typeof updatedRanges !== "number" ||
+        !Number.isInteger(updatedRanges) ||
+        updatedRanges < 1 ||
+        typeof updatedCells !== "number" ||
+        !Number.isInteger(updatedCells) ||
+        updatedCells < 1
+      ) {
         return {
           ok: false,
           retryable: true,
-          httpStatus: undefined,
-          error: error instanceof Error ? `network: ${error.name}` : "network error",
+          error: "connector returned an unsafe sync acknowledgement",
+          httpStatus: 200,
         };
       }
-
-      if (!response.ok) {
-        let described: string | undefined;
-        try {
-          described = describeGoogleError(await response.json());
-        } catch {
-          described = undefined;
-        }
-        return {
-          ok: false,
-          retryable: isRetryableStatus(response.status),
-          httpStatus: response.status,
-          error: described ?? `sheets API returned HTTP ${String(response.status)}`,
-        };
-      }
-
-      let payload: unknown;
-      try {
-        payload = await response.json();
-      } catch {
-        return {
-          ok: false,
-          retryable: true,
-          httpStatus: response.status,
-          error: "non-JSON success body",
-        };
-      }
-      const updatedRanges = (payload as { totalUpdatedRanges?: unknown }).totalUpdatedRanges;
-      const updatedCells = (payload as { totalUpdatedCells?: unknown }).totalUpdatedCells;
       return {
         ok: true,
-        updatedRanges: typeof updatedRanges === "number" ? updatedRanges : input.ranges.length,
-        updatedCells: typeof updatedCells === "number" ? updatedCells : 0,
+        grid: input.grid,
+        written: true,
+        rowsWritten,
+        updatedRanges,
+        updatedCells,
+      };
+    },
+
+    async health(): Promise<SheetsOperationResult<SheetsHealth>> {
+      const result = await post({ operation: "health" });
+      if (!result.ok) {
+        return {
+          ok: false,
+          retryable: result.retryable,
+          error: result.error,
+          httpStatus: result.httpStatus,
+        };
+      }
+      const data = readData(result.body);
+      if (data === undefined) {
+        return {
+          ok: false,
+          retryable: true,
+          error: "connector returned an unsafe health response",
+          httpStatus: 200,
+        };
+      }
+      if (
+        data.operation !== "health" ||
+        data.spreadsheetAccessible !== true ||
+        data.dataTab !== true ||
+        data.statusTab !== true ||
+        typeof data.timeZone !== "string"
+      ) {
+        return {
+          ok: false,
+          retryable: true,
+          error: "connector returned an unsafe health response",
+          httpStatus: 200,
+        };
+      }
+      return {
+        ok: true,
+        data: {
+          operation: "health",
+          spreadsheetAccessible: true,
+          dataTab: true,
+          statusTab: true,
+          timeZone: data.timeZone,
+        },
+      };
+    },
+
+    async selfTest(): Promise<SheetsOperationResult<SheetsSelfTest>> {
+      const result = await post({ operation: "self_test" });
+      if (!result.ok) {
+        return {
+          ok: false,
+          retryable: result.retryable,
+          error: result.error,
+          httpStatus: result.httpStatus,
+        };
+      }
+      const data = readData(result.body);
+      if (data === undefined) {
+        return {
+          ok: false,
+          retryable: true,
+          error: "connector returned an unsafe self-test response",
+          httpStatus: 200,
+        };
+      }
+      if (
+        data.operation !== "self_test" ||
+        data.spreadsheetAccessible !== true ||
+        data.dataTab !== true ||
+        data.statusTab !== true ||
+        data.writeReadDelete !== true ||
+        data.cleanedUp !== true
+      ) {
+        return {
+          ok: false,
+          retryable: true,
+          error: "connector returned an unsafe self-test response",
+          httpStatus: 200,
+        };
+      }
+      return {
+        ok: true,
+        data: {
+          operation: "self_test",
+          spreadsheetAccessible: true,
+          dataTab: true,
+          statusTab: true,
+          writeReadDelete: true,
+          cleanedUp: true,
+        },
       };
     },
   };

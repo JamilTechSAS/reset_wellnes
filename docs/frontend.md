@@ -265,9 +265,9 @@ file, which is git-ignored.
 
 Never `VITE_`-prefix, and never ship: `SUPABASE_SECRET_KEY` / service-role key,
 `EPAYCO_PRIVATE_KEY`, `EPAYCO_P_KEY`, `EPAYCO_CUST_ID_CLIENTE`, `RESEND_API_KEY`,
-`GOOGLE_PRIVATE_KEY`, `MAINTENANCE_API_TOKEN`, the database URL. Nothing in `src/` reads them: the
-only ePayco values the browser holds are the session id and the public flags of the checkout
-payload the backend returns.
+`GOOGLE_APPS_SCRIPT_SECRET`, `MAINTENANCE_API_TOKEN`, the database URL. Nothing in `src/` reads
+them: the only ePayco values the browser holds are the session id and the public flags of the
+checkout payload the backend returns.
 
 ## 11. Local development
 

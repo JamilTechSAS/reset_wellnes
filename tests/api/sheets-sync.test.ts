@@ -1,15 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { runSheetsSync, sheetRange } from "@shared/api/sheets-sync.ts";
+import { runSheetsSync } from "@shared/api/sheets-sync.ts";
 import {
   SHEETS_CLAIM_BATCH_SIZE,
-  SHEETS_DEFAULT_DATA_SHEET,
-  SHEETS_DEFAULT_STATUS_SHEET,
   SHEETS_MAX_ATTEMPTS,
   type OperationalExportRow,
 } from "@shared/domain/sheets.ts";
 import type { ClaimedSheetProjection, SheetsGateway } from "@shared/db/sheets.ts";
-import type { SheetsClient } from "@shared/integrations/google/sheets-client.ts";
+import type { SheetsClient, SheetsWriteResult } from "@shared/integrations/google/sheets-client.ts";
 import { createLogger } from "@shared/logging/logger.ts";
 
 const logger = createLogger({
@@ -66,12 +64,8 @@ function exportRow(): OperationalExportRow {
 
 function setup(options: {
   readonly claims?: readonly ClaimedSheetProjection[];
-  readonly write?:
-    | { ok: true; updatedRanges: number; updatedCells: number }
-    | { ok: false; retryable: boolean; error: string; httpStatus: number | undefined };
-  readonly statusWrite?:
-    | { ok: true; updatedRanges: number; updatedCells: number }
-    | { ok: false; retryable: boolean; error: string; httpStatus: number | undefined };
+  readonly write?: SheetsWriteResult;
+  readonly statusWrite?: SheetsWriteResult;
   readonly updatedCount?: number;
 }) {
   const claimProjections = vi
@@ -92,11 +86,33 @@ function setup(options: {
   const listExportRows = vi.fn<SheetsGateway["listExportRows"]>().mockResolvedValue([exportRow()]);
   const sheets: SheetsGateway = { claimProjections, finishProjections, stats, listExportRows };
 
-  const writeRanges = vi
-    .fn<SheetsClient["writeRanges"]>()
-    .mockResolvedValueOnce(options.write ?? { ok: true, updatedRanges: 1, updatedCells: 22 })
-    .mockResolvedValueOnce(options.statusWrite ?? { ok: true, updatedRanges: 1, updatedCells: 7 });
-  const client: SheetsClient = { writeRanges };
+  const writeProjection = vi
+    .fn<SheetsClient["writeProjection"]>()
+    .mockResolvedValueOnce(
+      options.write ?? {
+        ok: true,
+        grid: "data",
+        written: true,
+        rowsWritten: 1,
+        updatedRanges: 1,
+        updatedCells: 22,
+      },
+    )
+    .mockResolvedValueOnce(
+      options.statusWrite ?? {
+        ok: true,
+        grid: "status",
+        written: true,
+        rowsWritten: 7,
+        updatedRanges: 1,
+        updatedCells: 14,
+      },
+    );
+  const client: SheetsClient = {
+    writeProjection,
+    health: vi.fn(),
+    selfTest: vi.fn(),
+  };
 
   return {
     sheets,
@@ -105,16 +121,9 @@ function setup(options: {
     finishProjections,
     stats,
     listExportRows,
-    writeRanges,
+    writeProjection,
   };
 }
-
-describe("sheet range quoting", () => {
-  it("quotes the tab name for A1 notation", () => {
-    expect(sheetRange("Datos")).toBe("'Datos'!A1");
-    expect(sheetRange("O'Brien")).toBe("'O''Brien'!A1");
-  });
-});
 
 describe("Google Sheets sync worker", () => {
   it("skips entirely when the projection is not configured", async () => {
@@ -131,16 +140,16 @@ describe("Google Sheets sync worker", () => {
   });
 
   it("does nothing (and touches no Google API) when no projection is due", async () => {
-    const { sheets, client, writeRanges } = setup({ claims: [] });
+    const { sheets, client, writeProjection } = setup({ claims: [] });
     const summary = await runSheetsSync({ sheets, client, timezone: "America/Bogota", logger });
     expect(summary.skipped).toBe(false);
     expect(summary.configured).toBe(true);
     expect(summary.claimed).toBe(0);
-    expect(writeRanges).not.toHaveBeenCalled();
+    expect(writeProjection).not.toHaveBeenCalled();
   });
 
   it("writes the full grid and marks only the claimed rows synced", async () => {
-    const { sheets, client, claimProjections, finishProjections, writeRanges } = setup({
+    const { sheets, client, claimProjections, finishProjections, writeProjection } = setup({
       updatedCount: 1,
     });
     const summary = await runSheetsSync({
@@ -155,10 +164,10 @@ describe("Google Sheets sync worker", () => {
       limit: SHEETS_CLAIM_BATCH_SIZE,
       maxAttempts: SHEETS_MAX_ATTEMPTS,
     });
-    const firstWrite = writeRanges.mock.calls[0]?.[0];
-    expect(firstWrite?.ranges[0]?.range).toBe(`'${SHEETS_DEFAULT_DATA_SHEET}'!A1`);
-    expect(firstWrite?.ranges[0]?.values).toHaveLength(2); // header + one ticket
-    expect(firstWrite?.ranges[0]?.values[0]?.length).toBe(22);
+    const firstWrite = writeProjection.mock.calls[0]?.[0];
+    expect(firstWrite?.grid).toBe("data");
+    expect(firstWrite?.values).toHaveLength(2); // header + one participant
+    expect(firstWrite?.values[0]?.length).toBe(22);
     expect(finishProjections).toHaveBeenCalledWith({
       participantIds: [claimedProjection().participantId],
       status: "SYNCED",
@@ -166,8 +175,8 @@ describe("Google Sheets sync worker", () => {
     expect(summary.syncedTickets).toBe(1);
     expect(summary.rowsWritten).toBe(1);
     expect(summary.statusTabWritten).toBe(true);
-    const statusWrite = writeRanges.mock.calls[1]?.[0];
-    expect(statusWrite?.ranges[0]?.range).toBe(`'${SHEETS_DEFAULT_STATUS_SHEET}'!A1`);
+    const statusWrite = writeProjection.mock.calls[1]?.[0];
+    expect(statusWrite?.grid).toBe("status");
   });
 
   it("keeps a row that changed mid-write queued instead of marking it synced", async () => {
@@ -177,6 +186,29 @@ describe("Google Sheets sync worker", () => {
     const summary = await runSheetsSync({ sheets, client, timezone: "America/Bogota", logger });
     expect(summary.syncedTickets).toBe(0);
     expect(summary.error).toBeNull();
+  });
+
+  it("records a failure instead of throwing when the connector client throws", async () => {
+    const { sheets, client, finishProjections } = setup({});
+    vi.mocked(client.writeProjection).mockReset();
+    vi.mocked(client.writeProjection).mockRejectedValue(new Error("unexpected connector"));
+    const summary = await runSheetsSync({
+      sheets,
+      client,
+      timezone: "America/Bogota",
+      logger,
+      now: () => NOW,
+    });
+
+    expect(summary.skipped).toBe(false);
+    expect(summary.claimed).toBe(1);
+    expect(summary.failedTickets).toBe(1);
+    expect(summary.syncedTickets).toBe(0);
+    expect(summary.rowsWritten).toBe(0);
+    expect(summary.error).toBe("the Apps Script connector call failed");
+    expect(finishProjections).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "FAILED", error: "the Apps Script connector call failed" }),
+    );
   });
 
   it("records a failure with a backoff and keeps the queue truthful", async () => {
