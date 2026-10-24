@@ -550,22 +550,15 @@ describe("ePayco webhook handler", () => {
 
     it.each([
       [
-        "a provider outage",
-        new EpaycoApiError("ePayco returned HTTP 503", { httpStatus: 503 }),
-        "PROVIDER_LOOKUP_FAILED",
-      ],
-      [
-        "an invalid provider response",
-        new EpaycoApiError("ePayco returned invalid JSON"),
-        "PROVIDER_LOOKUP_FAILED",
-      ],
-      [
         "a record not yet visible",
         new EpaycoApiError("not found", { httpStatus: 404 }),
         "PROVIDER_RECORD_NOT_FOUND",
       ],
-      ["a network failure", new TypeError("fetch failed"), "PROVIDER_LOOKUP_FAILED"],
     ])("answers 503 without claiming or confirming on %s", async (_label, error, reason) => {
+      // A 404 is a contradiction (a signed delivery naming a transaction ePayco says does not
+      // exist), not an outage, so it keeps retrying. Transport failures and unreadable provider
+      // answers are covered in "validation API unavailable (H15 follow-up)": they confirm from
+      // the signed delivery instead of blocking a legitimately signed approval.
       const payload = await makePayload();
       const { outcome, gateway } = await deliver(payload, clientReturning(error));
 
@@ -1016,6 +1009,138 @@ describe("ePayco webhook handler", () => {
       expect(outcome.status).toBe(200);
       expect(gateway.confirmPayment).toHaveBeenCalledTimes(1);
       expect(gateway.finalizeWebhookEvent).toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * The staging run on 2026-10-24 showed the validation API answering `Error de datos o
+   * conexión` for every reference (the merchant's own approved transaction, the historical one
+   * and a session id), so the lookup could never succeed. ePayco documents the signed
+   * confirmation delivery as the authoritative channel; these cases pin what happens when the
+   * lookup is unavailable while the delivery itself is authentic.
+   */
+  describe("validation API unavailable (H15 follow-up)", () => {
+    it("confirms from the signed delivery instead of failing the payment", async () => {
+      const payload = await makePayload();
+      const gateway = mockGateway();
+      const epayco = clientReturning(new EpaycoApiError("ePayco validation query unsuccessful"));
+
+      const outcome = await handleEpaycoWebhook({
+        rawBody: payload,
+        config: mockConfig,
+        logger,
+        payments: gateway,
+        epayco,
+      });
+
+      expect(outcome.status).toBe(200);
+      expect(outcome.outcome).toBe("APPLIED");
+      expect(gateway.confirmPayment).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orderReference: ORDER_REF,
+          wompiStatus: "1",
+          amountCents: 9_500_000,
+          currency: "COP",
+        }),
+      );
+      const payloadSent = vi.mocked(gateway.confirmPayment).mock.calls[0]?.[0] as {
+        providerPayload?: Record<string, unknown>;
+      };
+      // The stored payload is the delivery itself, never a synthesized record.
+      expect(payloadSent.providerPayload?.x_ref_payco).toBe(REF_PAYCO);
+      expect(payloadSent.providerPayload?.x_transaction_id).toBe(TX_ID);
+    });
+
+    it("applies the delivered declined status when the lookup is unavailable", async () => {
+      const payload = await makePayload({ x_cod_response: "2" });
+      const gateway = mockGateway();
+      const epayco = clientReturning(new EpaycoApiError("validation unavailable"));
+
+      const outcome = await handleEpaycoWebhook({
+        rawBody: payload,
+        config: mockConfig,
+        logger,
+        payments: gateway,
+        epayco,
+      });
+
+      expect(outcome.status).toBe(200);
+      expect(gateway.confirmPayment).toHaveBeenCalledWith(
+        expect.objectContaining({ wompiStatus: "2" }),
+      );
+    });
+
+    it("still retries when the lookup answers 404 for a validly signed delivery", async () => {
+      const payload = await makePayload();
+      const gateway = mockGateway();
+      const epayco = clientReturning(
+        new EpaycoApiError("Transaction reference not found at ePayco", { httpStatus: 404 }),
+      );
+
+      const outcome = await handleEpaycoWebhook({
+        rawBody: payload,
+        config: mockConfig,
+        logger,
+        payments: gateway,
+        epayco,
+      });
+
+      expect(outcome.status).toBe(503);
+      expect(outcome.outcome).toBe("RETRY");
+      expect(gateway.confirmPayment).not.toHaveBeenCalled();
+    });
+
+    it("never confirms a delivery whose amount cannot be read exactly", async () => {
+      const payload = await makePayload({ x_amount: "95000.999" });
+      const gateway = mockGateway();
+      const epayco = clientReturning(new EpaycoApiError("validation unavailable"));
+
+      const outcome = await handleEpaycoWebhook({
+        rawBody: payload,
+        config: mockConfig,
+        logger,
+        payments: gateway,
+        epayco,
+      });
+
+      expect(outcome.status).toBe(503);
+      expect(gateway.confirmPayment).not.toHaveBeenCalled();
+    });
+
+    it("keeps rejecting a forged signature even when the lookup is unavailable", async () => {
+      const payload = await makePayload({ x_signature: "0".repeat(64) });
+      const gateway = mockGateway();
+      const epayco = clientReturning(new EpaycoApiError("validation unavailable"));
+
+      const outcome = await handleEpaycoWebhook({
+        rawBody: payload,
+        config: mockConfig,
+        logger,
+        payments: gateway,
+        epayco,
+      });
+
+      expect(outcome.status).toBe(401);
+      expect(outcome.reason).toBe("SIGNATURE_MISMATCH");
+      expect(gateway.confirmPayment).not.toHaveBeenCalled();
+      expect(epayco.getTransaction).not.toHaveBeenCalled();
+    });
+
+    it("keeps a sandbox delivery out of a live backend", async () => {
+      const payload = await makePayload({ x_test_request: "true" });
+      const gateway = mockGateway();
+      const epayco = clientReturning(new EpaycoApiError("validation unavailable"));
+
+      const outcome = await handleEpaycoWebhook({
+        rawBody: payload,
+        config: liveConfig,
+        logger,
+        payments: gateway,
+        epayco,
+      });
+
+      expect(outcome.reason).toBe("TEST_TRANSACTION_IN_LIVE_MODE");
+      expect(gateway.confirmPayment).not.toHaveBeenCalled();
     });
   });
 });

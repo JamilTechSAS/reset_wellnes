@@ -207,6 +207,31 @@ does not reliably deliver the signed confirmation, and a paid order stays PENDIN
 backend never sees it. The webhook URL is always `<API_BASE_URL>/webhooks-epayco` — never the
 frontend origin.
 
+#### Which evidence confirms a payment
+
+The delivery is the authority ePayco documents. Its `x_signature` is
+`SHA256(p_cust_id_cliente ^ p_key ^ x_ref_payco ^ x_transaction_id ^ x_amount ^ x_currency_code)`,
+computed with our merchant keys, so a verified delivery is authentically ours.
+
+1. Signature mismatch → `401 SIGNATURE_MISMATCH`, nothing is claimed.
+2. A sandbox delivery received while the backend runs live → rejected for review.
+3. The backend then re-reads the transaction from ePayco's validation API. If the record
+   **contradicts** the signed fields (amount, currency, reference, transaction id, merchant,
+   test flag) the delivery is rejected for review and never applied.
+4. If the lookup answers **404** — a signed delivery naming a transaction ePayco says does not
+   exist — the webhook answers `503` and ePayco retries; nothing is claimed.
+5. If the lookup is **unavailable** (transport error, non-JSON, HTTP 5xx/429, or ePayco's
+   generic `{"status":false,"message":"Error de datos o conexión."}`), the confirmation is
+   applied from the signed delivery instead of being blocked. The validation API is an
+   unauthenticated GET protected only by TLS; the delivery is the authenticated channel, and
+   `confirm_payment` still re-checks amount, currency and reference against the order before
+   anything becomes `PAID`. A delivery whose amount cannot be read as exact centavos, or that
+   has no reference/invoice, is never confirmed this way (`503`, retried).
+
+The staging run on 2026-10-24 hit case 5: the validation endpoint answered the generic error
+for the merchant's approved transaction, for its historical reference and for a session id
+alike, so no lookup could ever succeed and every paid sandbox order stayed PENDING.
+
 ### `GET /orders/{reference}` — implemented (Phase 4)
 
 Buyer-facing status, safe fields only. The order reference is sequential and therefore

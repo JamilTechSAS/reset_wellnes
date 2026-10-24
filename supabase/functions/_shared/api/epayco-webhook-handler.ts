@@ -20,6 +20,7 @@
 
 import { verifyEpaycoSignature } from "../integrations/epayco/signature.ts";
 import { epaycoStatusFromCode, verifyEpaycoRecord } from "../integrations/epayco/verify.ts";
+import { buildSignedDeliveryRecord } from "../integrations/epayco/signed-delivery.ts";
 import type { EpaycoTransactionData } from "../integrations/epayco/types.ts";
 import { EpaycoApiError, type EpaycoClient } from "../integrations/epayco/client.ts";
 import type { PaymentGateway } from "../db/payments.ts";
@@ -88,6 +89,11 @@ const PERMANENT_CONFIRMATION_ERRORS: ReadonlySet<string> = new Set([
 
 function isTruthyFlag(value: string | undefined): boolean {
   return value !== undefined && ["true", "1", "yes"].includes(value.trim().toLowerCase());
+}
+
+/** Delivery metadata kept only for audit: an empty or absent field is `null`, never a guess. */
+function textOrNull(value: string | undefined): string | null {
+  return value !== undefined && value.trim().length > 0 ? value.trim() : null;
 }
 
 /** Parses raw JSON or URLSearchParams into a flat string record */
@@ -248,7 +254,41 @@ export async function handleEpaycoWebhook(
       notFound,
       error: toAppError(error).code,
     });
-    return retry(notFound ? "PROVIDER_RECORD_NOT_FOUND" : "PROVIDER_LOOKUP_FAILED");
+    if (notFound) {
+      // A delivery whose signature is valid but whose transaction ePayco says does not exist
+      // is a contradiction, not an outage: keep retrying and never settle on it.
+      return retry("PROVIDER_RECORD_NOT_FOUND");
+    }
+    // The lookup is an unauthenticated GET that is only TLS-protected and is not always
+    // available; the delivery, by contrast, is signed with our `p_key`. ePayco documents the
+    // signed confirmation as the authoritative channel, so an unavailable lookup must not
+    // leave a legitimately signed approval unconfirmed. The amount, currency, reference and
+    // transaction id still go through the same verification and `confirm_payment` re-checks
+    // them against the order before anything is marked paid.
+    const signedRecord = buildSignedDeliveryRecord({
+      refPayco,
+      transactionId,
+      amountText: amountStr,
+      currency,
+      invoice: bodyInvoice,
+      responseCode: payload.x_cod_response ?? payload.x_cod_transaction_state ?? "",
+      responseText: payload.x_response ?? payload.x_respuesta ?? "",
+      statusMessage: textOrNull(payload.x_response_reason_text),
+      isTest: isTruthyFlag(payload.x_test_request),
+      franchise: textOrNull(payload.x_franchise),
+      approvalCode: textOrNull(payload.x_approval_code),
+      transactionDate: textOrNull(payload.x_transaction_date ?? payload.x_fecha_transaccion),
+      payload,
+    });
+    if (signedRecord === null) {
+      return retry("PROVIDER_LOOKUP_FAILED");
+    }
+    logger.warn("epayco provider lookup unavailable; confirming from the signed delivery", {
+      refPayco,
+      orderReference: bodyOrderReference,
+      error: toAppError(error).code,
+    });
+    record = signedRecord;
   }
 
   const problems = await verifyEpaycoRecord({
