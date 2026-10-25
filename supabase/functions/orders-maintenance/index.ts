@@ -29,6 +29,7 @@ import { createResendClient, type ResendClient } from "../_shared/integrations/r
 import { createWompiClient } from "../_shared/integrations/wompi/client.ts";
 import { createEpaycoClient } from "../_shared/integrations/epayco/client.ts";
 import { createAlertGateway } from "../_shared/db/alerts.ts";
+import { createPostPurchaseEmailGateway } from "../_shared/db/post-purchase-emails.ts";
 import { createSheetsClient } from "../_shared/integrations/google/sheets-client.ts";
 import { errorResponse, jsonResponse, successResponse } from "../_shared/http/json.ts";
 import { createLogger } from "../_shared/logging/logger.ts";
@@ -77,6 +78,7 @@ async function run(config: BackendConfig, authorization: string | null): Promise
     payments: createPaymentGateway(client),
     orderStatus: createOrderStatusGateway(client),
     resend,
+    postPurchaseEmail: createPostPurchaseEmailGateway(client),
     wompi: createWompiClient({
       baseUrl: config.wompi.baseUrl,
       privateKey: config.wompi.privateKey,

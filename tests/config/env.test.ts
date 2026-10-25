@@ -23,6 +23,12 @@ const VALID_DEV_ENV: Record<string, string | undefined> = {
   TIMEZONE: "America/Bogota",
   SUPABASE_URL: "http://127.0.0.1:54321",
   SUPABASE_SECRET_KEY: SECRET_KEY,
+  PAYMENT_PROVIDER: "epayco",
+  EPAYCO_PUBLIC_KEY: "mock_public_key_123",
+  EPAYCO_PRIVATE_KEY: "mock_private_key_123",
+  EPAYCO_P_KEY: "mock_p_key_123",
+  EPAYCO_CUST_ID_CLIENTE: "998877",
+  // Legacy Wompi credentials: only the dormant `webhooks-wompi` function reads them.
   WOMPI_PUBLIC_KEY: "pub_test_abc",
   WOMPI_PRIVATE_KEY: "prv_test_abc",
   WOMPI_INTEGRITY_SECRET: "test_integrity_abc",
@@ -99,18 +105,12 @@ describe("configuration", () => {
       WOMPI_INTEGRITY_SECRET: "prod_integrity_abc",
       WOMPI_EVENTS_SECRET: "prod_events_abc",
     };
-    for (const paymentProvider of ["epayco", "wompi"]) {
-      const error = expectConfigError({
-        ...productionEnv,
-        PAYMENT_PROVIDER: paymentProvider,
-        EPAYCO_PUBLIC_KEY: "epayco_pub",
-        EPAYCO_PRIVATE_KEY: "epayco_prv",
-        EPAYCO_P_KEY: "epayco_pkey",
-        EPAYCO_CUST_ID_CLIENTE: "123456",
-        EPAYCO_TEST: "true",
-      });
-      expect(error.issues).toContain("EPAYCO_TEST must be false when APP_ENV=production");
-    }
+    const error = expectConfigError({
+      ...productionEnv,
+      PAYMENT_PROVIDER: "epayco",
+      EPAYCO_TEST: "true",
+    });
+    expect(error.issues).toContain("EPAYCO_TEST must be false when APP_ENV=production");
 
     // Production defaults to live mode; an explicit false is accepted.
     expect(loadConfig(productionEnv).epayco.test).toBe(false);
@@ -171,21 +171,29 @@ describe("configuration", () => {
     expect(nonsenseError.issues.some((issue) => issue.includes("unrecognized format"))).toBe(true);
   });
 
-  it("requires every Wompi credential", () => {
-    const error = expectConfigError({
+  it("never requires Wompi credentials: they are only read for the dormant legacy webhook", () => {
+    const config = loadConfig({
       ...VALID_DEV_ENV,
       WOMPI_PUBLIC_KEY: undefined,
       WOMPI_PRIVATE_KEY: undefined,
       WOMPI_INTEGRITY_SECRET: undefined,
       WOMPI_EVENTS_SECRET: undefined,
     });
-    for (const name of [
-      "WOMPI_PUBLIC_KEY",
-      "WOMPI_PRIVATE_KEY",
-      "WOMPI_INTEGRITY_SECRET",
-      "WOMPI_EVENTS_SECRET",
-    ]) {
-      expect(error.issues.some((issue) => issue.startsWith(`${name} is required`))).toBe(true);
+    expect(config.paymentProvider).toBe("epayco");
+    expect(config.wompi.publicKey).toBe("");
+    expect(config.wompi.privateKey).toBe("");
+    expect(config.wompi.integritySecret).toBe("");
+    expect(config.wompi.eventsSecret).toBe("");
+  });
+
+  it("rejects the retired providers instead of falling back silently", () => {
+    for (const retired of ["wompi", "mercadopago"] as const) {
+      const error = expectConfigError({ ...VALID_DEV_ENV, PAYMENT_PROVIDER: retired });
+      expect(
+        error.issues.some(
+          (issue) => issue.includes("PAYMENT_PROVIDER") && issue.includes("retired"),
+        ),
+      ).toBe(true);
     }
   });
 
@@ -661,14 +669,10 @@ describe("ePayco configuration", () => {
   });
 
   describe("payment provider selection and validation", () => {
-    it("defaults to wompi when PAYMENT_PROVIDER is absent and no ePayco credentials exist", () => {
-      const config = loadConfig(VALID_DEV_ENV);
-      expect(config.paymentProvider).toBe("wompi");
-      expect(config.wompi.publicKey).toBe("pub_test_abc");
-    });
-
-    it("defaults to epayco when PAYMENT_PROVIDER is absent but EPAYCO_PUBLIC_KEY is provided", () => {
-      const withoutProvider: Record<string, string | undefined> = { ...VALID_EPAYCO_ENV };
+    it("defaults to epayco when PAYMENT_PROVIDER is absent", () => {
+      // There is no key-based inference any more: ePayco is the only checkout provider, so a
+      // deployment that never sets PAYMENT_PROVIDER still sells with ePayco.
+      const withoutProvider: Record<string, string | undefined> = { ...VALID_DEV_ENV };
       delete withoutProvider.PAYMENT_PROVIDER;
       const config = loadConfig(withoutProvider);
       expect(config.paymentProvider).toBe("epayco");
@@ -687,6 +691,10 @@ describe("ePayco configuration", () => {
       const error = expectConfigError({
         ...VALID_DEV_ENV,
         PAYMENT_PROVIDER: "epayco",
+        EPAYCO_PUBLIC_KEY: undefined,
+        EPAYCO_PRIVATE_KEY: undefined,
+        EPAYCO_P_KEY: undefined,
+        EPAYCO_CUST_ID_CLIENTE: undefined,
         WOMPI_PUBLIC_KEY: undefined,
         WOMPI_PRIVATE_KEY: undefined,
         WOMPI_INTEGRITY_SECRET: undefined,
@@ -705,7 +713,7 @@ describe("ePayco configuration", () => {
       expect(error.issues.some((issue) => issue.includes("WOMPI_"))).toBe(false);
     });
 
-    it("reports missing Wompi credentials when PAYMENT_PROVIDER=wompi and never asks for ePayco credentials", () => {
+    it("refuses PAYMENT_PROVIDER=wompi without asking for any Wompi credential", () => {
       const error = expectConfigError({
         ...VALID_DEV_ENV,
         PAYMENT_PROVIDER: "wompi",
@@ -714,19 +722,12 @@ describe("ePayco configuration", () => {
         WOMPI_INTEGRITY_SECRET: undefined,
         WOMPI_EVENTS_SECRET: undefined,
       });
-      expect(error.issues.some((issue) => issue.includes("WOMPI_PUBLIC_KEY is required"))).toBe(
-        true,
-      );
-      expect(error.issues.some((issue) => issue.includes("WOMPI_PRIVATE_KEY is required"))).toBe(
-        true,
-      );
       expect(
-        error.issues.some((issue) => issue.includes("WOMPI_INTEGRITY_SECRET is required")),
+        error.issues.some(
+          (issue) => issue.includes("PAYMENT_PROVIDER") && issue.includes("retired"),
+        ),
       ).toBe(true);
-      expect(error.issues.some((issue) => issue.includes("WOMPI_EVENTS_SECRET is required"))).toBe(
-        true,
-      );
-      expect(error.issues.some((issue) => issue.includes("EPAYCO_"))).toBe(false);
+      expect(error.issues.some((issue) => issue.includes("WOMPI_"))).toBe(false);
     });
   });
 
@@ -781,10 +782,9 @@ describe("ePayco configuration", () => {
     });
 
     it("assertPaymentReady detects missing ePayco credentials and apiBaseUrl at payment time", () => {
-      const config = loadOrderConfig({
-        ...MINIMAL_DB_ENV,
-        PAYMENT_PROVIDER: "epayco",
-      });
+      // No PAYMENT_PROVIDER on purpose: the default is ePayco, and the payment endpoints are
+      // still gated on its credentials.
+      const config = loadOrderConfig(MINIMAL_DB_ENV);
 
       expect(() => {
         assertPaymentReady(config);
@@ -819,26 +819,10 @@ describe("ePayco configuration", () => {
       }).not.toThrow();
     });
 
-    it("assertPaymentReady detects missing Wompi credentials when provider is wompi", () => {
-      const config = loadOrderConfig({
-        ...MINIMAL_DB_ENV,
-        PAYMENT_PROVIDER: "wompi",
-      });
-
-      expect(() => {
-        assertPaymentReady(config);
-      }).toThrow(ConfigError);
-      try {
-        assertPaymentReady(config);
-      } catch (error) {
-        expect(error).toBeInstanceOf(ConfigError);
-        const issues = (error as ConfigError).issues;
-        expect(issues.some((i) => i.includes("WOMPI_PUBLIC_KEY"))).toBe(true);
-        expect(issues.some((i) => i.includes("WOMPI_PRIVATE_KEY"))).toBe(true);
-        expect(issues.some((i) => i.includes("WOMPI_INTEGRITY_SECRET"))).toBe(true);
-        expect(issues.some((i) => i.includes("WOMPI_EVENTS_SECRET"))).toBe(true);
-        expect(issues.some((i) => i.includes("EPAYCO_"))).toBe(false);
-      }
+    it("loadOrderConfig refuses the retired Wompi provider outright", () => {
+      expect(() => loadOrderConfig({ ...MINIMAL_DB_ENV, PAYMENT_PROVIDER: "wompi" })).toThrow(
+        ConfigError,
+      );
     });
   });
 });

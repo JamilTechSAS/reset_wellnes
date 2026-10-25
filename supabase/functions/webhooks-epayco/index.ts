@@ -17,6 +17,11 @@ import {
 } from "../_shared/db/payments.ts";
 import { handleEpaycoWebhook } from "../_shared/api/epayco-webhook-handler.ts";
 import { dispatchEmails } from "../_shared/api/email-dispatch.ts";
+import { dispatchPostPurchaseEmails } from "../_shared/api/post-purchase-email-dispatch.ts";
+import {
+  createPostPurchaseEmailGateway,
+  type PostPurchaseEmailGateway,
+} from "../_shared/db/post-purchase-emails.ts";
 import { createEpaycoClient, type EpaycoClient } from "../_shared/integrations/epayco/client.ts";
 import { createResendClient, type ResendClient } from "../_shared/integrations/resend/client.ts";
 import { errorResponse, jsonResponse } from "../_shared/http/json.ts";
@@ -31,6 +36,7 @@ type WebhookContext = {
   readonly epayco: EpaycoClient;
   readonly alerts: AlertSink;
   readonly resend: ResendClient | undefined;
+  readonly postPurchaseEmails: PostPurchaseEmailGateway;
   readonly logger: Logger;
 };
 
@@ -89,6 +95,7 @@ function buildContext(config: BackendConfig, logger: Logger): WebhookContext {
       retryDelaysMs: [300],
     }),
     resend,
+    postPurchaseEmails: createPostPurchaseEmailGateway(client),
     logger,
   };
 }
@@ -157,6 +164,25 @@ Deno.serve(async (request: Request): Promise<Response> => {
       epayco: context.epayco,
       alerts: context.alerts,
     });
+
+    // The email is triggered by the PAID transition the confirmation just committed, never by
+    // the response itself: a rejected signature, a declined transaction or a duplicate delivery
+    // that left the order unpaid reports another status here and sends nothing.
+    if (outcome.status === 200 && outcome.orderStatus === "PAID") {
+      try {
+        await dispatchPostPurchaseEmails({
+          config: context.config,
+          logger: context.logger,
+          gateway: context.postPurchaseEmails,
+          resend: context.resend,
+          limit: context.config.emailDispatchBatchSize,
+        });
+      } catch (error) {
+        logger.error("post-purchase email dispatch after epayco webhook failed", {
+          error: toAppError(error).code,
+        });
+      }
+    }
 
     if (outcome.status === 200 && outcome.ticketsIssued > 0) {
       try {

@@ -24,7 +24,6 @@ import {
   createMemoryStore,
   draftEntry,
   firstCreateOrderInput,
-  makeCheckout,
   makeCreatedOrder,
   makeEpaycoCheckout,
   makeEvent,
@@ -269,7 +268,7 @@ describe("server-side quote", () => {
     );
   });
 
-  it("quotes Doble experiencia as a named two-admission product", async () => {
+  it("quotes Comparte tu experiencia as a three-admission package", async () => {
     const api = createFakeApi();
     const event = makeEvent();
     api.getEvent.mockResolvedValue({
@@ -278,39 +277,46 @@ describe("server-side quote", () => {
         ...event.sales,
         ticketTypes: event.sales.ticketTypes.map((ticketType) => ({
           ...ticketType,
-          currentTier: { name: "General", sequence: 2, priceInCents: 20_000_000 },
+          currentTier: {
+            name: "General",
+            sequence: 2,
+            priceInCents: 19_990_000,
+            maxPerOrder: null,
+          },
         })),
       },
     });
     api.quote.mockResolvedValue(
       makeQuote({
-        quantity: 2,
-        ticketType: { code: "DOUBLE_EXPERIENCE", name: "Doble experiencia" },
-        pricingTier: { name: "General", sequence: 2, unitPriceInCents: 17_000_000 },
-        subtotalInCents: 34_000_000,
+        quantity: 3,
+        ticketType: { code: TEST_TICKET_TYPE_CODE, name: "Entrada general" },
+        pricingTier: { name: "General", sequence: 2, unitPriceInCents: 16_990_000 },
+        subtotalInCents: 50_970_000,
         quantityDiscount: { applies: false, percentBps: 0, amountInCents: 0 },
         quantityDiscountInCents: 0,
         totalDiscountInCents: 0,
-        totalInCents: 34_000_000,
+        totalInCents: 50_970_000,
       }),
     );
     const env = setup({ api, seed: draftEntry(1) });
-    env.controller.setBundleCode("DOUBLE_EXPERIENCE");
+    env.controller.setBundleCode("SHARE_EXPERIENCE");
     await reachReview(env);
 
-    expect(env.controller.getState().quantity).toBe(2);
-    expect(env.controller.getState().quote?.totalInCents).toBe(34_000_000);
+    // One package is three admissions charged once: 3 × $169.900 = $509.700.
+    expect(env.controller.getState().quantity).toBe(3);
+    expect(env.controller.getState().quote?.totalInCents).toBe(50_970_000);
     expect(env.api.quote).toHaveBeenCalledWith(
       expect.objectContaining({
         eventCode: TEST_EVENT_CODE,
         ticketTypeCode: TEST_TICKET_TYPE_CODE,
-        quantity: 2,
-        bundleCode: "DOUBLE_EXPERIENCE",
+        quantity: 3,
+        bundleCode: "SHARE_EXPERIENCE",
       }),
       expect.anything(),
     );
-    env.controller.setQuantity(4);
-    expect(env.controller.getState().quantity).toBe(2);
+    // The package quantity is fixed: the buyer cannot turn one package into two.
+    env.controller.setQuantity(6);
+    expect(env.controller.getState().quantity).toBe(3);
   });
 
   it("sends the discount code and surfaces the backend's verdict on it", async () => {
@@ -322,7 +328,12 @@ describe("server-side quote", () => {
         ...event.sales,
         ticketTypes: event.sales.ticketTypes.map((ticketType) => ({
           ...ticketType,
-          currentTier: { name: "General", sequence: 2, priceInCents: 20_000_000 },
+          currentTier: {
+            name: "General",
+            sequence: 2,
+            priceInCents: 19_990_000,
+            maxPerOrder: null,
+          },
         })),
       },
     });
@@ -1149,7 +1160,7 @@ describe("companion (second admission) after a confirmed payment", () => {
   it("attaches the companion of two regular General tickets to the PAID order", async () => {
     const api = createFakeApi();
     api.getOrderStatus.mockResolvedValue(
-      makePaidOrderStatus({ quantity: 2, totalInCents: 40_000_000 }),
+      makePaidOrderStatus({ quantity: 2, totalInCents: 39_980_000 }),
     );
     const env = setup({ api, seed: draftEntry(2), polling });
     await reachConfirmed(env, 2);
@@ -1186,9 +1197,9 @@ describe("companion (second admission) after a confirmed payment", () => {
       makePaidOrderStatus({ quantity: 2, totalInCents: 34_000_000 }),
     );
     const env = setup({ api, seed: draftEntry(2), polling });
-    env.controller.setBundleCode("DOUBLE_EXPERIENCE");
+    env.controller.setBundleCode("SHARE_EXPERIENCE");
     await reachConfirmed(env, 2);
-    expect(env.controller.getState().bundleCode).toBe("DOUBLE_EXPERIENCE");
+    expect(env.controller.getState().bundleCode).toBe("SHARE_EXPERIENCE");
 
     fillCompanion(env.controller);
     await env.controller.submitCompanion();
@@ -1200,7 +1211,7 @@ describe("companion (second admission) after a confirmed payment", () => {
   it("reports a fully assigned order without inventing a retry", async () => {
     const api = createFakeApi();
     api.getOrderStatus.mockResolvedValue(
-      makePaidOrderStatus({ quantity: 2, totalInCents: 40_000_000 }),
+      makePaidOrderStatus({ quantity: 2, totalInCents: 39_980_000 }),
     );
     api.attachParticipant.mockRejectedValue(
       new ApiError({ code: "CONFLICT", status: 409, message: "no admission left" }),
@@ -1220,7 +1231,7 @@ describe("companion (second admission) after a confirmed payment", () => {
   it("hydrates a registered companion from the backend roster after a reload", async () => {
     const api = createFakeApi();
     api.getOrderStatus.mockResolvedValue(
-      makeFullyAssignedOrderStatus({ quantity: 2, totalInCents: 40_000_000 }),
+      makeFullyAssignedOrderStatus({ quantity: 2, totalInCents: 39_980_000 }),
     );
     const first = setup({ api, seed: draftEntry(2), polling });
     await reachReview(first);
@@ -1258,7 +1269,7 @@ describe("companion (second admission) after a confirmed payment", () => {
       makeFullyAssignedOrderStatus({ quantity: 2, totalInCents: 34_000_000 }),
     );
     const env = setup({ api, seed: pendingOrderEntry(), polling });
-    env.controller.setBundleCode("DOUBLE_EXPERIENCE");
+    env.controller.setBundleCode("SHARE_EXPERIENCE");
     await env.controller.resumeReturn({});
 
     const state = env.controller.getState();
@@ -1271,7 +1282,7 @@ describe("companion (second admission) after a confirmed payment", () => {
   it("keeps the companion form while an admission is still free after a reload", async () => {
     const api = createFakeApi();
     api.getOrderStatus.mockResolvedValue(
-      makePaidOrderStatus({ quantity: 2, totalInCents: 40_000_000 }),
+      makePaidOrderStatus({ quantity: 2, totalInCents: 39_980_000 }),
     );
     const env = setup({ api, seed: pendingOrderEntry(), polling });
     await env.controller.resumeReturn({});
@@ -1286,7 +1297,7 @@ describe("companion (second admission) after a confirmed payment", () => {
   it("uses the backend's admission counts, not quantity minus one", async () => {
     const api = createFakeApi();
     api.getOrderStatus.mockResolvedValue(
-      makeFullyAssignedOrderStatus({ quantity: 2, totalInCents: 40_000_000 }),
+      makeFullyAssignedOrderStatus({ quantity: 2, totalInCents: 39_980_000 }),
     );
     const env = setup({ api, seed: draftEntry(2), polling });
     await reachConfirmed(env, 2);
@@ -1322,7 +1333,7 @@ describe("companion (second admission) after a confirmed payment", () => {
   it("validates the companion before calling the backend", async () => {
     const api = createFakeApi();
     api.getOrderStatus.mockResolvedValue(
-      makePaidOrderStatus({ quantity: 2, totalInCents: 40_000_000 }),
+      makePaidOrderStatus({ quantity: 2, totalInCents: 39_980_000 }),
     );
     const env = setup({ api, seed: draftEntry(2), polling });
     await reachConfirmed(env, 2);
@@ -1353,7 +1364,7 @@ describe("companion (second admission) after a confirmed payment", () => {
   it("never persists the companion's personal data", async () => {
     const api = createFakeApi();
     api.getOrderStatus.mockResolvedValue(
-      makePaidOrderStatus({ quantity: 2, totalInCents: 40_000_000 }),
+      makePaidOrderStatus({ quantity: 2, totalInCents: 39_980_000 }),
     );
     const env = setup({ api, seed: draftEntry(2), polling });
     await reachConfirmed(env, 2);
@@ -1368,7 +1379,20 @@ describe("companion (second admission) after a confirmed payment", () => {
 describe("payment provider", () => {
   it("refuses to open a checkout that is not ePayco", async () => {
     const api = createFakeApi();
-    api.createOrder.mockResolvedValue(makeCreatedOrder({ checkout: makeCheckout() }));
+    // A legacy Wompi payload: the current backend cannot produce one, a stale deployment can.
+    // The cast is the point of the test — the contract no longer admits this shape, and the
+    // controller must still refuse it instead of handing the buyer to an unknown gateway.
+    const legacyCheckout = {
+      publicKey: "pub_test_legacy",
+      currency: "COP",
+      amountInCents: 16_000_000,
+      reference: "EVT-2026-000001-1",
+      integritySignature: "legacy-signature",
+      expirationTime: null,
+      redirectUrl: null,
+      customerData: { email: null, fullName: null, phoneNumber: null, phoneNumberPrefix: null },
+    } as unknown as EpaycoCheckout;
+    api.createOrder.mockResolvedValue(makeCreatedOrder({ checkout: legacyCheckout }));
     const env = setup({ api, seed: draftEntry(1) });
 
     await reachReview(env);
@@ -1380,5 +1404,63 @@ describe("payment provider", () => {
     expect(state.problem?.title).toBe("Pasarela de pago no disponible");
     // The order exists, so the buyer can still look it up with the reference.
     expect(env.store.getItem("ticket:pending-order:v1")).not.toBeNull();
+  });
+});
+
+describe("return named by the provider URL", () => {
+  it("asks for the email only when the URL names the order and this tab has no session", async () => {
+    const api = createFakeApi();
+    const env = setup({ api });
+
+    await env.controller.resumeReturn({ reference: "evt-2026-000012-2" });
+
+    const state = env.controller.getState();
+    expect(state.step).toBe("problem");
+    expect(state.problem?.title).toBe("Confirma el correo de tu compra");
+    expect(state.problem?.message).toContain("EVT-2026-000012");
+    // The retry suffix belongs to the payment attempt, not the order.
+    expect(state.recoveryPrefill).toEqual({ reference: "EVT-2026-000012", email: "" });
+    // A reference alone proves nothing and cannot carry the email: nothing is queried yet.
+    expect(api.getOrderStatus).not.toHaveBeenCalled();
+  });
+
+  it("keeps the manual form when the URL carries no reference at all", async () => {
+    const api = createFakeApi();
+    const env = setup({ api });
+
+    await env.controller.resumeReturn({});
+
+    const state = env.controller.getState();
+    expect(state.problem?.title).toBe("No pudimos ubicar tu compra en este navegador");
+    expect(state.recoveryPrefill).toEqual({ reference: "", email: "" });
+  });
+
+  it("does not reuse the stored email for a different order named by the URL", async () => {
+    const api = createFakeApi();
+    const env = setup({ api, seed: pendingOrderEntry() });
+
+    await env.controller.resumeReturn({ reference: "EVT-2026-000002" });
+
+    expect(env.controller.getState().recoveryPrefill).toEqual({
+      reference: "EVT-2026-000002",
+      email: "",
+    });
+    expect(api.getOrderStatus).not.toHaveBeenCalled();
+  });
+
+  it("still resumes automatically when the URL names the stored order", async () => {
+    const api = createFakeApi();
+    api.getOrderStatus.mockResolvedValue(
+      makeOrderStatus({ reference: "EVT-2026-000001", status: "PENDING" }),
+    );
+    const env = setup({ api, seed: pendingOrderEntry() });
+
+    await env.controller.resumeReturn({ reference: "EVT-2026-000001-1" });
+
+    expect(api.getOrderStatus).toHaveBeenCalledWith(
+      "EVT-2026-000001",
+      TEST_BUYER_EMAIL,
+      expect.anything(),
+    );
   });
 });

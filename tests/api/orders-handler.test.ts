@@ -9,17 +9,25 @@
 import { describe, expect, it, vi, type MockedFunction } from "vitest";
 
 import { loadConfig, type BackendConfig } from "@shared/config/env.ts";
-import { handleCreateOrder, handleQuote, parseIdempotencyKey } from "@shared/api/orders-handler.ts";
+import {
+  CHECKOUT_CONFLICT_REASONS,
+  checkoutConflictDetails,
+  handleCreateOrder,
+  handleQuote,
+  parseIdempotencyKey,
+  PURCHASE_RULE_REASONS,
+  purchaseRuleDetails,
+  withOrderReference,
+} from "@shared/api/orders-handler.ts";
 import {
   isParticipantValidationError,
   type ParticipantValidationError,
 } from "@shared/api/order-requests.ts";
-import { toAppError } from "@shared/domain/errors.ts";
+import { conflictError, toAppError, validationError } from "@shared/domain/errors.ts";
 import { mapSqlErrorToAppError, type OrderGateway } from "@shared/db/orders.ts";
 import { createLogger } from "@shared/logging/logger.ts";
-import { buildWompiCheckout, type WompiCheckout } from "@shared/integrations/wompi/checkout.ts";
 import type { EpaycoApifyClient } from "@shared/integrations/epayco/apify.ts";
-import type { EpaycoCheckout } from "@shared/integrations/epayco/types.ts";
+import type { CheckoutSessionGateway, CheckoutSessionPlan } from "@shared/db/checkout-sessions.ts";
 import { DEFAULT_ERROR_MESSAGES_ES, errorResponse } from "@shared/http/json.ts";
 
 /**
@@ -40,10 +48,12 @@ function testConfig(overrides: Record<string, string> = {}): BackendConfig {
     APP_ENV: "development",
     SUPABASE_URL: "http://127.0.0.1:54321",
     SUPABASE_SECRET_KEY: fakeCredential("sb_secret_"),
-    WOMPI_PUBLIC_KEY: fakeCredential("pub_test_"),
-    WOMPI_PRIVATE_KEY: fakeCredential("prv_test_"),
-    WOMPI_INTEGRITY_SECRET: fakeCredential("test_integrity_"),
-    WOMPI_EVENTS_SECRET: fakeCredential("test_events_"),
+    PAYMENT_PROVIDER: "epayco",
+    EPAYCO_PUBLIC_KEY: fakeCredential("epayco_pub_"),
+    EPAYCO_PRIVATE_KEY: fakeCredential("epayco_prv_"),
+    EPAYCO_P_KEY: fakeCredential("epayco_pkey_"),
+    EPAYCO_CUST_ID_CLIENTE: "123456",
+    EPAYCO_TEST: "true",
     PUBLIC_WEB_BASE_URL: "http://localhost:3000",
     API_BASE_URL: "http://127.0.0.1:54321/functions/v1",
     CORS_ALLOWED_ORIGINS: "http://localhost:3000",
@@ -59,11 +69,69 @@ const logger = createLogger({
   sink: () => undefined,
 });
 
+const CREATE_PLAN: CheckoutSessionPlan = {
+  state: "CREATE",
+  paymentId: "33333333-3333-4333-8333-333333333333",
+  paymentReference: "EVT-2026-000001",
+  paymentAttempt: 1,
+  generation: 1,
+};
+
+/** A checkout-session double. ePayco session tests override it when they need another plan. */
+function checkoutSessionsDouble(
+  overrides: Partial<CheckoutSessionGateway> = {},
+): CheckoutSessionGateway {
+  return {
+    begin: vi.fn<CheckoutSessionGateway["begin"]>().mockResolvedValue(CREATE_PLAN),
+    complete: vi.fn<CheckoutSessionGateway["complete"]>().mockResolvedValue("RECORDED"),
+    abandon: vi.fn<CheckoutSessionGateway["abandon"]>().mockResolvedValue(true),
+    ...overrides,
+  };
+}
+
+const checkoutSessions = checkoutSessionsDouble();
+
+type CreateOrderOptions = Parameters<typeof handleCreateOrder>[0];
+
+/**
+ * Default ePayco session-creation double.
+ *
+ * Every successful order now opens an ePayco session, and the real client would call the
+ * Apify gateway over the network. Tests that are not ABOUT session creation get this double so
+ * the suite stays hermetic; the session tests pass their own mock to assert the request.
+ */
+const DEFAULT_APIFY: EpaycoApifyClient = {
+  login: vi.fn().mockResolvedValue("token_default"),
+  createSession: vi.fn().mockResolvedValue({ sessionId: "epayco_session_default" }),
+};
+
+/**
+ * `handleCreateOrder` with the checkout-session and ePayco dependencies supplied. Most tests
+ * here assert the pricing and payload contract, which is independent of how a session was
+ * pinned; the session tests pass their own doubles explicitly.
+ */
+function createOrderWithSessions(
+  options: Omit<CreateOrderOptions, "checkoutSessions"> & {
+    readonly checkoutSessions?: CheckoutSessionGateway;
+  },
+): ReturnType<typeof handleCreateOrder> {
+  return handleCreateOrder({
+    ...options,
+    checkoutSessions: options.checkoutSessions ?? checkoutSessions,
+    epaycoApify: options.epaycoApify ?? DEFAULT_APIFY,
+  });
+}
+
 const QUOTE = {
   event: { code: "TAT-2026", name: "Evento" },
   ticketType: { code: "GENERAL", name: "Entrada general" },
   quantity: 2,
-  pricingTier: { name: "Preventa 1", sequence: 1, unitPriceInCents: 9_500_000 },
+  pricingTier: {
+    name: "Preventa 1",
+    sequence: 1,
+    unitPriceInCents: 9_500_000,
+    maxPerOrder: null,
+  },
   subtotalInCents: 19_000_000,
   quantityDiscount: { applies: false, percentBps: 0, amountInCents: 0 },
   quantityDiscountInCents: 0,
@@ -147,6 +215,24 @@ const VALID_ORDER_BODY = {
     consents: { dataProcessing: true, futureEvents: false },
   },
 };
+
+describe("withOrderReference", () => {
+  it("adds the order reference the post-payment page reads", () => {
+    expect(withOrderReference("https://evento.example/gracias", "EVT-2026-000012")).toBe(
+      "https://evento.example/gracias?ref=EVT-2026-000012",
+    );
+  });
+
+  it("keeps an existing query string intact", () => {
+    expect(withOrderReference("https://evento.example/gracias?utm=qa", "EVT-2026-000012")).toBe(
+      "https://evento.example/gracias?utm=qa&ref=EVT-2026-000012",
+    );
+  });
+
+  it("stays undefined when no return URL is configured", () => {
+    expect(withOrderReference(undefined, "EVT-2026-000012")).toBeUndefined();
+  });
+});
 
 describe("SQL error mapping", () => {
   it("maps PT404 to NOT_FOUND and PT409 to CONFLICT", () => {
@@ -261,6 +347,47 @@ describe("handleQuote", () => {
     ).rejects.toThrow(/unknown discount reason/);
   });
 
+  it.each([
+    ["QUANTITY_LIMIT", 2],
+    ["BUNDLE_NOT_AVAILABLE", 2],
+  ])(
+    "keeps the %s refusal's message generic while the reason stays available to the API layer",
+    async (detail, quantity) => {
+      const { gateway } = gatewayWith({
+        quote: vi
+          .fn()
+          .mockRejectedValue(
+            conflictError(`Database reported a conflict: ${detail}`, { context: { detail } }),
+          ),
+      });
+
+      const error = await handleQuote({
+        rawBody: { eventCode: "TAT-2026", ticketTypeCode: "GENERAL", quantity },
+        gateway,
+        config: testConfig(),
+        logger,
+      }).catch((caught: unknown) => caught);
+
+      // The handler never turns the refusal into a quote, and the database's own sentence is
+      // not what a buyer would see.
+      expect(toAppError(error)).toMatchObject({
+        code: "CONFLICT",
+        context: { detail },
+      });
+      expect(purchaseRuleDetails(error)).toEqual({ reason: detail });
+
+      const response = errorResponse(error, {
+        details: purchaseRuleDetails(error),
+      });
+      expect(response.status).toBe(409);
+      const body = (await response.json()) as {
+        error: { code: string; message: string; details?: { reason?: string } };
+      };
+      expect(body.error.message).toBe(DEFAULT_ERROR_MESSAGES_ES.CONFLICT);
+      expect(body.error.details).toEqual({ reason: detail });
+    },
+  );
+
   it("rejects a client-supplied price instead of ignoring it silently", async () => {
     const { gateway } = gatewayWith();
     // `totalInCents` is not part of the schema, so it is stripped; the price still comes from
@@ -282,28 +409,164 @@ describe("handleQuote", () => {
   });
 });
 
+/**
+ * "Comparte tu experiencia": three General admissions for COP 509.700.
+ *
+ * The quote below is a fixture, not a schedule read: these tests are about the request contract
+ * and the routing that follows it, so they must not depend on whether the sale window happens
+ * to be open when the suite runs. The window itself is covered by the schema tests.
+ */
+const BUNDLE_QUOTE = {
+  ...QUOTE,
+  quantity: 3,
+  pricingTier: {
+    name: "General",
+    sequence: 2,
+    unitPriceInCents: 16_990_000,
+    maxPerOrder: null,
+  },
+  subtotalInCents: 50_970_000,
+  totalInCents: 50_970_000,
+};
+
+describe("bundle purchase contract", () => {
+  it("forwards the new package code and its three admissions to the bundle pricing path", async () => {
+    // The spy is kept locally: `gatewayWith` returns its default spy, which is not the one an
+    // override replaces, so assertions must reference this mock directly.
+    const bundleQuote = vi.fn<OrderGateway["quote"]>().mockResolvedValue(BUNDLE_QUOTE);
+    const { gateway } = gatewayWith({ quote: bundleQuote });
+
+    const result = await handleQuote({
+      rawBody: {
+        eventCode: "reset-sunset-2026",
+        ticketTypeCode: "general",
+        quantity: 3,
+        bundleCode: "SHARE_EXPERIENCE",
+      },
+      gateway,
+      config: testConfig(),
+      logger,
+    });
+
+    // Reaching the gateway with `bundleCode` is what selects `quote_bundle_order_price`
+    // instead of the per-admission quote, so the bundle code must survive validation intact.
+    expect(bundleQuote).toHaveBeenCalledWith({
+      eventCode: "RESET-SUNSET-2026",
+      ticketTypeCode: "GENERAL",
+      quantity: 3,
+      bundleCode: "SHARE_EXPERIENCE",
+      discountCode: undefined,
+      reservationMinutes: 15,
+    });
+    expect(result.quantity).toBe(3);
+    expect(result.pricingTier.unitPriceInCents).toBe(16_990_000);
+    expect(result.totalInCents).toBe(50_970_000);
+  });
+
+  it("rejects the retired two-admission package at the API boundary with 400 VALIDATION_ERROR", async () => {
+    const { gateway, quote } = gatewayWith();
+
+    const error = await handleQuote({
+      rawBody: {
+        eventCode: "RESET-SUNSET-2026",
+        ticketTypeCode: "GENERAL",
+        quantity: 2,
+        bundleCode: "DOUBLE_EXPERIENCE",
+      },
+      gateway,
+      config: testConfig(),
+      logger,
+    }).catch((caught: unknown) => caught);
+
+    // Rejected by the schema, before any database call: no retired code ever reaches SQL.
+    expect(quote).not.toHaveBeenCalled();
+    expect(toAppError(error).code).toBe("VALIDATION_ERROR");
+
+    const response = errorResponse(error);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      ok: false,
+      error: {
+        code: "VALIDATION_ERROR",
+        message: DEFAULT_ERROR_MESSAGES_ES.VALIDATION_ERROR,
+      },
+    });
+  });
+
+  it("refuses a package with two admissions through the database contract, which the API maps to 409", async () => {
+    // The schema accepts 1..50 for every product; the package/quantity pairing is authoritative
+    // in SQL (`PT409` `BUNDLE_QUANTITY_INVALID`), so this is the response a two-admission
+    // package request actually receives.
+    const refusingQuote = vi.fn<OrderGateway["quote"]>().mockRejectedValue(
+      mapSqlErrorToAppError({
+        code: "PT409",
+        details: "BUNDLE_QUANTITY_INVALID",
+        message: "Bundle quantity must match the bundle's included admissions",
+      }),
+    );
+    const { gateway } = gatewayWith({ quote: refusingQuote });
+
+    const error = await handleQuote({
+      rawBody: {
+        eventCode: "RESET-SUNSET-2026",
+        ticketTypeCode: "GENERAL",
+        quantity: 2,
+        bundleCode: "SHARE_EXPERIENCE",
+      },
+      gateway,
+      config: testConfig(),
+      logger,
+    }).catch((caught: unknown) => caught);
+
+    expect(refusingQuote).toHaveBeenCalledWith(
+      expect.objectContaining({ quantity: 2, bundleCode: "SHARE_EXPERIENCE" }),
+    );
+    expect(toAppError(error).code).toBe("CONFLICT");
+    // Not in the purchase-rule allowlist: the buyer sees the generic conflict, no detail.
+    expect(purchaseRuleDetails(error)).toBeUndefined();
+
+    const response = errorResponse(error, { details: purchaseRuleDetails(error) });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      ok: false,
+      error: {
+        code: "CONFLICT",
+        message: DEFAULT_ERROR_MESSAGES_ES.CONFLICT,
+      },
+    });
+  });
+});
+
 describe("handleCreateOrder", () => {
   it.each([
     [{ PAYMENT_RETURN_URL: "http://localhost:3000/gracias" }, "http://localhost:3000/gracias"],
     [{ WOMPI_REDIRECT_URL: "http://localhost:3000/legacy" }, "http://localhost:3000/legacy"],
     [{}, null],
-  ])("uses the shared return URL as Wompi's redirect-url (%o)", async (returnEnv, expected) => {
-    const { gateway } = gatewayWith();
-    const result = await handleCreateOrder({
-      rawBody: VALID_ORDER_BODY,
-      idempotencyKey: "idem-key-00000002",
-      ipAddress: "181.10.20.30",
-      userAgent: "vitest/1.0",
-      gateway,
-      config: testConfig(returnEnv),
-      logger,
-    });
-    expect((result.checkout as WompiCheckout).redirectUrl).toBe(expected);
-  });
+  ])(
+    "sends the buyer back to the shared return URL, named with the order (%o)",
+    async (returnEnv, expected) => {
+      const { gateway } = gatewayWith();
+      const result = await createOrderWithSessions({
+        rawBody: VALID_ORDER_BODY,
+        idempotencyKey: "idem-key-00000002",
+        ipAddress: "181.10.20.30",
+        userAgent: "vitest/1.0",
+        gateway,
+        config: testConfig(returnEnv),
+        logger,
+      });
+      expect(result.checkout.provider).toBe("epayco");
+      // The order reference rides on the URL so `/gracias` can recover a purchase whose browser
+      // session was lost; the page still asks the backend before showing success.
+      expect(result.checkout.redirectUrl).toBe(
+        expected === null ? null : `${expected}?ref=${ORDER.reference}`,
+      );
+    },
+  );
 
   it("creates the order and returns a checkout payload with no secret", async () => {
     const { gateway, createOrder } = gatewayWith();
-    const result = await handleCreateOrder({
+    const result = await createOrderWithSessions({
       rawBody: VALID_ORDER_BODY,
       idempotencyKey: "idem-key-00000001",
       ipAddress: "181.10.20.30",
@@ -318,21 +581,21 @@ describe("handleCreateOrder", () => {
     expect(result.checkout.amountInCents).toBe(19_000_000);
     expect(result.checkout.currency).toBe("COP");
     expect(result.checkout.reference).toBe("EVT-2026-000001");
-    expect(result.checkout.publicKey).toMatch(/^pub_test_/);
-    expect((result.checkout as WompiCheckout).integritySignature).toMatch(/^[0-9a-f]{64}$/);
+    expect(result.checkout.provider).toBe("epayco");
+    expect(result.checkout.publicKey).toMatch(/^epayco_pub_/);
+    expect(result.checkout.sessionId).toBe("epayco_session_default");
 
-    // No secret anywhere in the serialized response: not the integrity secret, not the
-    // private key, not the events secret, not the Supabase secret key.
+    // No secret anywhere in the serialized response: not the ePayco private key or P_KEY,
+    // and not the Supabase secret key.
     const serialized = JSON.stringify(result);
     for (const secret of [
-      fakeCredential("test_integrity_"),
-      fakeCredential("prv_test_"),
-      fakeCredential("test_events_"),
+      fakeCredential("epayco_prv_"),
+      fakeCredential("epayco_pkey_"),
       fakeCredential("sb_secret_"),
     ]) {
       expect(serialized).not.toContain(secret);
     }
-    expect(serialized).not.toContain("integritySecret");
+    expect(serialized).not.toContain("privateKey");
 
     // The participant was normalized before it was sent to the database. The argument is
     // read from the spy and asserted field by field, so no `any` flows into the test.
@@ -383,7 +646,7 @@ describe("handleCreateOrder", () => {
       EPAYCO_TEST: "true",
     });
 
-    const result = await handleCreateOrder({
+    const result = await createOrderWithSessions({
       rawBody: VALID_ORDER_BODY,
       idempotencyKey: undefined,
       ipAddress: "127.0.0.1",
@@ -395,8 +658,8 @@ describe("handleCreateOrder", () => {
     });
 
     expect(result.reference).toBe("EVT-2026-000001");
-    expect((result.checkout as EpaycoCheckout).provider).toBe("epayco");
-    expect((result.checkout as EpaycoCheckout).sessionId).toBe("epayco_session_999");
+    expect(result.checkout.provider).toBe("epayco");
+    expect(result.checkout.sessionId).toBe("epayco_session_999");
     expect(mockApify.createSession).toHaveBeenCalledWith(
       expect.objectContaining({
         checkoutVersion: "2",
@@ -444,7 +707,7 @@ describe("handleCreateOrder", () => {
       EPAYCO_TEST: "true",
     });
 
-    const result = await handleCreateOrder({
+    const result = await createOrderWithSessions({
       rawBody: VALID_ORDER_BODY,
       idempotencyKey: "idem_key_1234567890",
       ipAddress: "127.0.0.1",
@@ -457,7 +720,7 @@ describe("handleCreateOrder", () => {
 
     expect(result.replayed).toBe(true);
     expect(result.reference).toBe("EVT-2026-000001");
-    expect((result.checkout as EpaycoCheckout).sessionId).toBe("epayco_session_replayed");
+    expect(result.checkout.sessionId).toBe("epayco_session_replayed");
   });
 
   describe("ePayco session guards", () => {
@@ -501,7 +764,7 @@ describe("handleCreateOrder", () => {
         createSession: vi.fn(),
       };
       await expect(
-        handleCreateOrder({
+        createOrderWithSessions({
           rawBody: VALID_ORDER_BODY,
           idempotencyKey: undefined,
           ipAddress: "127.0.0.1",
@@ -542,7 +805,7 @@ describe("handleCreateOrder", () => {
         EPAYCO_TEST: "true",
         ...returnEnv,
       });
-      const result = await handleCreateOrder({
+      const result = await createOrderWithSessions({
         rawBody: VALID_ORDER_BODY,
         idempotencyKey: undefined,
         ipAddress: "127.0.0.1",
@@ -552,13 +815,15 @@ describe("handleCreateOrder", () => {
         logger,
         epaycoApify: mockApify,
       });
+      // The return URL names the order, so the post-payment page can identify it without
+      // depending on sessionStorage. ePayco appends its own `ref_payco` to this URL.
       expect(mockApify.createSession).toHaveBeenCalledWith(
         expect.objectContaining({
-          response: expected,
+          response: `${expected}?ref=EVT-2026-000001`,
           confirmation: "http://127.0.0.1:54321/functions/v1/webhooks-epayco",
         }),
       );
-      expect((result.checkout as EpaycoCheckout).redirectUrl).toBe(expected);
+      expect(result.checkout.redirectUrl).toBe(`${expected}?ref=EVT-2026-000001`);
     });
 
     it("omits the session response when no return URL is configured", async () => {
@@ -569,7 +834,7 @@ describe("handleCreateOrder", () => {
         login: vi.fn(),
         createSession: vi.fn().mockResolvedValue({ sessionId: "sess_qa" }),
       };
-      await handleCreateOrder({
+      await createOrderWithSessions({
         rawBody: VALID_ORDER_BODY,
         idempotencyKey: undefined,
         ipAddress: "127.0.0.1",
@@ -592,7 +857,7 @@ describe("handleCreateOrder", () => {
         login: vi.fn(),
         createSession: vi.fn().mockResolvedValue({ sessionId: "sess_qa" }),
       };
-      const result = await handleCreateOrder({
+      const result = await createOrderWithSessions({
         rawBody: VALID_ORDER_BODY,
         idempotencyKey: undefined,
         ipAddress: "127.0.0.1",
@@ -605,7 +870,7 @@ describe("handleCreateOrder", () => {
       expect(mockApify.createSession).toHaveBeenCalledWith(
         expect.objectContaining({ amount: 10_000, invoice: "EVT-2026-000001" }),
       );
-      expect((result.checkout as EpaycoCheckout).amountInCents).toBe(1_000_000);
+      expect(result.checkout.amountInCents).toBe(1_000_000);
     });
 
     it("refuses to create a session without the buyer IP", async () => {
@@ -614,7 +879,7 @@ describe("handleCreateOrder", () => {
       });
       const mockApify: EpaycoApifyClient = { login: vi.fn(), createSession: vi.fn() };
       await expect(
-        handleCreateOrder({
+        createOrderWithSessions({
           rawBody: VALID_ORDER_BODY,
           idempotencyKey: undefined,
           ipAddress: undefined,
@@ -632,7 +897,7 @@ describe("handleCreateOrder", () => {
   it("rejects participant data that fails domain validation", async () => {
     const { gateway, createOrder } = gatewayWith();
     await expect(
-      handleCreateOrder({
+      createOrderWithSessions({
         rawBody: {
           ...VALID_ORDER_BODY,
           participant: { ...VALID_ORDER_BODY.participant, consents: { dataProcessing: false } },
@@ -652,7 +917,7 @@ describe("handleCreateOrder", () => {
     const { gateway, createOrder } = gatewayWith();
     let error: unknown;
     try {
-      await handleCreateOrder({
+      await createOrderWithSessions({
         rawBody: {
           ...VALID_ORDER_BODY,
           participant: {
@@ -696,7 +961,7 @@ describe("handleCreateOrder", () => {
     const { gateway, createOrder } = gatewayWith();
     for (const quantity of [0, -3, 999]) {
       await expect(
-        handleCreateOrder({
+        createOrderWithSessions({
           rawBody: { ...VALID_ORDER_BODY, quantity },
           idempotencyKey: undefined,
           ipAddress: undefined,
@@ -717,7 +982,7 @@ describe("handleCreateOrder", () => {
         .mockRejectedValue(mapSqlErrorToAppError({ code: "PT409", details: "SOLD_OUT" })),
     });
     await expect(
-      handleCreateOrder({
+      createOrderWithSessions({
         rawBody: VALID_ORDER_BODY,
         idempotencyKey: undefined,
         ipAddress: undefined,
@@ -733,10 +998,12 @@ describe("handleCreateOrder", () => {
     const { gateway } = gatewayWith({
       createOrder: vi.fn().mockResolvedValue({ ...ORDER, replayed: true }),
     });
-    const result = await handleCreateOrder({
+    const result = await createOrderWithSessions({
       rawBody: VALID_ORDER_BODY,
       idempotencyKey: "idem-key-00000001",
-      ipAddress: undefined,
+      // ePayco session creation requires the buyer IP; a replayed order still resolves through
+      // the pinned session, but the handler validates the input first.
+      ipAddress: "181.10.20.30",
       userAgent: undefined,
       gateway,
       config: testConfig(),
@@ -744,6 +1011,68 @@ describe("handleCreateOrder", () => {
     });
     expect(result.replayed).toBe(true);
     expect(result.checkout.reference).toBe(ORDER.wompiReference);
+  });
+});
+
+describe("conflict reason allowlists", () => {
+  it("echoes a purchase-rule refusal and keeps the generic Spanish message", () => {
+    for (const reason of PURCHASE_RULE_REASONS) {
+      expect(
+        purchaseRuleDetails(
+          conflictError("Database reported a conflict", { context: { detail: reason } }),
+        ),
+      ).toEqual({ reason });
+    }
+  });
+
+  it("hides every database detail outside the allowlist", () => {
+    const hidden = [
+      "SOLD_OUT",
+      "IDEMPOTENCY_KEY_CONFLICT",
+      'duplicate key value violates unique constraint "payments_reference_key"',
+      "PT409",
+      'raw provider payload {"status":"APPROVED"}',
+      "x".repeat(300),
+    ];
+    for (const detail of hidden) {
+      // No reason means the HTTP layer serializes the generic CONFLICT body only.
+      expect(
+        purchaseRuleDetails(conflictError("Database reported a conflict", { context: { detail } })),
+      ).toBeUndefined();
+    }
+
+    // Nothing to disclose: a conflict without a detail, another error code, a non-AppError.
+    expect(purchaseRuleDetails(conflictError("conflict"))).toBeUndefined();
+    expect(
+      purchaseRuleDetails(validationError("bad input", { context: { detail: "QUANTITY_LIMIT" } })),
+    ).toBeUndefined();
+    expect(purchaseRuleDetails(new Error("QUANTITY_LIMIT"))).toBeUndefined();
+  });
+
+  it("keeps the checkout-session vocabulary unchanged and disjoint", () => {
+    expect(
+      checkoutConflictDetails(
+        conflictError("busy", {
+          context: { surface: "checkout-session", detail: "CHECKOUT_LEASE_ACTIVE" },
+        }),
+      ),
+    ).toEqual({ reason: "CHECKOUT_LEASE_ACTIVE" });
+    // A purchase-rule reason never becomes a checkout reason, and vice versa.
+    expect(
+      checkoutConflictDetails(
+        conflictError("x", { context: { surface: "checkout-session", detail: "QUANTITY_LIMIT" } }),
+      ),
+    ).toBeUndefined();
+    expect(
+      purchaseRuleDetails(
+        conflictError("x", {
+          context: { surface: "checkout-session", detail: "ORDER_NOT_PENDING" },
+        }),
+      ),
+    ).toBeUndefined();
+    expect(
+      PURCHASE_RULE_REASONS.filter((reason) => CHECKOUT_CONFLICT_REASONS.includes(reason)),
+    ).toEqual([]);
   });
 });
 
@@ -762,70 +1091,6 @@ describe("parseIdempotencyKey", () => {
     expect(() => parseIdempotencyKey("x".repeat(129))).toThrow(/16 to 128/);
     expect(() => parseIdempotencyKey(`bad key with spaces and length ${"y".repeat(20)}`)).toThrow(
       /printable ASCII/,
-    );
-  });
-});
-
-describe("buildWompiCheckout", () => {
-  const base = {
-    publicKey: fakeCredential("pub_test_"),
-    integritySecret: fakeCredential("test_integrity_"),
-    reference: "EVT-2026-000001",
-    amountInCents: 19_000_000,
-    currency: "COP",
-  };
-
-  it("matches the documented signature algorithm for the exact amount and reference", async () => {
-    const checkout = await buildWompiCheckout(base);
-    // SHA256(reference + amount + currency + secret) — computed here independently of the
-    // implementation path under test would be circular, so the official vector covers the
-    // algorithm and this asserts the same inputs are used.
-    const { computeIntegritySignature } = await import("@shared/integrations/wompi/signature.ts");
-    const expected = await computeIntegritySignature({
-      reference: base.reference,
-      amountInCents: base.amountInCents,
-      currency: base.currency,
-      integritySecret: base.integritySecret,
-    });
-    expect(checkout.integritySignature).toBe(expected);
-    expect(checkout.expirationTime).toBeNull();
-  });
-
-  it("includes the expiration in BOTH the signature and the payload when used", async () => {
-    const expiration = new Date("2026-11-21T15:00:00.000Z");
-    const checkout = await buildWompiCheckout({ ...base, expirationTime: expiration });
-    const { computeIntegritySignature } = await import("@shared/integrations/wompi/signature.ts");
-    const expected = await computeIntegritySignature({
-      reference: base.reference,
-      amountInCents: base.amountInCents,
-      currency: base.currency,
-      integritySecret: base.integritySecret,
-      expirationTime: expiration.toISOString(),
-    });
-    expect(checkout.integritySignature).toBe(expected);
-    expect(checkout.expirationTime).toBe("2026-11-21T15:00:00.000Z");
-  });
-
-  it("rejects a non-COP currency", async () => {
-    await expect(buildWompiCheckout({ ...base, currency: "USD" })).rejects.toThrow(/COP/);
-  });
-
-  it("never places a secret in the returned payload", async () => {
-    const checkout = await buildWompiCheckout(base);
-    const serialized = JSON.stringify(checkout);
-    expect(serialized).not.toContain(base.integritySecret);
-    expect(serialized).not.toContain("prv_");
-    expect(Object.keys(checkout).sort()).toEqual(
-      [
-        "amountInCents",
-        "currency",
-        "customerData",
-        "expirationTime",
-        "integritySignature",
-        "publicKey",
-        "redirectUrl",
-        "reference",
-      ].sort(),
     );
   });
 });

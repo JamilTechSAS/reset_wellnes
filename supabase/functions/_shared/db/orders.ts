@@ -17,6 +17,8 @@
  * `INTERNAL_ERROR`, because a constraint name in a response is an information leak.
  */
 
+import type { BundleCode } from "../api/order-requests.ts";
+import type { PaymentProvider } from "../config/env.ts";
 import { conflictError, notFoundError, validationError, AppError } from "../domain/errors.ts";
 import type { DbClient } from "./client.ts";
 import type { Json } from "./database.types.ts";
@@ -105,7 +107,7 @@ export type QuoteRequest = {
   readonly eventCode: string;
   readonly ticketTypeCode: string;
   readonly quantity: number;
-  readonly bundleCode?: "DOUBLE_EXPERIENCE";
+  readonly bundleCode?: BundleCode;
   readonly discountCode: string | undefined;
   readonly reservationMinutes: number;
 };
@@ -118,6 +120,8 @@ export type QuoteResult = {
     readonly name: string;
     readonly sequence: number;
     readonly unitPriceInCents: number;
+    /** Stage-level cap on one order (Preventa is 1); null means the stage has no cap. */
+    readonly maxPerOrder: number | null;
   };
   readonly subtotalInCents: number;
   readonly quantityDiscount: {
@@ -195,10 +199,12 @@ export type OrderGateway = {
 export function createOrderGateway(
   client: DbClient,
   /**
-   * The provider this deployment charges with. It is stored on the attempt-1 payment row so a
-   * pending ePayco order is never later reconciled against the wrong provider (H15 follow-up).
+   * The provider this deployment charges with. Only ePayco can create orders now; the value is
+   * stored on the attempt-1 payment row so a pending order is never later reconciled against
+   * the wrong provider (H15 follow-up). Historical rows keep `wompi`, which is why
+   * `payments.payment_provider` still has that value in the database.
    */
-  paymentProvider: "epayco" | "wompi",
+  paymentProvider: PaymentProvider,
 ): OrderGateway {
   return {
     async quote(request: QuoteRequest): Promise<QuoteResult> {

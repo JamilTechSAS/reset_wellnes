@@ -51,7 +51,7 @@ export type LegalPendingFieldKey = keyof typeof LEGAL_PENDING_FIELDS;
  */
 export const LEGAL_REVIEW_NOTES: readonly string[] = [
   "Reembolsos: el texto del cliente combina un derecho de cancelación de 7 días posteriores a la compra con una exclusión para compras dentro de las 48 horas previas al evento y con exclusiones para entradas compradas con códigos de descuento o promociones. Se publica tal cual, pendiente de revisión legal (Ley 1480, derecho de retracto).",
-  "Encargados del tratamiento: el texto del cliente nombra FormSubmit como servicio de envío de formularios. Esta plataforma no usa FormSubmit: los pagos se procesan con Wompi, los datos se almacenan en Supabase y los correos se envían por el proveedor de correo configurado. La lista de encargados debe actualizarse con aprobación legal antes de publicar.",
+  "Encargados del tratamiento: el texto del cliente nombra FormSubmit como servicio de envío de formularios. Esta plataforma no usa FormSubmit: los pagos se procesan con ePayco, los datos se almacenan en Supabase y los correos se envían por el proveedor de correo configurado. La lista de encargados debe actualizarse con aprobación legal antes de publicar.",
   "Datos del responsable: la razón social, el NIT/cédula y la fecha de publicación siguen sin confirmar; el documento no puede considerarse definitivo hasta que el cliente los entregue.",
   "Autorización de comunicaciones: el cliente no entregó un texto separado de autorización para comunicaciones de eventos futuros. En la compra se usan dos consentimientos diferenciados (tratamiento de datos y eventos futuros), acordes con el modelo de datos del backend.",
   "El texto se refiere a la actividad 'sueroterapia (tratamientos intravenosos)' como parte de las actividades del evento; la organización debe confirmar que cuenta con personal habilitado y con las autorizaciones sanitarias correspondientes.",
@@ -193,7 +193,7 @@ export const LEGAL_DOCUMENTS: readonly LegalDocument[] = [
         id: "cancelacion",
         heading: "Cancelación de boletos y reembolsos",
         paragraphs: [
-          "Usted tiene derecho a cancelar la compra de su entrada dentro de los 7 días posteriores a la fecha de compra. Esto aplica para las entradas de preventa, general y Comparte esta experiencia.",
+          "Usted tiene derecho a cancelar la compra de su entrada dentro de los 7 días posteriores a la fecha de compra. Esto aplica para las entradas de preventa, general y Comparte tu experiencia.",
           "El plazo para cancelar el pedido es de 7 días a partir de la fecha de compra. Para ejercer su derecho de cancelación, debe comunicarnos su decisión mediante una declaración inequívoca.",
           "Puede comunicarnos su decisión por correo electrónico a reset.wellness@gmail.com.",
           "Procesaremos los reembolsos en un plazo máximo de 7 días a partir de la fecha en que recibamos su solicitud de cancelación. Los reembolsos se realizarán mediante el método de pago original utilizado para la compra y no se le cobrará ninguna comisión.",

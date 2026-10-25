@@ -237,6 +237,30 @@ describe("provider recorded at creation time (migration 20261024150000)", () => 
     expect(order).toBeDefined();
     expect(await providerOf(db, order!.orderId)).toBe("epayco");
   });
+
+  it.each([[null], [""], ["stripe"]])(
+    "refuses a bundle order whose provider is %j instead of defaulting to wompi",
+    async (provider) => {
+      const arg = provider === null ? "null" : `'${provider}'`;
+      // The bundle function validates nothing itself: it delegates to `create_order`, which
+      // must refuse before the bundle's own writes. This is the test that would fail if that
+      // forwarding ever stopped (the 14th argument would silently become a no-op).
+      await expect(
+        db.query(
+          `select public.create_bundle_order(
+             '${EVENT}','GENERAL',2,15,'buyer@example.com','Comprador','3001234567',
+             '${PARTICIPANT}'::jsonb,'DOUBLE',null,null,'181.10.20.30','vitest/1.0',${arg}) as o`,
+        ),
+      ).rejects.toThrow(/INVALID_PROVIDER|Payment provider must be/);
+
+      const state = await db.query<{ orders: number; payments: number; reserved: number }>(
+        `select (select count(*)::int from public.orders) as orders,
+                (select count(*)::int from public.payments) as payments,
+                (select quantity_reserved from public.pricing_tiers where name = 'Única') as reserved`,
+      );
+      expect(state.rows[0]).toEqual({ orders: 0, payments: 0, reserved: 0 });
+    },
+  );
 });
 
 describe("repair of rows written before the fix", () => {
@@ -327,5 +351,127 @@ describe("repair of rows written before the fix", () => {
               (select quantity_sold from public.pricing_tiers where name = 'Única') as sold`,
     );
     expect(totals.rows[0]).toEqual({ tickets: 3, sold: 3 });
+  });
+});
+
+describe("provider inherited by a retried attempt (migration 20261024180000)", () => {
+  let db: PGlite;
+
+  beforeAll(async () => {
+    db = new PGlite();
+    await applyMigrations(db);
+    await seed(db);
+  }, 30_000);
+
+  afterAll(async () => {
+    await db.close();
+  });
+
+  beforeEach(async () => {
+    await db.exec(`
+      delete from public.checkout_sessions;
+      delete from public.email_deliveries; delete from public.tickets;
+      delete from public.consents; delete from public.participants;
+      delete from public.payment_events; delete from public.payments;
+      delete from public.order_items; delete from public.orders;
+      update public.pricing_tiers set quantity_reserved = 0, quantity_sold = 0;
+    `);
+  });
+
+  async function createOrderAs(provider: "epayco" | "wompi"): Promise<OrderResult> {
+    const result = await db.query<{ o: OrderResult }>(
+      `select public.create_order(
+         '${EVENT}','GENERAL',1,15,'buyer@example.com','Comprador','3001234567',
+         '${PARTICIPANT}'::jsonb,null,null,'181.10.20.30','vitest/1.0','${provider}') as o`,
+    );
+    const order = result.rows[0]?.o;
+    if (order === undefined) {
+      throw new Error("create_order returned no row");
+    }
+    return order;
+  }
+
+  /** The state `expire_pending_orders` leaves behind: the attempt is closed, not approved. */
+  async function expire(order: OrderResult): Promise<void> {
+    await db.exec(`
+      update public.orders
+         set status = 'EXPIRED', reservation_expires_at = now() - interval '1 minute'
+       where id = '${order.orderId}';
+      update public.payments set status = 'declined' where order_id = '${order.orderId}';
+    `);
+  }
+
+  async function retry(reference: string): Promise<unknown> {
+    return db.query(`select public.retry_payment('${reference}','buyer@example.com',15) as r`);
+  }
+
+  async function attempts(orderId: string): Promise<{ attempt: number; provider: string }[]> {
+    const result = await db.query<{ attempt: number; provider: string }>(
+      `select attempt, payment_provider as provider
+         from public.payments where order_id = '${orderId}' order by attempt`,
+    );
+    return result.rows;
+  }
+
+  it("records the ePayco provider on the new attempt instead of the column default", async () => {
+    const order = await createOrderAs("epayco");
+    await expire(order);
+
+    const result = await db.query<{ r: { paymentAttempt: number; wompiReference: string } }>(
+      `select public.retry_payment('${order.reference}','buyer@example.com',15) as r`,
+    );
+
+    expect(result.rows[0]?.r.paymentAttempt).toBe(2);
+    expect(result.rows[0]?.r.wompiReference).toBe(`${order.reference}-2`);
+    // The bug this migration fixes: attempt 2 used to be stored as 'wompi'.
+    expect(await attempts(order.orderId)).toEqual([
+      { attempt: 1, provider: "epayco" },
+      { attempt: 2, provider: "epayco" },
+    ]);
+  });
+
+  it("keeps a Wompi order on Wompi, so inheritance never switches provider", async () => {
+    const order = await createOrderAs("wompi");
+    await expire(order);
+
+    await retry(order.reference);
+
+    expect(await attempts(order.orderId)).toEqual([
+      { attempt: 1, provider: "wompi" },
+      { attempt: 2, provider: "wompi" },
+    ]);
+  });
+
+  it("lets the retried ePayco attempt open a checkout session", async () => {
+    const order = await createOrderAs("epayco");
+    await expire(order);
+    await retry(order.reference);
+
+    // 20261024170000 refuses a non-ePayco attempt with PROVIDER_SESSION_UNSUPPORTED, so this
+    // is exactly what a wompi-attributed retry would break.
+    const plan = await db.query<{ p: { state: string; paymentAttempt: number } }>(
+      `select public.begin_checkout_session('${order.reference}-2') as p`,
+    );
+    expect(plan.rows[0]?.p).toMatchObject({ state: "CREATE", paymentAttempt: 2 });
+  });
+
+  it("fails closed, without re-reserving, when no attempt carries a provider", async () => {
+    const order = await createOrderAs("epayco");
+    await expire(order);
+    // Only reachable through manual repair, but it is the state inheritance cannot answer for.
+    await db.exec(`delete from public.payments where order_id = '${order.orderId}'`);
+
+    await expect(retry(order.reference)).rejects.toThrow(
+      /INVALID_PROVIDER|Payment provider must be/,
+    );
+
+    const state = await db.query<{ payments: number; reserved: number; status: string }>(
+      `select (select count(*)::int from public.payments where order_id = '${order.orderId}') as payments,
+              (select quantity_reserved from public.pricing_tiers where name = 'Única') as reserved,
+              o.status::text as status
+         from public.orders o where o.id = '${order.orderId}'`,
+    );
+    // No attempt, no second reservation: the order stays exactly where it was.
+    expect(state.rows[0]).toEqual({ payments: 0, reserved: 1, status: "EXPIRED" });
   });
 });

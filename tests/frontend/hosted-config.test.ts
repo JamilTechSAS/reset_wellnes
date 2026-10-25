@@ -132,7 +132,12 @@ describe("production-facing hygiene", () => {
   it("reads only the public VITE_ variables documented for the frontend", () => {
     const source = readFileSync(path.join(ROOT, CONFIG_MODULE), "utf8");
     const names = [...new Set(source.match(/VITE_[A-Z0-9_]+/g) ?? [])].sort();
-    expect(names).toEqual(["VITE_API_BASE_URL", "VITE_EVENT_CODE", "VITE_TICKET_TYPE_CODE"]);
+    expect(names).toEqual([
+      "VITE_API_BASE_URL",
+      "VITE_CHECKOUT_ENABLED",
+      "VITE_EVENT_CODE",
+      "VITE_TICKET_TYPE_CODE",
+    ]);
 
     const docs = readFileSync(path.join(ROOT, "docs", "frontend.md"), "utf8");
     for (const name of names) {

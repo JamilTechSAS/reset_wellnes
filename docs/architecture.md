@@ -84,12 +84,14 @@ produce an impossible state:
 | A single-use discount code is claimed once     | conditional `update` on `redeemed_count` + append-only ledger                                                 |
 | At most one approved payment per order         | partial unique index `payments (order_id) where status = 'approved'`                                          |
 | A Wompi-era payment reference cannot be reused | legacy unique constraints on `payments.wompi_reference` and `wompi_transaction_id` (kept for historical rows) |
+| One live checkout session per attempt          | partial unique index `checkout_sessions (payment_id) where superseded_at is null` + lease generation          |
 | The same webhook event is processed once       | unique `payment_events.dedupe_key`                                                                            |
 | Payment state never regresses                  | `app_private.payment_transition_rank` inside `confirm_payment`                                                |
 | Exactly one ticket per purchased unit          | unique `tickets (order_item_id, order_item_seq)`                                                              |
 | No duplicate confirmation email                | unique `email_deliveries.idempotency_key` + `FOR UPDATE SKIP LOCKED` claim + provider idempotency key         |
 | No double check-in                             | unique `attendance (ticket_id)`                                                                               |
 | No duplicate confirmation email                | unique + derived `email_deliveries.idempotency_key`                                                           |
+| At most one post-purchase email per order      | `unique (order_id, template)` + PAID-transition trigger + lease token + provider idempotency key              |
 | Consent history cannot be rewritten            | append-only trigger (UPDATE rejected)                                                                         |
 | Browser roles read and write nothing           | RLS enabled on all tables, no policies, privileges revoked                                                    |
 
@@ -102,7 +104,8 @@ Structural layout (details in [data-model.md](data-model.md)):
   the buyer's row and `attach_participant` appends companion rows). Legacy `tickets` / `attendance`
   remain for historical data and are not written by the purchase flow.
 - **Payments**: `payments` (attempts) + `payment_events` (webhook ledger and idempotency).
-- **Messaging**: `email_deliveries` (idempotent sends; no ticket templates are queued).
+- **Messaging**: `order_email_deliveries` (post-purchase email, one row per order, enqueued by
+  the PAID transition) and the legacy `email_deliveries` (no ticket templates are queued).
 - **Read model**: `operational_export` is one row per **participant** of a `PAID` order, and
   `sheets_participant_projections` is the outbox that decides which participants still need a
   Sheets sync.
@@ -114,8 +117,9 @@ Helper functions live in `app_private` (`set_updated_at`, `next_order_reference`
 API. The public entry points (`quote_order_price`, `create_order`, `confirm_payment`,
 `claim_webhook_event`, `finalize_webhook_event`, `record_webhook_rejection`,
 `queue_ticket_emails`, `claim_email_deliveries`, `finish_email_delivery`,
-`expire_pending_orders`, `retry_payment`, `get_order_status`) are executable by the service role
-only. Database types are generated from the live schema (`database.types.ts`), never
+`claim_order_email_deliveries`, `finish_order_email_delivery`,
+`get_post_purchase_email_context`, `expire_pending_orders`, `retry_payment`, `get_order_status`)
+are executable by the service role only. Database types are generated from the live schema (`database.types.ts`), never
 hand-written. Migration strategy: append-only files, expand-contract changes, verified by PGlite
 on every `npm test` and by a real PostgreSQL instance per phase release.
 
@@ -255,6 +259,67 @@ transaction; the maintenance run claims with `SKIP LOCKED` and writes the comple
 The scheduler is `pg_cron → pg_net → POST /orders-maintenance` with Vault-held secrets
 (migration 015), with a documented HTTP fallback. See
 [operations-google-sheets.md](operations-google-sheets.md).
+
+### 4.8 ePayco approvals that cannot be applied (H15 follow-up, implemented)
+
+An authenticated ePayco delivery can be approved while `confirm_payment` still refuses to
+apply it. The two observed shapes (staging, 2026-10-24):
+
+- **A second transaction under one merchant reference.** The on-page checkout can mint a new
+  ePayco transaction (`x_ref_payco`) for an order whose payment row already records another
+  one — reopening the checkout, or completing a session the buyer had left, is enough. The
+  database keeps one transaction per reference by design, so `confirm_payment` answers
+  `PT409 REFERENCE_MISMATCH` → `CONFLICT` and the approval is not applied.
+- **A delivery that arrives when the provider lookup is down.** The webhook answers 503 so
+  ePayco retries; if its retries stop before a fixed build is deployed, only the logs remember
+  the capture. That shape is _not_ covered by the alert below — it never reaches
+  `confirm_payment` — and stays a provider-side/manual recovery.
+
+Both are money at the provider without an order, admission or inventory change. The webhook
+now records a **`PAYMENT_CONFLICT` (critical)** operational alert when it refuses an
+_approved_ delivery with `CONFLICT`, with dedupe key `conflict:<order reference>:<x_ref_payco>`
+and detail `CONFLICT <reason> ref <x_ref_payco> evt <event id>`, where the reason is
+`confirm_payment`'s own code (`REFERENCE_MISMATCH`, `AMOUNT_MISMATCH`, `CURRENCY_MISMATCH`,
+`DOUBLE_PAYMENT_CONFLICT`) and is dropped if it is not code-like. Redeliveries and retries
+only raise the occurrence count. Declines, pending states, malformed deliveries and unknown
+orders never raise it, and an invalid signature cannot reach the alert at all. The alert does
+**not** change the outcome: the event stays `REJECTED`, the ledger keeps `http_status 409`, no
+admission is sold and no order becomes `PAID`.
+
+**Why a second transaction could exist at all.** A payment attempt is one `payments` row with
+one `wompi_reference` (the invoice ePayco receives) and one stored transaction id. A replayed
+`POST /orders` returns that same order, and every ePayco session minted for it produced a NEW
+`x_ref_payco` under the same invoice — enough to capture money the database could not apply.
+
+**The correction (migration `20261024170000`).** A new `checkout_sessions` ledger holds the
+session issued per attempt, with a partial unique index allowing at most one live row per
+`payment_id`; superseding is a timestamp plus a closed reason (`EXPIRED`, `NEW_ATTEMPT`).
+`payments.checkout_lease_until` / `checkout_lease_generation` serialize creation, so only the
+lease holder may record a session and a late completion can never overwrite a newer one. The
+handler asks the database before calling ePayco:
+
+```
+POST /orders (or /retry) ──► begin_checkout_session(reference)
+   ├── REUSE          → return the stored session (ePayco is not called)
+   ├── CREATE         → lease claimed → ePayco → complete_checkout_session
+   │                     └── LEASE_LOST / RESERVATION_EXPIRED → resume the winner's session or 409
+   ├── LEASED         → 409 CONFLICT (another request is creating it)
+   └── RETRY_REQUIRED → 409 CONFLICT: order not PENDING, reservation elapsed, or a transaction
+                        already recorded → the buyer starts attempt N via /retry
+```
+
+A legitimate retry is unchanged: `/retry` creates attempt _N_ with its own reference, and the
+insert of that attempt closes the previous attempt's live session with reason `NEW_ATTEMPT`.
+The first documented shape can therefore no longer be produced by our own handler: a live
+session is resumed, and an attempt that already reached the provider cannot get a second one.
+
+Residual limitations, on purpose. The session window is the order's reservation, so a session
+that ePayco itself expires earlier makes the reopened modal fail and the buyer must use
+`/retry` (which is safe). An orphan session created by a request that lost the lease is never
+recorded and never handed to a browser; ePayco may still hold it until its own expiry, and it
+cannot become a capture without the buyer opening it. And recovery of an approval that already
+mismatches stays manual — reconciliation only sweeps attempts with a stored transaction id, so
+it cannot discover an extra transaction or a capture that never reached the ledger.
 
 ## 5. State machines
 

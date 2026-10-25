@@ -5,6 +5,7 @@ supabase/.temp
 supabase/functions/**/deno.lock
 supabase/functions/_shared/db/database.types.ts
 dist
+.vercel
 Reset-web-para-programador
 client-handover
 public

@@ -18,8 +18,9 @@ Base URL: `https://<project-ref>.supabase.co/functions/v1/<function>` (locally
 - Timestamps are ISO-8601 UTC.
 - Success: `{ "ok": true, "data": … }`. Failure:
   `{ "ok": false, "error": { "code": "...", "message": "...", "details": … } }`.
-- `details` is only used for field-level validation issues; it never contains personal data or
-  infrastructure hints.
+- `details` is only used for field-level validation issues or a `reason` taken from a closed
+  allowlist (checkout-session and purchase-rule refusals); it never contains personal data,
+  SQLSTATE text, provider payloads or infrastructure hints.
 
 ### Error codes
 
@@ -87,6 +88,7 @@ no participant data.
       "currency": "COP",
       "salesOpen": true,
       "availability": "LOW",
+      "serverTime": "2026-10-25T15:00:00.000Z",
       "ticketTypes": [
         {
           "code": "GENERAL",
@@ -96,13 +98,35 @@ no participant data.
           "maxPerOrder": 4,
           "salesOpen": true,
           "availability": "LOW",
-          "currentTier": { "name": "Preventa 1", "sequence": 1, "priceInCents": 9500000 }
+          "currentTier": {
+            "name": "Preventa",
+            "sequence": 1,
+            "priceInCents": 15990000,
+            "maxPerOrder": 1
+          },
+          "salesWindow": {
+            "startsAt": "2026-10-25T15:00:00.000Z",
+            "endsAt": "2026-10-29T05:00:00.000Z"
+          }
         }
       ]
     }
   }
 }
 ```
+
+`serverTime` is the database clock when the projection was built, and `salesWindow` is the
+half-open window of the stage that is open (`startsAt <= now < endsAt`). The storefront uses
+both to time its own boundary timers; neither is an authorization — every quote and every order
+re-reads the stage with `now()` inside its transaction.
+
+`currentTier.maxPerOrder` is the stage's per-order cap (Preventa: `1`; General: `null`, i.e. no
+cap beyond the shared inventory). It is disclosed so the storefront caps its selector from the
+same value the API enforces.
+
+When no stage is open — before the campaign, in the one-minute gap between stages, or after it
+ends — the response is still `200` with `salesOpen: false`, `availability: "NOT_STARTED"`,
+`currentTier: null` and `salesWindow: null`.
 
 ### `GET /events/{code}/availability` — implemented (Phase 5)
 
@@ -128,7 +152,8 @@ the checkout can explain it before the buyer submits.
   "event": { "code": "TAT-2026", "name": "…" },
   "ticketType": { "code": "GENERAL", "name": "Entrada general" },
   "quantity": 2,
-  "pricingTier": { "name": "Preventa 1", "sequence": 1, "unitPriceInCents": 9500000 },
+  "pricingTier": { "name": "Preventa 1", "sequence": 1, "unitPriceInCents": 9500000,
+                    "maxPerOrder": null },
   "subtotalInCents": 19000000,
   "quantityDiscount": { "applies": false, "percentBps": 0, "amountInCents": 0 },
   "quantityDiscountInCents": 0,
@@ -154,7 +179,60 @@ max_per_order]`; the discount code belongs to the event, is active, unexpired an
 limit. Totals are recomputed server-side from database state and **never** taken from input —
 there is no amount parameter anywhere in the request.
 
-Named product: `Doble experiencia` is selected only by sending `"bundleCode": "DOUBLE_EXPERIENCE"` with quantity `2`. The database prices that product at `34000000` centavos ($340,000 COP), reserves two admissions from the General stage, and rejects promo codes with the bundle. Without `bundleCode`, a quantity of two represents two individual General admissions at $400,000 COP; it never receives the bundle price automatically.
+**Stage and inventory are one read each, inside the database (migration `20261024230000`).** The
+stage is the lowest `sequence` whose half-open window contains `now()`; there is no other way to
+select one, so a client cannot ask for a closed stage. Inventory is a single pool of 100
+admissions for the whole event — Preventa, General and the package all draw from it and no stage
+has its own quota. A quote reports `availability` (`AVAILABLE` / `LOW` / `SOLD_OUT`) and
+`availableQuantity`, but the reservation happens only in `POST /orders`, under a row lock on the
+event, and refuses with `CONFLICT / SOLD_OUT` when the pool cannot cover the request.
+
+**Purchase limits belong to the sales stage.** `pricingTier.maxPerOrder` is the cap the stage
+enforces on one order and is returned so the storefront can cap its selector from the same value
+the API uses. The seeded Preventa stage carries `1`: a single admission per payment, so
+`quantity > 1` is refused with `CONFLICT` / `QUANTITY_LIMIT` by both `/orders/quote` and
+`/orders` — the UI cannot be bypassed. General has no stage cap (`maxPerOrder: null`), so two or
+three individual admissions stay valid while inventory permits; the ticket type's
+`max_per_order` still applies on top. `SHARE_EXPERIENCE` is one package of exactly three
+admissions for a fixed COP 509,700 total (COP 169,900 each): any other quantity is refused with
+`BUNDLE_QUANTITY_INVALID`, and the package is refused with `BUNDLE_NOT_AVAILABLE` while its
+General stage is not the active one. The retired `DOUBLE_EXPERIENCE` (two admissions, COP
+340,000) is no longer accepted in a request: historical orders keep reading it from their own
+stored row.
+
+That last refusal is identical on both paths — `/orders/quote` and `/orders` — because creation
+checks the stage before delegating (migration `20261024200000`). A client that bypasses the UI
+therefore learns the product is not on sale yet, not that the current stage sells one ticket.
+An idempotency replay is exempt: a key that already names an order keeps receiving that order,
+even if the sales window has since moved (the QA window is restored rather than advanced), and
+only a new purchase is judged by the stage.
+
+On the wire both refusals are an HTTP `409 CONFLICT` with the generic Spanish message plus a
+safe `details.reason` from a closed allowlist — `QUANTITY_LIMIT` or `BUNDLE_NOT_AVAILABLE` — so
+the storefront can explain the rule instead of showing one generic conflict:
+
+```json
+{
+  "ok": false,
+  "error": {
+    "code": "CONFLICT",
+    "message": "La operación no se puede completar con el estado actual.",
+    "details": { "reason": "BUNDLE_NOT_AVAILABLE" }
+  }
+}
+```
+
+Nothing else is echoed: `SOLD_OUT`, `IDEMPOTENCY_KEY_CONFLICT`, constraint text, SQLSTATE
+messages and provider payloads stay behind the generic message (they are only logged server-side
+as `context.detail`). A `CONFLICT` outside the allowlists has no `details` at all.
+
+Named product: **Comparte tu experiencia** is selected only by sending
+`"bundleCode": "SHARE_EXPERIENCE"` with quantity `3`. The database prices that product at
+`50970000` centavos ($509,700 COP), reserves **three** admissions from the shared event pool
+during the General stage, rejects promo codes with the bundle, and refuses it with `SOLD_OUT`
+when fewer than three admissions remain. Without `bundleCode`, a quantity of three represents
+three individual General admissions at $600,000 COP; it never receives the package price
+automatically.
 
 ### `POST /orders` — implemented (Phase 3)
 
@@ -189,9 +267,44 @@ same key returns the same order instead of reserving inventory twice).
                                   "phoneNumber": null, "phoneNumberPrefix": null } } } }
 ```
 
+Both `redirectUrl` and the ePayco session's `response` are the configured return URL **with
+`?ref=<order reference>` appended**, so the post-payment page can name the purchase without
+depending on browser storage (`/gracias` otherwise arrives bare, since ePayco only adds its own
+`ref_payco`). The parameter is a convenience, never proof: `GET /orders/{reference}` still
+requires the buyer email, and the amount and state always come from the database.
+
 Errors: `VALIDATION_ERROR` (input, `details.issues[]` for participant fields), `NOT_FOUND`
 (unknown event or ticket type), `CONFLICT` (`SOLD_OUT`, `DISCOUNT_EXHAUSTED`, `QUANTITY_LIMIT`,
-`IDEMPOTENCY_KEY_CONFLICT`), `RATE_LIMITED`.
+`IDEMPOTENCY_KEY_CONFLICT`, plus the checkout-session reasons below), `RATE_LIMITED`.
+`QUANTITY_LIMIT` and `BUNDLE_NOT_AVAILABLE` also travel in `details.reason` (see
+`POST /orders/quote`); every other conflict stays generic.
+
+**One live ePayco session per attempt (migration `20261024170000`).** ePayco mints a new
+transaction id every time a Smart Checkout session is opened, and `payments` keeps exactly one
+transaction id per reference — so a second session for the same invoice is what produced an
+approval the database could not apply. The handler now asks the database first:
+
+- a replay with the same `Idempotency-Key` **returns the session that already exists** and does
+  not call ePayco at all (`replayed: true`, same `checkout.sessionId`);
+- a fresh order claims a short lease and creates exactly one session;
+- a second request for the same attempt while that lease is held answers `CONFLICT`
+  (server detail `CHECKOUT_LEASE_ACTIVE`) instead of racing;
+- an attempt that can no longer be paid — the order is not `PENDING`, its reservation elapsed,
+  or the provider already recorded a transaction for it — answers `CONFLICT` with the machine
+  detail `ORDER_NOT_PENDING`, `RESERVATION_EXPIRED` or `TRANSACTION_RECORDED`. The buyer's next
+  step is `POST /orders/{reference}/retry`, which creates attempt _N_ with its own reference and
+  therefore its own session.
+
+`checkout.sessionId` is either the stored session or the one this request just created, and a
+session the database refused to record is never handed to the browser.
+
+These refusals also carry the code-like reason in `details.reason`, so the storefront can tell
+"wait a moment" (`CHECKOUT_LEASE_ACTIVE`, `CHECKOUT_SESSION_NOT_RECORDED`) from "choose your
+tickets again" (`ORDER_NOT_PENDING`, `RESERVATION_EXPIRED`, `TRANSACTION_RECORDED`) instead of
+showing a sold-out notice. The `message` stays generic in Spanish and no SQLSTATE, provider text
+or buyer data is disclosed; a `CONFLICT` outside that allowlist has no `details`, and the
+storefront falls back to its sold-out copy. Anything else stays in the server log
+(`context.detail`).
 
 The checkout payload is secret-free: the ePayco session id plus the public flags and the amount
 the database wrote. No private key ever reaches the browser. A supplied code that cannot be
@@ -206,6 +319,31 @@ When the ePayco session is created, `confirmation` is sent together with an expl
 does not reliably deliver the signed confirmation, and a paid order stays PENDING because the
 backend never sees it. The webhook URL is always `<API_BASE_URL>/webhooks-epayco` — never the
 frontend origin.
+
+#### Which evidence confirms a payment
+
+The delivery is the authority ePayco documents. Its `x_signature` is
+`SHA256(p_cust_id_cliente ^ p_key ^ x_ref_payco ^ x_transaction_id ^ x_amount ^ x_currency_code)`,
+computed with our merchant keys, so a verified delivery is authentically ours.
+
+1. Signature mismatch → `401 SIGNATURE_MISMATCH`, nothing is claimed.
+2. A sandbox delivery received while the backend runs live → rejected for review.
+3. The backend then re-reads the transaction from ePayco's validation API. If the record
+   **contradicts** the signed fields (amount, currency, reference, transaction id, merchant,
+   test flag) the delivery is rejected for review and never applied.
+4. If the lookup answers **404** — a signed delivery naming a transaction ePayco says does not
+   exist — the webhook answers `503` and ePayco retries; nothing is claimed.
+5. If the lookup is **unavailable** (transport error, non-JSON, HTTP 5xx/429, or ePayco's
+   generic `{"status":false,"message":"Error de datos o conexión."}`), the confirmation is
+   applied from the signed delivery instead of being blocked. The validation API is an
+   unauthenticated GET protected only by TLS; the delivery is the authenticated channel, and
+   `confirm_payment` still re-checks amount, currency and reference against the order before
+   anything becomes `PAID`. A delivery whose amount cannot be read as exact centavos, or that
+   has no reference/invoice, is never confirmed this way (`503`, retried).
+
+The staging run on 2026-10-24 hit case 5: the validation endpoint answered the generic error
+for the merchant's approved transaction, for its historical reference and for a session id
+alike, so no lookup could ever succeed and every paid sandbox order stayed PENDING.
 
 ### `GET /orders/{reference}` — implemented (Phase 4)
 
@@ -282,6 +420,10 @@ Creates a new payment attempt with a **fresh payment reference** for a `FAILED` 
 order (a used reference can never be reused). Requires the same reference + buyer email
 possession check. The order, its frozen price and its history are preserved; an `EXPIRED`
 order re-reserves at the original stage and price (`SOLD_OUT` if no longer possible).
+
+The new attempt gets its own ePayco session, pinned to `EVT-…-N`. Creating attempt _N_ also
+closes the previous attempt's live session in `checkout_sessions` with the recorded reason
+`NEW_ATTEMPT`, so "which session belongs to which attempt" stays auditable instead of inferred.
 
 ```json
 // POST /orders/EVT-2026-000002/retry  (X-Buyer-Email header or { "email": "…" })
@@ -416,7 +558,9 @@ payment details in the body.
 ### `POST /orders-maintenance` — implemented (Phase 4), extended (Phase 5)
 
 Not part of the payment path. Runs, in order: reservation expiry (`expire_pending_orders`),
-confirmation-email dispatch (outbox), the **payment reconciliation sweep**, rate-limit counter
+confirmation-email dispatch (legacy outbox), the **payment reconciliation sweep**, the
+**post-purchase email retry** (`postPurchaseEmails` counters: `claimed`, `sent`, `failed`,
+`abandoned`, `skipped`; rows stay `QUEUED` while `EMAIL_ENABLED=false`), rate-limit counter
 cleanup, and the **Google Sheets projection** (when configured). Authenticated by
 `Authorization: Bearer <MAINTENANCE_API_TOKEN>` compared in constant time; intended for the
 `scheduler (pg_cron → pg_net → this endpoint, migration 015) or an operator, never for the
@@ -568,22 +712,22 @@ be built against them as-is. Additive changes (new optional fields) may still sh
 change requires a new function name (§4). Unless a real defect is found, these shapes must not
 change.
 
-| Endpoint                              | Auth                                | Safety / idempotency                                                | Rate-limit scope      |
-| ------------------------------------- | ----------------------------------- | ------------------------------------------------------------------- | --------------------- |
-| `GET /health`                         | none (public)                       | read-only                                                           | —                     |
-| `GET /events/{code}`                  | none (public)                       | read-only, whitelisted projection                                   | `events:read`         |
-| `GET /events/{code}/availability`     | none (public)                       | read-only                                                           | `events:read`         |
-| `POST /orders/quote`                  | none (public)                       | pure computation; stores nothing                                    | `orders:quote`        |
-| `POST /orders`                        | none (public)                       | price/inventory re-validated inside the SQL transaction             | `orders:create`       |
-| `GET /orders/{ref}`                   | reference + `X-Buyer-Email`         | read-only; wrong email is indistinguishable from unknown reference  | `orders:status`       |
-| `POST /orders/{ref}/retry`            | reference + buyer email             | **new** Wompi reference per attempt; a consumed one is never reused | `orders:retry`        |
-| `POST /orders/{ref}/participants`     | reference + buyer email             | validated inside the transaction; guarded by the reservation window | `orders:participants` |
-| `PUT /orders/{ref}/participants/{id}` | reference + buyer email             | foreign participant id is answered as `NOT_FOUND`                   | `orders:participants` |
-| `POST /orders/{ref}/payment-hint`     | reference + buyer email             | safe to repeat; same confirmation pipeline as the webhook           | `orders:hint`         |
-| `GET /tickets/{token}`                | opaque token (capability)           | read-only; whitelisted projection                                   | `tickets:lookup`      |
-| `POST /check-in`                      | Supabase Auth + active operator     | first scan wins; outcome is in the 200 body                         | `checkin:operator`    |
-| `GET /check-in/{token}`               | Supabase Auth + active operator     | read-only admission view                                            | `checkin:operator`    |
-| `POST /webhooks/wompi`                | event checksum + private-key lookup | dedupe key per event; replays answer from the ledger                | — (provider)          |
-| `POST /orders-maintenance`            | `Bearer <MAINTENANCE_API_TOKEN>`    | every job idempotent + `SKIP LOCKED`                                | — (scheduler)         |
+| Endpoint                              | Auth                                | Safety / idempotency                                                                                   | Rate-limit scope      |
+| ------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------ | --------------------- |
+| `GET /health`                         | none (public)                       | read-only                                                                                              | —                     |
+| `GET /events/{code}`                  | none (public)                       | read-only, whitelisted projection                                                                      | `events:read`         |
+| `GET /events/{code}/availability`     | none (public)                       | read-only                                                                                              | `events:read`         |
+| `POST /orders/quote`                  | none (public)                       | pure computation; stores nothing                                                                       | `orders:quote`        |
+| `POST /orders`                        | none (public)                       | price/inventory re-validated inside the SQL transaction                                                | `orders:create`       |
+| `GET /orders/{ref}`                   | reference + `X-Buyer-Email`         | read-only; wrong email is indistinguishable from unknown reference                                     | `orders:status`       |
+| `POST /orders/{ref}/retry`            | reference + buyer email             | **new** payment reference per attempt (legacy `wompiReference` column); a consumed one is never reused | `orders:retry`        |
+| `POST /orders/{ref}/participants`     | reference + buyer email             | validated inside the transaction; guarded by the reservation window                                    | `orders:participants` |
+| `PUT /orders/{ref}/participants/{id}` | reference + buyer email             | foreign participant id is answered as `NOT_FOUND`                                                      | `orders:participants` |
+| `POST /orders/{ref}/payment-hint`     | reference + buyer email             | safe to repeat; same confirmation pipeline as the webhook                                              | `orders:hint`         |
+| `GET /tickets/{token}`                | opaque token (capability)           | read-only; whitelisted projection                                                                      | `tickets:lookup`      |
+| `POST /check-in`                      | Supabase Auth + active operator     | first scan wins; outcome is in the 200 body                                                            | `checkin:operator`    |
+| `GET /check-in/{token}`               | Supabase Auth + active operator     | read-only admission view                                                                               | `checkin:operator`    |
+| `POST /webhooks/wompi`                | event checksum + private-key lookup | dedupe key per event; replays answer from the ledger                                                   | — (provider)          |
+| `POST /orders-maintenance`            | `Bearer <MAINTENANCE_API_TOKEN>`    | every job idempotent + `SKIP LOCKED`                                                                   | — (scheduler)         |
 
 `checkin:attempt` (IP, token-less requests only) additionally covers `POST /check-in` — see §3.

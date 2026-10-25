@@ -20,6 +20,18 @@ import { AppError, validationError } from "../domain/errors.ts";
 /** Upper bound on a single order. The real per-order limits come from the database. */
 export const MAX_ORDER_QUANTITY = 50;
 
+/**
+ * The only named bundle a NEW purchase may ask for: "Comparte tu experiencia", three General
+ * admissions for a fixed COP 509.700 (catalogued in `ticket_bundles`).
+ *
+ * `DOUBLE_EXPERIENCE` (two admissions, COP 340.000) is retired: the migration deactivates its
+ * row, and this schema never accepts the code again. Historical orders keep reading it because
+ * they store the bundle id and the frozen name on the order line, not a request parameter.
+ */
+export const BUNDLE_CODE = "SHARE_EXPERIENCE" as const;
+export type BundleCode = typeof BUNDLE_CODE;
+const bundleCodeField = z.literal(BUNDLE_CODE);
+
 /** Client-supplied idempotency keys must be long enough to be unguessable. */
 export const IDEMPOTENCY_KEY_MIN_LENGTH = 16;
 export const IDEMPOTENCY_KEY_MAX_LENGTH = 128;
@@ -34,7 +46,7 @@ export const quoteRequestSchema = z.object({
   eventCode: codeField,
   ticketTypeCode: codeField,
   quantity: z.number().int().min(1).max(MAX_ORDER_QUANTITY),
-  bundleCode: z.enum(["DOUBLE_EXPERIENCE"]).optional(),
+  bundleCode: bundleCodeField.optional(),
   discountCode: z.string().trim().max(64).optional(),
 });
 
@@ -55,7 +67,7 @@ export const createOrderRequestSchema = z.object({
   eventCode: codeField,
   ticketTypeCode: codeField,
   quantity: z.number().int().min(1).max(MAX_ORDER_QUANTITY),
-  bundleCode: z.enum(["DOUBLE_EXPERIENCE"]).optional(),
+  bundleCode: bundleCodeField.optional(),
   discountCode: z.string().trim().max(64).optional(),
   buyer: buyerSchema,
   /**
@@ -72,7 +84,7 @@ export type ParsedQuoteRequest = {
   readonly eventCode: string;
   readonly ticketTypeCode: string;
   readonly quantity: number;
-  readonly bundleCode?: "DOUBLE_EXPERIENCE";
+  readonly bundleCode?: BundleCode;
   readonly discountCode: string | undefined;
 };
 

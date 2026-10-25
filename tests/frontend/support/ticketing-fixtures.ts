@@ -18,7 +18,6 @@ import type {
   PublicEvent,
   Quote,
   RetriedPayment,
-  WompiCheckout,
 } from "../../../src/api/types.ts";
 import type { CreateOrderInput, TicketingApi } from "../../../src/api/ticketing.ts";
 
@@ -48,6 +47,7 @@ export function makeEvent(overrides: Partial<PublicEvent["event"]> = {}): Public
       currency: "COP",
       salesOpen: true,
       availability: "AVAILABLE",
+      serverTime: "2026-10-24T15:00:00Z",
       ticketTypes: [
         {
           code: TEST_TICKET_TYPE_CODE,
@@ -57,7 +57,8 @@ export function makeEvent(overrides: Partial<PublicEvent["event"]> = {}): Public
           maxPerOrder: 4,
           salesOpen: true,
           availability: "AVAILABLE",
-          currentTier: { name: "Preventa", sequence: 1, priceInCents: 16_000_000 },
+          currentTier: { name: "Preventa", sequence: 1, priceInCents: 16_000_000, maxPerOrder: 1 },
+          salesWindow: { startsAt: "2026-10-25T15:00:00Z", endsAt: "2026-10-29T05:00:00Z" },
         },
       ],
     },
@@ -91,25 +92,6 @@ export function makeQuote(overrides: Partial<Quote> = {}): Quote {
     availability: "AVAILABLE",
     availableQuantity: 40,
     expiresAt: "2026-10-05T20:15:00.000Z",
-    ...overrides,
-  };
-}
-
-export function makeCheckout(overrides: Partial<WompiCheckout> = {}): WompiCheckout {
-  return {
-    publicKey: "pub_test_fixture_key",
-    currency: "COP",
-    amountInCents: 16_000_000,
-    reference: "EVT-2026-000001-1",
-    integritySignature: "fixture-integrity-signature",
-    expirationTime: "2026-10-05T20:15:00.000Z",
-    redirectUrl: "http://localhost:3000/gracias",
-    customerData: {
-      email: TEST_BUYER_EMAIL,
-      fullName: "Ana Pérez",
-      phoneNumber: "3001234567",
-      phoneNumberPrefix: "+57",
-    },
     ...overrides,
   };
 }

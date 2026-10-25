@@ -42,3 +42,10 @@ npm-debug.log*
 # Legacy website copies; current Vite application is in the repository root
 Reset-web-para-programador/
 client-handover/
+
+# Added by `vercel link`: never commit the local project link or a real env file.
+.vercel
+.env*
+# Templates are documentation and must stay committable.
+!.env.example
+!.env.staging.example

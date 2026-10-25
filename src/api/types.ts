@@ -32,6 +32,14 @@ export type PublicPricingTier = {
   readonly name: string;
   readonly sequence: number;
   readonly priceInCents: number;
+  /** Per-order cap of the stage (Preventa is 1); null when the stage has none. */
+  readonly maxPerOrder: number | null;
+};
+
+/** The stage's half-open sales window, as the database stores it (ISO UTC). */
+export type PublicSalesWindow = {
+  readonly startsAt: string | null;
+  readonly endsAt: string | null;
 };
 
 export type PublicTicketType = {
@@ -43,12 +51,18 @@ export type PublicTicketType = {
   readonly salesOpen: boolean;
   readonly availability: AvailabilityLabel;
   readonly currentTier: PublicPricingTier | null;
+  readonly salesWindow: PublicSalesWindow | null;
 };
 
 export type PublicSales = {
   readonly currency: string;
   readonly salesOpen: boolean;
   readonly availability: AvailabilityLabel;
+  /**
+   * Server clock at the moment the projection was built. The storefront uses it to correct for a
+   * wrong device clock when it schedules its sale-boundary timers; the backend still decides.
+   */
+  readonly serverTime: string;
   readonly ticketTypes: readonly PublicTicketType[];
 };
 
@@ -140,23 +154,6 @@ export type Quote = {
 // POST /orders
 // ---------------------------------------------------------------------------
 
-/** The only secret-free checkout material the browser is allowed to hold. */
-export type WompiCheckout = {
-  readonly publicKey: string;
-  readonly currency: string;
-  readonly amountInCents: number;
-  readonly reference: string;
-  readonly integritySignature: string;
-  readonly expirationTime: string | null;
-  readonly redirectUrl: string | null;
-  readonly customerData: {
-    readonly email: string | null;
-    readonly fullName: string | null;
-    readonly phoneNumber: string | null;
-    readonly phoneNumberPrefix: string | null;
-  };
-};
-
 /** Secret-free ePayco Smart Checkout V2 material returned by the backend. */
 export type EpaycoCheckout = {
   readonly provider: "epayco";
@@ -176,10 +173,29 @@ export type EpaycoCheckout = {
   };
 };
 
-export type PaymentCheckout = WompiCheckout | EpaycoCheckout;
+/**
+ * The only checkout payload the backend can return.
+ *
+ * Wompi was retired, so this is not a union any more: the order endpoints answer with ePayco
+ * Smart Checkout material or with an error. There is nothing for the browser to hand off to a
+ * second gateway.
+ */
+export type PaymentCheckout = EpaycoCheckout;
 
-export function isEpaycoCheckout(checkout: PaymentCheckout): checkout is EpaycoCheckout {
-  return "provider" in checkout;
+/**
+ * Defensive guard kept at the edge of the checkout hand-off.
+ *
+ * The backend can only produce ePayco material, but a misconfigured or stale deployment could
+ * answer with something else. `unknown` is intentional: the check is a runtime property test,
+ * not a restatement of the type, so a malformed payload is refused instead of opening a
+ * gateway the site cannot settle.
+ */
+export function isEpaycoCheckout(checkout: unknown): checkout is EpaycoCheckout {
+  return (
+    typeof checkout === "object" &&
+    checkout !== null &&
+    (checkout as { readonly provider?: unknown }).provider === "epayco"
+  );
 }
 
 export type CreatedOrder = {

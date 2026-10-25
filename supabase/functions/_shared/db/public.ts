@@ -22,13 +22,18 @@ export type PublicTicketType = {
     readonly name: string;
     readonly sequence: number;
     readonly priceInCents: number;
+    readonly maxPerOrder: number | null;
   } | null;
+  /** The stage's half-open sales window (ISO UTC), so the storefront times its own gate. */
+  readonly salesWindow: { readonly startsAt: string | null; readonly endsAt: string | null } | null;
 };
 
 export type PublicSales = {
   readonly currency: string;
   readonly salesOpen: boolean;
   readonly availability: "AVAILABLE" | "LOW" | "SOLD_OUT" | "NOT_STARTED" | "CLOSED";
+  /** Server clock when the projection was built; the browser uses it as the time reference. */
+  readonly serverTime: string;
   readonly ticketTypes: readonly PublicTicketType[];
 };
 

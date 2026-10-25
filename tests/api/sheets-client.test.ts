@@ -3,6 +3,7 @@ import { createHmac } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  asciiJson,
   buildSheetsSignedRequest,
   canonicalSheetsMessage,
   createSheetsClient,
@@ -143,6 +144,49 @@ describe("Apps Script request signing", () => {
       values: [["header"], ["Ana"]],
     });
     expect(envelope.signature).toBe(expectedSignature(envelope.payload));
+  });
+
+  it("signs accented participant data over pure ASCII so the script can verify it", async () => {
+    // Regression: a literal `ó` in the payload was rejected by the deployed connector with
+    // `UNAUTHORIZED / La firma no es válida.` while the same payload escaped as `\u00f3`
+    // verified. The signed bytes must therefore never contain a non-ASCII code unit.
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      json({
+        ok: true,
+        data: {
+          operation: "sync",
+          grid: "data",
+          written: true,
+          rowsWritten: 2,
+          updatedRanges: 1,
+          updatedCells: 44,
+        },
+      }),
+    );
+    const client = clientWith(fetchImpl);
+    const values = [
+      ["nombre", "ciudad"],
+      ["Ana María Peña", "Montería"],
+    ];
+
+    await client.writeProjection({ grid: "data", values });
+
+    const envelope = signedBody(requestBody(fetchImpl.mock.calls[0]![1]));
+    // No character outside ASCII survives into the signed string.
+    const codePoints = Array.from(envelope.payload, (character) => character.codePointAt(0) ?? 0);
+    expect(codePoints.filter((codePoint) => codePoint > 0x7f)).toEqual([]);
+    expect(envelope.payload).toContain("Monter\\u00eda");
+    expect(envelope.signature).toBe(expectedSignature(envelope.payload));
+    // The script still reads the original values.
+    expect(JSON.parse(envelope.payload)).toEqual({ operation: "sync", grid: "data", values });
+  });
+
+  it("serializes any payload as ascii JSON", () => {
+    expect(asciiJson({ city: "Montería", note: "Peña 🧘" })).toBe(
+      '{"city":"Monter\\u00eda","note":"Pe\\u00f1a \\ud83e\\uddd8"}',
+    );
+    expect(JSON.parse(asciiJson({ city: "Montería" }))).toEqual({ city: "Montería" });
+    expect(asciiJson({ plain: "ok" })).toBe('{"plain":"ok"}');
   });
 
   it("sends the fixed status-grid target without any spreadsheet or tab name", async () => {

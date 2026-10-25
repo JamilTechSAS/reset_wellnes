@@ -11,6 +11,7 @@
 export const ALERT_KINDS = [
   "PAYMENT_REVERSED_AFTER_APPROVAL",
   "LATE_APPROVAL",
+  "PAYMENT_CONFLICT",
   "PROVIDER_RECORD_MISMATCH",
   "RECONCILIATION_MISMATCH",
   "PROVIDER_NOT_FOUND",
@@ -25,6 +26,7 @@ export type AlertSeverity = "critical" | "warning";
 export const ALERT_SEVERITY: Readonly<Record<AlertKind, AlertSeverity>> = {
   PAYMENT_REVERSED_AFTER_APPROVAL: "critical",
   LATE_APPROVAL: "critical",
+  PAYMENT_CONFLICT: "critical",
   PROVIDER_RECORD_MISMATCH: "warning",
   RECONCILIATION_MISMATCH: "warning",
   PROVIDER_NOT_FOUND: "warning",
@@ -36,6 +38,7 @@ const ALERT_LABEL: Readonly<Record<AlertKind, string>> = {
   PAYMENT_REVERSED_AFTER_APPROVAL:
     "Pago reversado después de aprobado (orden pagada con entradas activas)",
   LATE_APPROVAL: "Pago aprobado para una orden que ya no se podía pagar",
+  PAYMENT_CONFLICT: "Pago aprobado rechazado por conflicto de transacción o referencia",
   PROVIDER_RECORD_MISMATCH: "Notificación del proveedor contradice su propio registro",
   RECONCILIATION_MISMATCH: "La transacción del proveedor no coincide con la orden",
   PROVIDER_NOT_FOUND: "El proveedor no reconoce una transacción registrada",
@@ -107,6 +110,51 @@ export function alertForConfirmation(input: {
     paymentId: input.paymentId,
     provider: input.provider,
     detail: input.reason,
+  };
+}
+
+/** The SQL function's own refusal codes (`REFERENCE_MISMATCH`, `AMOUNT_MISMATCH`, …). */
+const REFUSAL_REASON = /^[A-Za-z0-9_]{1,40}$/;
+
+/**
+ * Alert for a signed, provider-verified APPROVAL that `confirm_payment` refused with a conflict,
+ * or undefined.
+ *
+ * The delivery is authentic and the money moved, but the order could not take it: without this
+ * alert the situation would only exist in the logs, because the webhook answers 200 to stop
+ * ePayco's retries. Only `CONFLICT` qualifies (a second transaction under one merchant
+ * reference, an amount or currency mismatch): `VALIDATION_ERROR` and `NOT_FOUND` mean a
+ * malformed or unknown order, not captured money. The verified record must also say `approved`;
+ * a refused decline is expected noise and must not page anyone.
+ */
+export function alertForApprovalConflict(input: {
+  readonly code: string;
+  readonly orderReference: string;
+  readonly transactionId: string;
+  readonly paymentStatus: string;
+  readonly eventId?: string | undefined;
+  /** `confirm_payment`'s own detail, e.g. `REFERENCE_MISMATCH`; dropped when not code-like. */
+  readonly refusalReason?: string | undefined;
+}): AlertInput | undefined {
+  if (input.code !== "CONFLICT" || input.paymentStatus !== "approved") {
+    return undefined;
+  }
+  const transactionId = input.transactionId.trim();
+  const refusalReason = input.refusalReason?.trim();
+  return {
+    kind: "PAYMENT_CONFLICT",
+    // Keyed on the order and the transaction, not on the refusal detail: a redelivery whose
+    // reason changed is the same money and must not split into a second alert.
+    dedupeKey: `conflict:${input.orderReference}:${transactionId}`,
+    orderReference: input.orderReference,
+    provider: "epayco",
+    // The reason names the refusal, the transaction id identifies the money at the provider and
+    // the event id ties the alert to the ledger row. All provider/ledger identifiers, no buyer
+    // data and no signature.
+    detail:
+      `CONFLICT${refusalReason !== undefined && REFUSAL_REASON.test(refusalReason) ? ` ${refusalReason}` : ""}` +
+      ` ref ${transactionId}` +
+      (input.eventId === undefined ? "" : ` evt ${input.eventId}`),
   };
 }
 

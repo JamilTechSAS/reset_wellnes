@@ -7,6 +7,8 @@ import { describe, expect, it, vi } from "vitest";
 import { createAlertSink, runAlertDigest } from "@shared/api/alerts.ts";
 import { alertForSweepOutcome } from "@shared/api/reconciliation-handler.ts";
 import {
+  ALERT_SEVERITY,
+  alertForApprovalConflict,
   alertForConfirmation,
   buildAlertDigest,
   sanitizeAlert,
@@ -171,6 +173,78 @@ describe("alert mapping", () => {
     expect(alertForSweepOutcome(row(1), "RECONCILIATION_REQUIRED")?.dedupeKey).toBe(
       fromWebhook?.dedupeKey,
     );
+  });
+
+  it("raises a critical alert for a signed approval refused by a conflict", () => {
+    const alert = alertForApprovalConflict({
+      code: "CONFLICT",
+      orderReference: "EVT-2026-000009",
+      transactionId: "390996469",
+      paymentStatus: "approved",
+      eventId: PAYMENT_ID,
+      refusalReason: "REFERENCE_MISMATCH",
+    });
+    expect(alert).toEqual({
+      kind: "PAYMENT_CONFLICT",
+      dedupeKey: "conflict:EVT-2026-000009:390996469",
+      orderReference: "EVT-2026-000009",
+      provider: "epayco",
+      detail: `CONFLICT REFERENCE_MISMATCH ref 390996469 evt ${PAYMENT_ID}`,
+    });
+    expect(ALERT_SEVERITY.PAYMENT_CONFLICT).toBe("critical");
+  });
+
+  it("drops a refusal reason that is not code-like", () => {
+    expect(
+      alertForApprovalConflict({
+        code: "CONFLICT",
+        orderReference: "EVT-2026-000009",
+        transactionId: "390996469",
+        paymentStatus: "approved",
+        refusalReason: "Database reported a conflict: ana@example.com",
+      })?.detail,
+    ).toBe("CONFLICT ref 390996469");
+  });
+
+  it("keys the alert on the order and transaction, not on the refusal detail", () => {
+    const base = {
+      code: "CONFLICT",
+      orderReference: "EVT-2026-000009",
+      transactionId: "390996469",
+      paymentStatus: "approved",
+    };
+    expect(alertForApprovalConflict({ ...base })?.dedupeKey).toBe(
+      alertForApprovalConflict({ ...base, refusalReason: "AMOUNT_MISMATCH" })?.dedupeKey,
+    );
+  });
+
+  it("keeps one identity for repeated redeliveries of the same refused approval", () => {
+    const alert = () =>
+      alertForApprovalConflict({
+        code: "CONFLICT",
+        orderReference: "EVT-2026-000009",
+        transactionId: "390996469",
+        paymentStatus: "approved",
+      });
+    expect(alert()?.dedupeKey).toBe(alert()?.dedupeKey);
+    // Without an event id the detail still names the transaction, never a buyer or a payload.
+    expect(alert()?.detail).toBe("CONFLICT ref 390996469");
+  });
+
+  it.each([
+    ["a refused decline", "CONFLICT", "declined"],
+    ["a refused pending delivery", "CONFLICT", "pending"],
+    ["a malformed or mismatched delivery", "VALIDATION_ERROR", "approved"],
+    ["an unknown order", "NOT_FOUND", "approved"],
+  ])("raises nothing for %s", (_label, code, paymentStatus) => {
+    expect(
+      alertForApprovalConflict({
+        code,
+        orderReference: "EVT-2026-000009",
+        transactionId: "390996469",
+        paymentStatus,
+      }),
+    ).toBeUndefined();
   });
 
   it("drops a detail that is not code-like", () => {

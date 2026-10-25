@@ -85,19 +85,64 @@ Today: one row ("Entrada general"). Per-order limits are configuration, not code
 `id`, `ticket_type_id` → ticket_types (cascade), `name`, `sequence` (`>= 1`, unique per ticket
 type), `price_cents` (`>= 0`), `quantity_limit` (null = unlimited, else `> 0`),
 `quantity_reserved`, `quantity_sold` (both `>= 0`), `sales_starts_at`, `sales_ends_at`,
-`is_active`, `created_at`, `updated_at`.
+`is_active`, `max_per_order` (null = no stage cap), `created_at`, `updated_at`.
 
-- **Oversell protection**: `check (quantity_limit is null or quantity_reserved + quantity_sold
-<= quantity_limit)` is the second line of defence; the first is the atomic reservation in the
-  ordering transaction:
-  `update pricing_tiers set quantity_reserved = quantity_reserved + n where id = … and
-(quantity_limit is null or quantity_reserved + quantity_sold + n <= quantity_limit)
-returning id` — no row returned ⇒ sold out. Verified under two simultaneous sessions
-  (phase-02 report).
-- **Stage selection (Phase 3)**: lowest `sequence` that is active, inside its window and has
-  availability. Computed in SQL inside the order transaction, never by the client.
+- **Per-stage purchase limit (migration `20261024190000`)**: `max_per_order` caps the quantity a
+  single order may buy from that stage. It is data, not a hardcoded stage name, so a future
+  first stage can carry the same rule without code. The migration seeds Preventa with `1` (one
+  admission per payment) and only fills `NULL`s, so an operator's later value survives a re-run.
+  `reserve_pricing_tier` and `quote_order_price` raise `PT409 / QUANTITY_LIMIT` before any counter
+  moves; both functions also return the cap so the storefront can mirror it.
+
+- **Shipped prices (migrations `20261024220000`, `20261024230000`, `20261024240000`)**: Preventa
+  `15990000` (COP 159.900), General `19990000` (COP 199.900), package `SHARE_EXPERIENCE`
+  `50970000` (3 × COP 169.900, one charge) on the General stage. Each reprice is a data-only
+  migration matched on the catalog keys, so quotes and orders read the same row the catalog
+  publishes, and historical `order_items` keep their recorded amounts.
+- **One inventory for the event (migration `20261024230000`)**: `quantity_limit` is cleared on
+  every stage. Capacity lives on `events.capacity` (100 for `RESET-SUNSET-2026`) and the pool is
+  derived, never duplicated:
+  `app_private.event_inventory_snapshot(event)` returns
+  `capacity`, `reserved = Σ quantity_reserved`, `sold = Σ quantity_sold` and
+  `remaining = capacity − reserved − sold`. Preventa, General and the package all draw from it.
+  `quantity_sold`/`quantity_reserved` remain the per-stage _attribution_ of the same admissions.
+- **Atomic reservation**: `app_private.reserve_pricing_tier` takes `select … for update` on the
+  **event** row, re-reads the snapshot, then moves `quantity_reserved` by the requested
+  admissions (1 for a single admission, 3 for a package). Two concurrent checkouts therefore
+  serialize on one row and cannot spend the same admission. It also raises
+  `PT409 / QUANTITY_LIMIT` for a stage cap (Preventa: 1) **before** inventory, so the buyer is
+  told the real reason rather than "sold out".
+- **Backstop**: the trigger `pricing_tiers_enforce_event_capacity` (function
+  `app_private.enforce_event_capacity`) aborts any statement that would leave
+  `Σ reserved + Σ sold > capacity`, including a payment confirmation arriving after its
+  reservation was released (`PT409 / CAPACITY_EXCEEDED`).
+- **Stage selection**: lowest `sequence` that is active and inside its half-open window
+  (`sales_starts_at <= now() < sales_ends_at`). Purely time-based since `20261024230000`:
+  inventory no longer moves the campaign to the next stage. Computed in SQL inside the order
+  transaction, never by the client.
 - Partial index `pricing_tiers_active_lookup_idx` on `(ticket_type_id, sequence)
 where is_active` supports that lookup.
+
+### ticket_bundles (named packages)
+
+`id`, `event_id` → events (cascade), `ticket_type_id` → ticket_types (restrict),
+`pricing_tier_id` → pricing_tiers (restrict), `code` (unique per event), `name`,
+`included_admissions` (`>= 2`), `price_cents` (the package total, not per admission),
+`is_active`, timestamps.
+
+- A package is **one** `order_items` row of `included_admissions` admissions at its own total
+  price: `create_bundle_order` writes `quantity = included_admissions` and
+  `line_total_cents = price_cents`, and refuses any other requested quantity with
+  `PT409 / BUNDLE_QUANTITY_INVALID`.
+- It is sold only while its `pricing_tier_id` is the active stage, otherwise
+  `PT409 / BUNDLE_NOT_AVAILABLE` — identical on the quote and the creation path
+  (migrations `20261024200000`, `20261024230000`).
+- It reserves `included_admissions` from the shared pool and is refused with `SOLD_OUT` when the
+  pool has fewer than that left.
+- `RESET-SUNSET-2026` ships two rows: `SHARE_EXPERIENCE` ("Comparte tu experiencia", 3
+  admissions, `price_cents = 50970000`) active on the General stage, and the retired
+  `DOUBLE_EXPERIENCE` (2 admissions, `34000000`) with `is_active = false`. Historical orders keep
+  reading the retired row through `order_items.bundle_id` and their frozen name and amount.
 
 ### quantity_discounts
 
@@ -248,6 +293,41 @@ verified Wompi event may do that (Phase 4).
 - One order → many attempts: declined references can never be reused at Wompi, so retries need
   their own reference.
 
+**Checkout-session bookkeeping** (same table, migration `20261024170000`):
+`checkout_lease_until` (NULL when nobody is creating a session) and `checkout_lease_generation`
+(`>= 0`, bumped by every lease claim). They serialize session creation across concurrent
+requests without adding a state machine to `payments`: a request claims the lease, calls ePayco,
+and only that generation may record the session. A late completion from an abandoned request is
+refused (`LEASE_LOST`) instead of overwriting a newer session.
+
+### checkout_sessions
+
+`id`, `payment_id` → payments (restrict), `payment_reference` (`EVT-<year>-<sequence>[-<attempt>]`),
+`session_id` (the opaque ePayco Smart Checkout id), `issued_at`, `expires_at`, `superseded_at`,
+`superseded_reason` (`EXPIRED` | `NEW_ATTEMPT`).
+
+- **One live session per attempt** is a database guarantee: the partial unique index
+  `checkout_sessions_live_idx on (payment_id) where superseded_at is null`. A second live row is
+  impossible even if application code regresses, which is what keeps a single provider
+  transaction under one reference.
+- `expires_at` is the order's `reservation_expires_at`: a session is only useful while the order
+  can still be paid. Once it elapses, `begin_checkout_session` closes the row with reason
+  `EXPIRED` and only then may issue a replacement.
+- `superseded_at` and `superseded_reason` are paired by a CHECK, so a closed session always says
+  why it was closed and an open one cannot carry a reason.
+- An AFTER INSERT trigger on `payments` (`app_private.supersede_sibling_checkout_sessions`)
+  closes the live session of the order's previous attempt with reason `NEW_ATTEMPT`. Creating
+  attempt _N_ is therefore the audit point for superseding; no caller has to remember it.
+- Functions: `begin_checkout_session(reference, lease_seconds)` answers `REUSE` (with the stored
+  session), `CREATE` (with a leased generation), `LEASED`, or `RETRY_REQUIRED` (order not
+  `PENDING`, reservation elapsed, or a transaction already recorded);
+  `complete_checkout_session(reference, generation, session_id)` records the session under the
+  lease and returns `LEASE_LOST` / `RESERVATION_EXPIRED` instead of writing;
+  `abandon_checkout_session(reference, generation)` frees the lease after a failed provider call.
+- The table is RLS-on with no policies, and the browser-facing roles have no privileges, like
+  every other domain table. It holds no buyer data: an attempt id, a reference and a provider
+  session id.
+
 **Phase 5 reconciliation bookkeeping** (same table): `reconciliation_attempts` (`>= 0`),
 `last_reconciled_at`, `next_reconciliation_at` (NULL = nothing scheduled), and the two CHECKed
 vocabularies `last_reconciliation_result` (`APPROVED_APPLIED`, `APPROVED_DUPLICATE`,
@@ -308,6 +388,37 @@ stored), `status` (`email_delivery_status`), `attempt_count`, `provider` (defaul
 Deriving the key from the row's own identity means a mis-keyed row cannot exist, so the unique
 constraint provably prevents duplicate confirmation sends when Wompi redelivers an event. Retry
 index: `(next_attempt_at) where status in ('QUEUED','FAILED')`.
+
+### order_email_deliveries (post-purchase email outbox)
+
+`order_id` → orders (cascade), `template` (format-checked; `POST_PURCHASE` today),
+`idempotency_key` (unique; **CHECK that it equals
+`'order:' || order_id || ':' || template`**), `recipient_email` (copied from the verified order
+and lowercased), `status` (`email_delivery_status`), `attempt_count`, `provider` (default
+`resend`), `provider_message_id`, `last_error` (≤500 chars), `next_attempt_at`, `claim_token`,
+`claimed_at`, `claim_expires_at`, `queued_at`, `sent_at`, `created_at`, `updated_at`.
+
+One logical email per order, `unique (order_id, template)`. The row is written by
+`app_private.enqueue_post_purchase_email()`, an AFTER trigger on `orders` that fires only on a
+**transition into `PAID`** — i.e. inside the transaction where `confirm_payment` validated the
+provider confirmation. A rolled-back payment takes the email intent with it, and a duplicate
+webhook, a replay or a second PAID update inserts nothing (`on conflict do nothing`). Queueing
+is therefore independent of the browser redirect and of any client-supplied status.
+
+Delivery is not attempted in that transaction. `claim_order_email_deliveries` leases due rows of
+`PAID` orders with `FOR UPDATE SKIP LOCKED`, increments the attempt counter, and stamps a claim
+token; a `SENDING` row whose `claim_expires_at` passed is reclaimable, so a crashed worker does
+not strand the email. `finish_order_email_delivery` updates only the row still held by that
+token, so a worker whose lease was taken over cannot overwrite a newer attempt.
+`get_post_purchase_email_context` returns the message data, and returns NULL unless the order is
+`PAID` and `recipient_email` still equals `orders.buyer_email`: a row can never be sent to a
+different address than the verified buyer's, and never for an unpaid order. It exposes the
+buyer's own name, the last 4 digits of their document and admission counts — never another
+attendee's data, never the full document.
+
+Guarantee: at-most-one **logical** email per order, no automatic resend after a recorded `SENT`.
+It is not strict exactly-once — a crash between the provider's 200 and the `SENT` update can
+yield one duplicate after the lease expires (the provider idempotency key bounds it).
 
 ### operators (Phase 5)
 
@@ -506,8 +617,10 @@ provider for it.
 - **Functions.** All public entry points (`quote_order_price`, `create_order`, `confirm_payment`,
   `claim_webhook_event`, `finalize_webhook_event`, `record_webhook_rejection`,
   `queue_ticket_emails`, `claim_email_deliveries`, `finish_email_delivery`,
-  `expire_pending_orders`, `retry_payment`, `get_order_status`) are executable by `service_role`
-  only (`EXECUTE` revoked from `PUBLIC`); the helpers live in `app_private`.
+  `claim_order_email_deliveries`, `finish_order_email_delivery`,
+  `get_post_purchase_email_context`, `expire_pending_orders`, `retry_payment`,
+  `get_order_status`) are executable by `service_role` only (`EXECUTE` revoked from `PUBLIC`);
+  the helpers live in `app_private`.
 - **Types.** `supabase/functions/_shared/db/database.types.ts` is generated by the Supabase CLI
   from a database with the migrations applied (`npm run types:generate`). It is never
   hand-edited; the file is excluded from Prettier and the root tsconfig so a regeneration diff
@@ -544,10 +657,20 @@ flow no longer calls it; `EMAIL_ENABLED=false` in this phase. `claim_email_deliv
 rows with `FOR UPDATE SKIP LOCKED` (stale `SENDING` rows are reclaimable after a timeout) and
 `finish_email_delivery` records `SENT`/`FAILED`/`CANCELLED` with the next attempt instant.
 
+**Post-purchase email (migration `20261024210000`).** A separate, order-keyed outbox, because
+`email_deliveries` is keyed by the discontinued `ticket_id`. The PAID trigger described in §4
+writes one `order_email_deliveries` row inside the confirmation transaction; the webhook's
+post-commit step and the scheduled maintenance run then claim and send it. Historical orders are
+not backfilled — only a new PAID transition enqueues.
+
 **Lifecycle.** `expire_pending_orders` returns inventory and marks `PENDING`/`FAILED` orders past
 their deadline `EXPIRED` (concurrent-safe, never touches paid orders). `retry_payment` creates a
 new attempt with a fresh reference for a `FAILED`/`EXPIRED` order, gated on reference + buyer
-email, capped at 10 attempts, re-reserving at the original stage and price when needed.
+email, capped at 10 attempts, re-reserving at the original stage and price when needed. The new
+attempt inherits the provider of the order's latest attempt (migration `20261024180000`) and
+fails with `INVALID_PROVIDER` when there is none to inherit, so a retry is never attributed to
+the `payment_provider` column default — which is what made an ePayco retry unable to open a
+checkout session.
 
 **`get_order_status(reference, buyer_email)`** is the buyer-facing projection: a SQL whitelist
 (no cédula, email, phone, IP, user agent, Wompi transaction id, signature or provider payload),

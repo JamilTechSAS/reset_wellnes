@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Demostración de entradas · Reset Wellness Club</title>
+    <meta
+      name="description"
+      content="Demostración del flujo de compra de entradas de Re set Sunset: elige tus entradas y revisa el resumen. No reserva cupos, no crea pedidos y no procesa pagos."
+    />
+    <!-- A sales demo shared by link, not a page to rank: the real offer lives at /entradas. -->
+    <meta name="robots" content="noindex,nofollow" />
+    <meta name="theme-color" content="#513229" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,300,100&family=Questrial&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/src/styles/main.css" />
+  </head>
+  <body data-popup="off" class="demo-page">
+    <!-- ================= ENCABEZADO ================= -->
+    <header class="header is-solid">
+      <a class="header-logo" href="/" aria-label="Reset, inicio"
+        ><span class="logo logo-full" role="img" aria-label="Reset Wellness Club"></span
+      ></a>
+      <nav class="nav" aria-label="Principal">
+        <button
+          class="nav-toggle"
+          id="nav-toggle"
+          type="button"
+          aria-expanded="false"
+          aria-controls="nav-menu"
+        >
+          Menú
+        </button>
+        <div class="nav-menu" id="nav-menu">
+          <a href="/nosotros">Nosotros</a>
+          <a href="/entradas">Entradas</a>
+          <a href="/marca-y-colaboracion">Marca y colaboración</a>
+          <a href="/preguntas-frecuentes">Preguntas frecuentes</a>
+        </div>
+      </nav>
+    </header>
+
+    <main>
+      <!-- ================= INTRO / MODO DEMOSTRACIÓN ================= -->
+      <section class="demo-intro" aria-labelledby="demo-titulo">
+        <div class="demo-intro-inner">
+          <p class="demo-flag">
+            <span class="demo-flag-dot" aria-hidden="true"></span>Modo demostración
+          </p>
+          <h1 class="demo-title" id="demo-titulo">Así se compra una entrada para Re set Sunset</h1>
+          <p class="demo-lede">
+            Una presentación del flujo de compra: elige tus entradas, ajusta cantidades y revisa el
+            resumen con el total antes de pagar. Las tres etapas están activas al mismo tiempo
+            porque es una demostración, no una venta.
+          </p>
+
+          <ul class="demo-facts">
+            <li>
+              <span class="demo-fact-label">Fecha</span>
+              <span class="demo-fact-value"
+                >Domingo, 15 de noviembre de 2026 · 1:00 p. m. a 7:00 p. m.</span
+              >
+            </li>
+            <li>
+              <span class="demo-fact-label">Lugar</span>
+              <span class="demo-fact-value">Terraza del hotel GHL, Montería</span>
+            </li>
+            <li>
+              <span class="demo-fact-label">Capacidad</span>
+              <span class="demo-fact-value">100 boletas en total</span>
+            </li>
+          </ul>
+
+          <p class="demo-disclaimer">
+            Página de demostración para presentación comercial.
+            <strong
+              >No cobra nada, no reserva cupos y no solicita datos personales ni de pago.</strong
+            >
+          </p>
+
+          <a class="demo-back" href="/entradas">← Volver a la página de entradas</a>
+        </div>
+      </section>
+
+      <!-- ================= SELECCIÓN DE ENTRADAS ================= -->
+      <section class="entradas demo-entradas" aria-labelledby="demo-seleccion">
+        <div class="demo-entradas-inner">
+          <h2 class="entradas-titulo" id="demo-seleccion">Elige tus entradas</h2>
+          <p class="entradas-sub">
+            Selecciona las opciones que quieras ver en el resumen; los totales se calculan al
+            instante.
+          </p>
+          <noscript>
+            <p>
+              Esta demostración necesita JavaScript para calcular el resumen de la compra. La página
+              real de entradas es <a href="/entradas">reset wellness / entradas</a>.
+            </p>
+          </noscript>
+          <div id="demo-app"></div>
+        </div>
+      </section>
+    </main>
+
+    <!-- ================= PIE DE PÁGINA ================= -->
+    <footer class="footer">
+      <div class="footer-inner">
+        <a class="footer-logo" href="/" aria-label="Reset Wellness Club, inicio"
+          ><span class="logo logo-full" role="img" aria-label="Reset Wellness Club"></span
+        ></a>
+
+        <nav class="footer-col" aria-labelledby="footer-explora">
+          <p class="footer-titulo" id="footer-explora">Explora</p>
+          <ul>
+            <li><a href="/nosotros">Nosotros</a></li>
+            <li><a href="/entradas">Entradas</a></li>
+            <li><a href="/preguntas-frecuentes">Preguntas frecuentes</a></li>
+            <li><a href="/terminos-y-condiciones">Términos y condiciones</a></li>
+          </ul>
+        </nav>
+
+        <nav class="footer-col" aria-labelledby="footer-comunidad">
+          <p class="footer-titulo" id="footer-comunidad">Comunidad</p>
+          <ul>
+            <li><a href="mailto:reset.wellness@gmail.com">Contacto</a></li>
+            <li>
+              <a href="https://instagram.com/reset.wll" target="_blank" rel="noopener">Instagram</a>
+            </li>
+            <li>
+              <a href="https://www.tiktok.com/@reset.wellness.cl" target="_blank" rel="noopener"
+                >TikTok</a
+              >
+            </li>
+          </ul>
+        </nav>
+      </div>
+
+      <div class="footer-legal">
+        <p>
+          © 2026 Reset Wellness Club. Todos los derechos reservados. · Demostración de producto: no
+          genera reservas ni pagos.
+        </p>
+      </div>
+    </footer>
+
+    <script type="module" src="/src/demo/demo-entradas.ts"></script>
+  </body>
+</html>

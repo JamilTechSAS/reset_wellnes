@@ -23,6 +23,7 @@ export const MIGRATION_FILE_PATTERN = /^\d{14}_[a-z0-9_]+\.sql$/;
  */
 export const DOMAIN_TABLES = [
   "attendance",
+  "checkout_sessions",
   "consents",
   "discount_codes",
   "discount_redemptions",
@@ -30,6 +31,7 @@ export const DOMAIN_TABLES = [
   "events",
   "operational_alerts",
   "operators",
+  "order_email_deliveries",
   "order_items",
   "orders",
   "participants",

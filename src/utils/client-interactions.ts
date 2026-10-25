@@ -13,10 +13,25 @@
  */
 
 import {
+  GENERAL_ENDS_AT,
+  GENERAL_OPENS_AT,
+  GENERAL_WINDOW_LABEL,
+  PRESALE_CLOSED_NOTE,
+  PRESALE_ENDS_AT,
+  PRESALE_OPENS_AT,
   PRESALE_SCHEDULE_NOTE,
+  PRESALE_WINDOW_LABEL,
+  clockSkewMs,
+  isGeneralWindowOpen,
+  isPresaleClosed,
   isPresaleOpen,
-  msUntilPresaleOpens,
 } from "../purchase/presale-schedule.ts";
+import {
+  PACKAGE_ADMISSIONS,
+  PACKAGE_UNIT_PRICE_LABEL,
+  PACKAGE_UNAVAILABLE_NOTE,
+  packageCheckoutAvailable,
+} from "../purchase/package-availability.ts";
 
 export type ClientInteractionsOptions = {
   readonly openPurchase?: (
@@ -448,11 +463,14 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
     const defaultTier = "preventa";
     const tierPrices: Record<string, string> = {
       preventa: "$159.900",
-      duo: "$340.000",
-      general: "$200.000",
+      // The package is advertised per person, so the button mirrors the card.
+      duo: PACKAGE_UNIT_PRICE_LABEL,
+      general: "$199.900",
     };
 
-    // General and Doble experiencia stay disabled until the public catalog confirms General is active.
+    // General and the package stay disabled until the public catalog confirms the General stage
+    // is the one on sale. The catalog carries the server clock, so a device with a wrong clock
+    // still times its own boundary timers against the same instants the database enforces.
     const disabledTiers = ["general", "duo"];
 
     disabledTiers.forEach((tier) => {
@@ -463,18 +481,25 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
         if (radio) radio.disabled = true;
         const note = tierCard.querySelector("[data-nota]");
         if (note) {
-          note.textContent = "Disponible al iniciar la etapa General";
+          note.textContent = tier === "duo" ? PACKAGE_UNAVAILABLE_NOTE : GENERAL_WINDOW_LABEL;
         }
       }
     });
 
-    // Presale is time-locked until its scheduled opening (Colombia time); whether it is then
-    // actually buyable still comes from the backend availability response below.
+    // Presale is time-locked to its scheduled window (Colombia time); whether it is then actually
+    // buyable still comes from the backend availability response below.
     const preventaCard = document.querySelector<HTMLElement>('.tipo[data-tipo="preventa"]');
     const preventaRadio = preventaCard?.querySelector<HTMLInputElement>("input") ?? null;
     const preventaNote = preventaCard?.querySelector<HTMLElement>("[data-nota]") ?? null;
     // Optimistic until the public catalog answers (matches the prior default where presale was open).
     let backendPreventaAllowed = true;
+    // General (and the package, which rides on it) is never optimistic: the catalog has to say so.
+    let backendGeneralAllowed = false;
+
+    // Milliseconds this device's clock is ahead (+) or behind (-) the backend's. Zero until the
+    // catalog answers; it only sharpens the timer, never authorizes a purchase.
+    let clockSkew = 0;
+    const nowMs = (): number => Date.now() + clockSkew;
 
     const updateTicketState = (): void => {
       const selectedRadio = document.querySelector<HTMLInputElement>(".tipo input:checked");
@@ -488,8 +513,8 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
         buyButton.setAttribute("aria-disabled", "true");
         if (buyHelpText) {
           buyHelpText.textContent =
-            tier === "preventa" && !isPresaleOpen()
-              ? PRESALE_SCHEDULE_NOTE
+            tier === "preventa"
+              ? preventaLockedCopy()
               : "Esta entrada no está disponible por ahora.";
         }
       } else if (termsCheckbox?.checked) {
@@ -505,25 +530,41 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
       }
     };
 
+    /** What the Preventa card (and the locked buy button) says right now. */
+    const preventaLockedCopy = (): string => {
+      const at = nowMs();
+      if (isPresaleClosed(at)) return PRESALE_CLOSED_NOTE;
+      if (!isPresaleOpen(at)) return PRESALE_SCHEDULE_NOTE;
+      return "Preventa no disponible";
+    };
+
     // Applies the presale time gate combined with the last known backend verdict.
     const applyPreventaState = (): void => {
-      const timeOpen = isPresaleOpen();
+      const at = nowMs();
+      const closed = isPresaleClosed(at);
+      const timeOpen = isPresaleOpen(at) && !closed;
       const enabled = timeOpen && backendPreventaAllowed;
       preventaCard?.classList.toggle("is-off", !enabled);
       if (preventaRadio) preventaRadio.disabled = !enabled;
       if (preventaNote) {
-        if (!timeOpen) {
+        if (closed) {
+          // The window is over: the card says so and can never be selected again.
+          preventaNote.textContent = PRESALE_CLOSED_NOTE;
+        } else if (!timeOpen) {
           preventaNote.textContent = PRESALE_SCHEDULE_NOTE;
         } else if (!backendPreventaAllowed) {
           preventaNote.textContent = "Preventa no disponible";
         } else {
-          preventaNote.textContent = "";
+          // The window stays visible while the stage is open, so the closing date is never hidden.
+          preventaNote.textContent = PRESALE_WINDOW_LABEL;
         }
       }
-      // If presale was selected but is now locked, move the selection to an available tier.
+      // If presale was selected but is now locked, move the selection off it. A closed stage
+      // NEVER keeps a stale selection: checkout must not continue with Preventa.
       if (!enabled) {
         const selected = document.querySelector<HTMLInputElement>(".tipo input:checked");
         if (selected?.value === "preventa") {
+          selected.checked = false;
           const fallback = document.querySelector<HTMLInputElement>(".tipo input:not(:disabled)");
           if (fallback) fallback.checked = true;
         }
@@ -531,16 +572,37 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
       updateTicketState();
     };
 
-    // Auto-enable presale at the scheduled instant without a page reload.
-    const schedulePresaleOpen = (): void => {
-      if (isPresaleOpen()) return;
-      const delay = msUntilPresaleOpens();
+    /**
+     * Schedules the next stage boundary (Preventa opening, Preventa closing) from the server
+     * clock, so an open tab flips without a reload. Coming back to the tab always re-evaluates,
+     * because a background tab may have slept through the timer.
+     */
+    const boundaryTimer = { id: undefined as ReturnType<typeof setTimeout> | undefined };
+    const scheduleStageBoundaries = (): void => {
+      if (boundaryTimer.id !== undefined) {
+        clearTimeout(boundaryTimer.id);
+        boundaryTimer.id = undefined;
+      }
+      const at = nowMs();
+      const next = [
+        PRESALE_OPENS_AT.getTime(),
+        PRESALE_ENDS_AT.getTime(),
+        GENERAL_OPENS_AT.getTime(),
+        GENERAL_ENDS_AT.getTime(),
+      ].find((instant) => instant > at);
+      if (next === undefined) return;
+      const delay = next - at;
       const MAX_TIMEOUT = 2_147_483_647; // setTimeout's 32-bit ceiling (~24.8 days)
-      if (delay > MAX_TIMEOUT) return; // too far out; a later load re-evaluates the gate
-      const presaleTimer = setTimeout(applyPreventaState, delay + 50);
-      disposers.push(() => {
-        clearTimeout(presaleTimer);
-      });
+      if (delay > MAX_TIMEOUT) return; // too far out; a later load or focus re-evaluates
+      boundaryTimer.id = setTimeout(() => {
+        boundaryTimer.id = undefined;
+        applyPreventaState();
+        scheduleStageBoundaries();
+        // A boundary that OPENS a stage needs a fresh catalog answer, otherwise General would
+        // never unlock on a page the buyer left open. Closing needs nothing: the time gate is
+        // already authoritative and the backend refuses the sale in any case.
+        void refreshPublicSales();
+      }, delay + 50);
     };
 
     const tierInputs = document.querySelectorAll(".tipo input");
@@ -569,22 +631,35 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
       }
 
       const selectedRadio = document.querySelector<HTMLInputElement>(".tipo input:checked");
-      // Block checkout for a tier that is not currently purchasable (e.g. presale before it opens).
+      // A locked Preventa selection is cleared by `applyPreventaState`, so the fallback tier is
+      // what the buyer is looking at when nothing can be selected. Its own copy explains why.
+      const tier = selectedRadio?.value ?? defaultTier;
+      // Block checkout for a tier that is not currently purchasable (a closed or not-yet-open
+      // stage, or a package whose stage is not on sale).
       if (!selectedRadio || selectedRadio.disabled) {
         if (buyHelpText) {
           buyHelpText.textContent =
-            selectedRadio?.value === "preventa" && !isPresaleOpen()
-              ? PRESALE_SCHEDULE_NOTE
+            tier === "preventa"
+              ? preventaLockedCopy()
               : "Esta entrada no está disponible por ahora.";
         }
         return;
       }
-      const tier = selectedRadio.value;
-      const quantity = tier === "duo" ? 2 : 1;
 
-      // Enter the approved real backend purchase flow
+      // General and the package only exist inside the General window. A stale page can leave a
+      // radio enabled, so the server-derived clock is checked again here; the quote and the
+      // order transaction re-validate it in the backend regardless.
+      if ((tier === "general" || tier === "duo") && !isGeneralWindowOpen(nowMs())) {
+        if (buyHelpText) {
+          buyHelpText.textContent = "Esta entrada no está disponible por ahora.";
+        }
+        return;
+      }
+
+      // Enter the approved real backend purchase flow. The package is one product of three
+      // admissions, so the request carries that quantity; the backend re-prices and re-reserves it.
       options.openPurchase?.("ticket-section", {
-        quantity,
+        quantity: tier === "duo" ? PACKAGE_ADMISSIONS : 1,
         tier,
         acceptedTerms: true,
       });
@@ -596,13 +671,48 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
     });
 
     applyPreventaState();
-    schedulePresaleOpen();
+    scheduleStageBoundaries();
 
-    if (options.salesConfig !== undefined) {
-      const { apiBaseUrl, eventCode, ticketTypeCode } = options.salesConfig;
-      const endpoint = `${apiBaseUrl.replace(/\/+$/, "")}/events/${encodeURIComponent(eventCode)}`;
-      void fetch(endpoint)
-        .then(async (response) => {
+    // A sleeping tab can miss a timer: re-evaluate whenever the buyer comes back to it. Both are
+    // read-only checks; the backend still re-validates the stage on every purchase.
+    const reevaluate = (): void => {
+      applyPreventaState();
+      scheduleStageBoundaries();
+      // A background tab can sleep through a boundary timer; the catalog answer decides.
+      void refreshPublicSales();
+    };
+    document.addEventListener("visibilitychange", reevaluate);
+    window.addEventListener("focus", reevaluate);
+    disposers.push(() => {
+      document.removeEventListener("visibilitychange", reevaluate);
+      window.removeEventListener("focus", reevaluate);
+      if (boundaryTimer.id !== undefined) {
+        clearTimeout(boundaryTimer.id);
+      }
+    });
+
+    const salesConfig = options.salesConfig;
+    const catalogEndpoint =
+      salesConfig === undefined
+        ? null
+        : `${salesConfig.apiBaseUrl.replace(/\/+$/, "")}/events/${encodeURIComponent(salesConfig.eventCode)}`;
+    const ticketTypeCode = salesConfig?.ticketTypeCode ?? "";
+    let catalogInFlight = false;
+
+    /**
+     * Reads the public catalog — the backend's stage, price, per-order cap, server clock and
+     * half-open window — and applies it to the cards. It runs on load, when a stage boundary
+     * passes and when the buyer returns to the tab: a page left open across 00:01 on 29 October
+     * has to unlock General and the package without a reload.
+     */
+    async function refreshPublicSales(): Promise<void> {
+      if (salesConfig === undefined || catalogEndpoint === null || catalogInFlight) {
+        return;
+      }
+      catalogInFlight = true;
+      try {
+        const response = await fetch(catalogEndpoint);
+        {
           if (!response.ok) {
             throw new Error(`Public event lookup failed: ${response.status}`);
           }
@@ -612,11 +722,20 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
               readonly found?: boolean;
               readonly sales?: {
                 readonly salesOpen?: boolean;
+                /** Backend clock when the projection was built (ISO UTC). */
+                readonly serverTime?: string;
                 readonly ticketTypes?: readonly {
                   readonly code: string;
                   readonly salesOpen: boolean;
                   readonly availability: string;
-                  readonly currentTier: { readonly name: string } | null;
+                  readonly currentTier: {
+                    readonly name: string;
+                    readonly maxPerOrder?: number | null;
+                  } | null;
+                  readonly salesWindow?: {
+                    readonly startsAt: string | null;
+                    readonly endsAt: string | null;
+                  } | null;
                 }[];
               };
             };
@@ -634,6 +753,9 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
             throw new Error("Public event lookup returned no ticket type");
           }
 
+          // Correct this device's clock against the server before any boundary decision.
+          clockSkew = clockSkewMs(sales.serverTime, Date.now());
+
           // Backend's view of the presale stage (inventory/stage), independent of the time gate.
           const preventaStageOpen =
             sales.salesOpen === true &&
@@ -647,13 +769,21 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
             ticketType.availability !== "SOLD_OUT";
 
           backendPreventaAllowed = preventaStageOpen;
-          // Presale is buyable only when the backend stage is open AND the scheduled time has arrived.
-          const preventaOpen = preventaStageOpen && isPresaleOpen();
+          const at = nowMs();
+          // A stage is buyable only when the backend says it is on sale AND the server-derived
+          // clock sits inside its half-open window. A selected-but-closed stage is never left
+          // purchasable, and the one-minute gap between stages stays closed.
+          const preventaOpen = preventaStageOpen && isPresaleOpen(at) && !isPresaleClosed(at);
+          const generalTimeOpen = isGeneralWindowOpen(at);
+          backendGeneralAllowed = generalOpen && generalTimeOpen;
 
           const enabledByTier: Record<string, boolean> = {
             preventa: preventaOpen,
-            general: generalOpen,
-            duo: generalOpen,
+            general: backendGeneralAllowed,
+            // The package is one product of the three-admission bundle the backend now prices;
+            // it opens with General and is still refused if fewer than three admissions remain
+            // (the quote answers SOLD_OUT, which the checkout shows honestly).
+            duo: backendGeneralAllowed && packageCheckoutAvailable(),
           };
           Object.entries(enabledByTier).forEach(([tier, enabled]) => {
             const card = document.querySelector<HTMLElement>(`.tipo[data-tipo="${tier}"]`);
@@ -666,16 +796,16 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
               radio.disabled = !enabled;
             }
             if (note !== null && note !== undefined) {
-              if (!enabled && (tier === "general" || tier === "duo")) {
-                note.textContent = "Disponible al iniciar la etapa General";
-              } else if (!enabled && tier === "preventa") {
-                note.textContent = !isPresaleOpen()
-                  ? PRESALE_SCHEDULE_NOTE
-                  : "Preventa no disponible";
-              } else if (tier === "duo") {
-                note.textContent = "$170.000 por persona";
+              if (tier === "duo") {
+                // While the package is not on sale the card explains when it opens; once it is,
+                // the availability line would be untrue, so it is removed (the price stays).
+                note.textContent = enabled ? "" : PACKAGE_UNAVAILABLE_NOTE;
+              } else if (tier === "general") {
+                note.textContent = GENERAL_WINDOW_LABEL;
+              } else if (!enabled) {
+                note.textContent = preventaLockedCopy();
               } else {
-                note.textContent = "";
+                note.textContent = PRESALE_WINDOW_LABEL;
               }
             }
           });
@@ -693,11 +823,19 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
               }
             }
           }
+          applyPreventaState();
+          scheduleStageBoundaries();
           updateTicketState();
-        })
-        .catch(() => {
-          // General and Doble experiencia remain unavailable without a confirmed public sales stage.
-        });
+        }
+      } catch {
+        // General and the package remain unavailable without a confirmed public sales stage.
+      } finally {
+        catalogInFlight = false;
+      }
+    }
+
+    if (salesConfig !== undefined) {
+      void refreshPublicSales();
     }
   }
 

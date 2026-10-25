@@ -62,6 +62,32 @@ describe("record_operational_alert", () => {
     expect(await count()).toBe(1);
   });
 
+  it("accepts PAYMENT_CONFLICT, the kind for an authenticated approval that could not be applied", async () => {
+    // Staging 2026-10-24: a second ePayco transaction under one merchant reference was refused
+    // with CONFLICT and left nothing for an operator to see. Migration 20261024160000 adds this
+    // kind so that capture can no longer be silent.
+    const result = await db.query<{ r: Recorded }>(
+      `select public.record_operational_alert(
+         'conflict:EVT-2026-000009:390996469', 'PAYMENT_CONFLICT', 'critical',
+         'EVT-2026-000009', null, 'epayco',
+         'CONFLICT REFERENCE_MISMATCH ref 390996469 evt 11111111-1111-4111-8111-111111111111') as r`,
+    );
+    expect(result.rows[0]?.r).toMatchObject({ created: true, occurrences: 1 });
+
+    // The exact shape the webhook writes must satisfy the ledger's detail CHECK.
+    const row = await db.query<{ kind: string; severity: string; detail: string }>(
+      "select kind, severity, detail from public.operational_alerts",
+    );
+    expect(row.rows).toEqual([
+      {
+        kind: "PAYMENT_CONFLICT",
+        severity: "critical",
+        detail:
+          "CONFLICT REFERENCE_MISMATCH ref 390996469 evt 11111111-1111-4111-8111-111111111111",
+      },
+    ]);
+  });
+
   it.each([
     ["an unknown kind", "NOT_A_KIND", "MISMATCH"],
     ["free text that could carry personal data", "RECONCILIATION_MISMATCH", "ana@example.com"],

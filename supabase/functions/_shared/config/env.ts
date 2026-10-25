@@ -10,9 +10,11 @@
  *    Invalid configuration must abort before any payment logic runs.
  * 3. Error messages name the VARIABLE, never its value. Secrets must not leak into
  *    logs, HTTP responses or error trackers.
- * 4. Credentials are tied to an environment. Wompi uses different credentials and a
- *    different API host per environment (verified in the official docs, "Ambientes y
+ * 4. Credentials are tied to an environment. The legacy Wompi webhook uses different
+ *    credentials and a different API host per environment (official docs, "Ambientes y
  *    llaves"), so a sandbox deployment must reject production keys and vice versa.
+ * 5. ePayco is the only provider that can open a checkout; `PAYMENT_PROVIDER=wompi` is a
+ *    ConfigError rather than a silent fallback.
  *    This is the cheapest possible protection against the classic "tested with prod
  *    keys" incident.
  */
@@ -22,8 +24,25 @@ import { LOG_LEVELS, type LogLevel } from "../logging/levels.ts";
 export const APP_ENVIRONMENTS = ["development", "sandbox", "production"] as const;
 export type AppEnvironment = (typeof APP_ENVIRONMENTS)[number];
 
-export const PAYMENT_PROVIDERS = ["epayco", "wompi"] as const;
+/**
+ * Providers a NEW checkout can be opened with.
+ *
+ * Wompi was retired for this event: `payment_provider = 'wompi'` rows are historical, and the
+ * `webhooks-wompi` function stays deployed only to answer a late delivery for one of them.
+ * Nothing in the purchase flow may select Wompi again, so this list — which is also the list
+ * `PAYMENT_PROVIDER` is validated against — contains ePayco only.
+ */
+export const PAYMENT_PROVIDERS = ["epayco"] as const;
 export type PaymentProvider = (typeof PAYMENT_PROVIDERS)[number];
+
+/**
+ * Provider names that may still appear in historical rows and in retired env files.
+ *
+ * They are documented here so the historical vocabulary lives in one place, and they are
+ * never accepted by configuration: `PAYMENT_PROVIDER=wompi` is a hard ConfigError.
+ */
+export const RETIRED_PAYMENT_PROVIDERS = ["wompi", "mercadopago"] as const;
+export type LegacyPaymentProvider = PaymentProvider | (typeof RETIRED_PAYMENT_PROVIDERS)[number];
 
 export type EpaycoConfig = {
   readonly publicKey: string;
@@ -108,6 +127,12 @@ export type BackendConfig = {
     readonly apiKey: string | undefined;
     readonly from: string | undefined;
     readonly replyTo: string | undefined;
+    /**
+     * Public directory holding the post-purchase email images (no trailing slash).
+     * `undefined` falls back to `${publicWebBaseUrl}/correo/img`, which is where the supplied
+     * README says to upload `encabezado.jpg` and `logo-beige.png`.
+     */
+    readonly assetsBaseUrl: string | undefined;
   };
   /** Public site base URL (frontend, deployed separately, used for redirects/links). */
   readonly publicWebBaseUrl: string;
@@ -626,60 +651,54 @@ export function loadConfig(env: EnvRecord, options: LoadConfigOptions = {}): Bac
   }
 
   // --- Payment Provider ---------------------------------------------------
-  const defaultProvider: PaymentProvider =
-    env.PAYMENT_PROVIDER === "epayco" ||
-    (env.EPAYCO_PUBLIC_KEY !== undefined && env.PAYMENT_PROVIDER !== "wompi")
-      ? "epayco"
-      : "wompi";
-  const paymentProvider = readEnum(
-    env,
-    "PAYMENT_PROVIDER",
-    PAYMENT_PROVIDERS,
-    defaultProvider,
-    issues,
-  );
+  // ePayco is the only provider that can open a checkout, and it is the default: a deployment
+  // that never sets PAYMENT_PROVIDER still sells with ePayco. A retired value is a hard
+  // configuration error, never a silent fallback to some other gateway.
+  const requestedProvider = readString(env, "PAYMENT_PROVIDER")?.toLowerCase();
+  if (requestedProvider !== undefined && requestedProvider !== "epayco") {
+    issues.push(
+      'PAYMENT_PROVIDER must be "epayco": Wompi and MercadoPago are retired and no checkout ' +
+        "can be opened with them",
+    );
+  }
+  const paymentProvider: PaymentProvider = "epayco";
 
   // --- ePayco -------------------------------------------------------------
-  const epaycoPublicKey =
-    paymentProvider === "epayco" && requirePayment
-      ? requireValue(
-          env,
-          "EPAYCO_PUBLIC_KEY",
-          issues,
-          "ePayco dashboard > Integraciones > Llaves API (PUBLIC_KEY)",
-        )
-      : (env.EPAYCO_PUBLIC_KEY?.trim() ?? "");
-  const epaycoPrivateKey =
-    paymentProvider === "epayco" && requirePayment
-      ? requireValue(
-          env,
-          "EPAYCO_PRIVATE_KEY",
-          issues,
-          "ePayco dashboard > Integraciones > Llaves API (PRIVATE_KEY)",
-        )
-      : (env.EPAYCO_PRIVATE_KEY?.trim() ?? "");
-  const epaycoPKey =
-    paymentProvider === "epayco" && requirePayment
-      ? requireValue(
-          env,
-          "EPAYCO_P_KEY",
-          issues,
-          "ePayco dashboard > Integraciones > Llaves API (P_KEY)",
-        )
-      : (env.EPAYCO_P_KEY?.trim() ?? "");
-  const epaycoCustIdCliente =
-    paymentProvider === "epayco" && requirePayment
-      ? requireValue(
-          env,
-          "EPAYCO_CUST_ID_CLIENTE",
-          issues,
-          "ePayco dashboard > Integraciones > Llaves API (P_CUST_ID_CLIENTE)",
-        )
-      : (env.EPAYCO_CUST_ID_CLIENTE?.trim() ?? "");
+  const epaycoPublicKey = requirePayment
+    ? requireValue(
+        env,
+        "EPAYCO_PUBLIC_KEY",
+        issues,
+        "ePayco dashboard > Integraciones > Llaves API (PUBLIC_KEY)",
+      )
+    : (env.EPAYCO_PUBLIC_KEY?.trim() ?? "");
+  const epaycoPrivateKey = requirePayment
+    ? requireValue(
+        env,
+        "EPAYCO_PRIVATE_KEY",
+        issues,
+        "ePayco dashboard > Integraciones > Llaves API (PRIVATE_KEY)",
+      )
+    : (env.EPAYCO_PRIVATE_KEY?.trim() ?? "");
+  const epaycoPKey = requirePayment
+    ? requireValue(
+        env,
+        "EPAYCO_P_KEY",
+        issues,
+        "ePayco dashboard > Integraciones > Llaves API (P_KEY)",
+      )
+    : (env.EPAYCO_P_KEY?.trim() ?? "");
+  const epaycoCustIdCliente = requirePayment
+    ? requireValue(
+        env,
+        "EPAYCO_CUST_ID_CLIENTE",
+        issues,
+        "ePayco dashboard > Integraciones > Llaves API (P_CUST_ID_CLIENTE)",
+      )
+    : (env.EPAYCO_CUST_ID_CLIENTE?.trim() ?? "");
   const epaycoTest = readBoolean(env, "EPAYCO_TEST", appEnv !== "production", issues);
   // Test mode makes the webhook and the payment hint accept ePayco sandbox transactions, so in
-  // production it would let a test payment settle a real order. Checked for every provider
-  // because the ePayco webhook stays reachable even when Wompi is the active provider.
+  // production it would let a test payment settle a real order.
   if (appEnv === "production" && epaycoTest) {
     issues.push("EPAYCO_TEST must be false when APP_ENV=production");
   }
@@ -695,40 +714,24 @@ export function loadConfig(env: EnvRecord, options: LoadConfigOptions = {}): Bac
     }
   }
 
-  // --- Wompi --------------------------------------------------------------
-  // The Wompi environment is derived from APP_ENV and is never configured
-  // independently: production money can only be touched by a production deployment.
+  // --- Wompi (legacy) -----------------------------------------------------
+  // No checkout is built with these values any more. They are still read because the
+  // `webhooks-wompi` function stays deployed to answer a late delivery for a payment created
+  // before the retirement; an absent value is simply an empty string, never a ConfigError.
+  // The Wompi environment is derived from APP_ENV and is never configured independently:
+  // production credentials can only be paired with a production deployment.
   const wompiEnvironment: WompiEnvironment = appEnv === "production" ? "production" : "sandbox";
   const wompiDetails = WOMPI_ENVIRONMENT_DETAILS[wompiEnvironment];
 
-  const wompiPublicKey =
-    paymentProvider === "wompi" && requirePayment
-      ? requireValue(
-          env,
-          "WOMPI_PUBLIC_KEY",
-          issues,
-          "Wompi dashboard > Developers > technical integration secrets",
-        )
-      : (env.WOMPI_PUBLIC_KEY?.trim() ?? "");
-  const wompiPrivateKey =
-    paymentProvider === "wompi" && requirePayment
-      ? requireValue(env, "WOMPI_PRIVATE_KEY", issues, "server-side only")
-      : (env.WOMPI_PRIVATE_KEY?.trim() ?? "");
-  const wompiIntegritySecret =
-    paymentProvider === "wompi" && requirePayment
-      ? requireValue(env, "WOMPI_INTEGRITY_SECRET", issues, "signature:integrity")
-      : (env.WOMPI_INTEGRITY_SECRET?.trim() ?? "");
-  const wompiEventsSecret =
-    paymentProvider === "wompi" && requirePayment
-      ? requireValue(
-          env,
-          "WOMPI_EVENTS_SECRET",
-          issues,
-          "verifies webhook authenticity (X-Event-Checksum)",
-        )
-      : (env.WOMPI_EVENTS_SECRET?.trim() ?? "");
+  const wompiPublicKey = env.WOMPI_PUBLIC_KEY?.trim() ?? "";
+  const wompiPrivateKey = env.WOMPI_PRIVATE_KEY?.trim() ?? "";
+  const wompiIntegritySecret = env.WOMPI_INTEGRITY_SECRET?.trim() ?? "";
+  const wompiEventsSecret = env.WOMPI_EVENTS_SECRET?.trim() ?? "";
 
-  if (paymentProvider === "wompi" && requirePayment) {
+  // Prefixes are still enforced for the values that ARE present: production keys in a sandbox
+  // deployment remain a mistake, and the dormant webhook must not be handed a lookup it cannot
+  // authenticate. Empty values are fine — that is the normal state after retirement.
+  if (wompiPublicKey.length > 0) {
     requirePrefix(
       wompiPublicKey,
       "WOMPI_PUBLIC_KEY",
@@ -736,6 +739,8 @@ export function loadConfig(env: EnvRecord, options: LoadConfigOptions = {}): Bac
       wompiEnvironment,
       issues,
     );
+  }
+  if (wompiPrivateKey.length > 0) {
     requirePrefix(
       wompiPrivateKey,
       "WOMPI_PRIVATE_KEY",
@@ -743,6 +748,8 @@ export function loadConfig(env: EnvRecord, options: LoadConfigOptions = {}): Bac
       wompiEnvironment,
       issues,
     );
+  }
+  if (wompiIntegritySecret.length > 0) {
     requirePrefix(
       wompiIntegritySecret,
       "WOMPI_INTEGRITY_SECRET",
@@ -750,6 +757,8 @@ export function loadConfig(env: EnvRecord, options: LoadConfigOptions = {}): Bac
       wompiEnvironment,
       issues,
     );
+  }
+  if (wompiEventsSecret.length > 0) {
     requirePrefix(
       wompiEventsSecret,
       "WOMPI_EVENTS_SECRET",
@@ -891,6 +900,19 @@ export function loadConfig(env: EnvRecord, options: LoadConfigOptions = {}): Bac
   let ticketBaseUrl: string | undefined;
   if (ticketBaseUrlRaw !== undefined) {
     ticketBaseUrl = requireAbsoluteUrl(ticketBaseUrlRaw, "TICKET_BASE_URL", { isDeployed }, issues);
+  }
+
+  // Post-purchase email images: a public directory, not a bundled asset (the Edge Function
+  // cannot serve binaries and must not depend on a local folder).
+  const emailAssetsBaseUrlRaw = readString(env, "EMAIL_ASSETS_BASE_URL");
+  let emailAssetsBaseUrl: string | undefined;
+  if (emailAssetsBaseUrlRaw !== undefined) {
+    emailAssetsBaseUrl = requireAbsoluteUrl(
+      emailAssetsBaseUrlRaw,
+      "EMAIL_ASSETS_BASE_URL",
+      { isDeployed },
+      issues,
+    );
   }
 
   const dispatchBatchRaw = readString(env, "EMAIL_DISPATCH_BATCH_SIZE");
@@ -1048,6 +1070,7 @@ export function loadConfig(env: EnvRecord, options: LoadConfigOptions = {}): Bac
       apiKey: resendApiKey,
       from: emailFrom,
       replyTo: emailReplyTo,
+      assetsBaseUrl: emailAssetsBaseUrl,
     },
     publicWebBaseUrl,
     apiBaseUrl,
@@ -1122,6 +1145,7 @@ export function describeConfigForLogs(config: BackendConfig): Record<string, unk
     alertRecipients: config.alertRecipients.length,
     alertRecipientIssue: config.alertRecipientIssue ?? null,
     ticketBaseUrl: config.ticketBaseUrl ?? null,
+    emailAssetsBaseUrl: config.email.assetsBaseUrl ?? null,
     emailDispatchBatchSize: config.emailDispatchBatchSize,
     maintenanceApiToken: describeCredential(config.maintenanceApiToken),
     corsAllowedOrigins: config.corsAllowedOrigins,
@@ -1164,35 +1188,23 @@ export function loadOrderConfig(env: EnvRecord): BackendConfig {
  */
 export function assertPaymentReady(config: BackendConfig): void {
   const issues: string[] = [];
-  if (config.paymentProvider === "epayco") {
-    if (!config.epayco.publicKey) {
-      issues.push("EPAYCO_PUBLIC_KEY is required to process payments");
-    }
-    if (!config.epayco.privateKey) {
-      issues.push("EPAYCO_PRIVATE_KEY is required to process payments");
-    }
-    if (!config.epayco.pKey) {
-      issues.push("EPAYCO_P_KEY is required to process payments");
-    }
-    if (!config.epayco.custIdCliente) {
-      issues.push("EPAYCO_CUST_ID_CLIENTE is required to process payments");
-    }
-    if (!config.apiBaseUrl) {
-      issues.push("API_BASE_URL is required to generate payment confirmation callbacks");
-    }
-  } else {
-    if (!config.wompi.publicKey) {
-      issues.push("WOMPI_PUBLIC_KEY is required to process payments");
-    }
-    if (!config.wompi.privateKey) {
-      issues.push("WOMPI_PRIVATE_KEY is required to process payments");
-    }
-    if (!config.wompi.integritySecret) {
-      issues.push("WOMPI_INTEGRITY_SECRET is required to process payments");
-    }
-    if (!config.wompi.eventsSecret) {
-      issues.push("WOMPI_EVENTS_SECRET is required to process payments");
-    }
+  // ePayco is the only provider a checkout can be opened with, so these are the only
+  // credentials that gate the payment-generating endpoints. WOMPI_* variables are never
+  // required: they only exist for the dormant legacy webhook.
+  if (!config.epayco.publicKey) {
+    issues.push("EPAYCO_PUBLIC_KEY is required to process payments");
+  }
+  if (!config.epayco.privateKey) {
+    issues.push("EPAYCO_PRIVATE_KEY is required to process payments");
+  }
+  if (!config.epayco.pKey) {
+    issues.push("EPAYCO_P_KEY is required to process payments");
+  }
+  if (!config.epayco.custIdCliente) {
+    issues.push("EPAYCO_CUST_ID_CLIENTE is required to process payments");
+  }
+  if (!config.apiBaseUrl) {
+    issues.push("API_BASE_URL is required to generate payment confirmation callbacks");
   }
   if (issues.length > 0) {
     throw new ConfigError(issues);

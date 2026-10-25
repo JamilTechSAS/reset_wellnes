@@ -12,8 +12,8 @@ import { loadConfig, type BackendConfig } from "@shared/config/env.ts";
 import { handlePaymentRetry } from "@shared/api/order-status-handler.ts";
 import { createLogger } from "@shared/logging/logger.ts";
 import type { EpaycoApifyClient } from "@shared/integrations/epayco/apify.ts";
-import type { EpaycoCheckout } from "@shared/integrations/epayco/types.ts";
 import type { OrderStatusGateway, PaymentGateway } from "@shared/db/payments.ts";
+import type { CheckoutSessionGateway } from "@shared/db/checkout-sessions.ts";
 
 /** Fake credential assembled at runtime (see the secret-hygiene note in orders-handler.test.ts). */
 function fakeCredential(prefix: string): string {
@@ -71,6 +71,19 @@ describe("payment retry with ePayco", () => {
       login: vi.fn(),
       createSession: vi.fn().mockResolvedValue({ sessionId: "sess_retry_2" }),
     };
+    // `retry_payment` creates attempt 2, so its session starts from a clean attempt: the
+    // database answers CREATE for the new reference.
+    const sessions: CheckoutSessionGateway = {
+      begin: vi.fn().mockResolvedValue({
+        state: "CREATE",
+        paymentId: "pay-retry-2",
+        paymentReference: "EVT-2026-000007-2",
+        paymentAttempt: 2,
+        generation: 1,
+      }),
+      complete: vi.fn().mockResolvedValue("RECORDED"),
+      abandon: vi.fn().mockResolvedValue(true),
+    };
 
     const result = await handlePaymentRetry({
       reference: "EVT-2026-000007",
@@ -79,21 +92,24 @@ describe("payment retry with ePayco", () => {
       orderStatus,
       config: epaycoConfig(),
       logger,
+      checkoutSessions: sessions,
       clientIp: "203.0.113.10",
       epaycoApify: apify,
     });
 
-    const checkout = result.checkout as EpaycoCheckout;
+    const checkout = result.checkout;
     expect(checkout.provider).toBe("epayco");
     expect(checkout.sessionId).toBe("sess_retry_2");
     expect(checkout.reference).toBe("EVT-2026-000007-2");
-    expect(checkout.redirectUrl).toBe("http://localhost:3000/gracias");
+    // The return URL names the ORDER, not the attempt: `EVT-…-2` is a reference the buyer
+    // cannot look up, and the post-payment page must be able to identify the purchase.
+    expect(checkout.redirectUrl).toBe("http://localhost:3000/gracias?ref=EVT-2026-000007");
     expect(apify.createSession).toHaveBeenCalledWith(
       expect.objectContaining({
         invoice: "EVT-2026-000007-2",
         amount: 10_000,
         ip: "203.0.113.10",
-        response: "http://localhost:3000/gracias",
+        response: "http://localhost:3000/gracias?ref=EVT-2026-000007",
       }),
     );
   });

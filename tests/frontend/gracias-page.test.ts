@@ -8,7 +8,8 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { resolveGraciasView } from "../../src/gracias.ts";
+import { applyView, lookupOrder, resolveGraciasView } from "../../src/gracias.ts";
+import { ApiError } from "../../src/api/client.ts";
 import type { OrderStatus } from "../../src/api/types.ts";
 import type { PendingOrder } from "../../src/purchase/persistence.ts";
 
@@ -55,17 +56,36 @@ describe("gracias.html metadata and markup", () => {
     expect(HTML).not.toContain('src="/src/main.ts"');
   });
 
+  it("offers a recovery form that carries the reference and asks for the email", () => {
+    document.documentElement.innerHTML = HTML;
+    expect(document.querySelector("[data-gracias-reference]")).not.toBeNull();
+    expect(document.querySelector("[data-gracias-email]")).not.toBeNull();
+    expect(document.querySelector("[data-gracias-submit]")).not.toBeNull();
+    expect(document.querySelector("[data-gracias-message]")).not.toBeNull();
+    // The email is never part of the URL, so the copy must not promise it is prefilled.
+    expect(HTML).toContain("correo con el que compraste");
+  });
+
+  it("no longer promises a QR code the backend does not issue", () => {
+    expect(HTML).not.toMatch(/c[oó]digo QR/i);
+    expect(HTML).toContain("documento de identidad");
+  });
+
   it("reuses the existing entradas asset", () => {
     expect(HTML).toContain("/assets/img/entradas.webp");
     expect(HTML).toContain("/assets/img/entradas.jpg");
   });
 
-  it("shows the verifying state by default and keeps the confirmed state hidden", () => {
+  it("shows the verifying state by default and keeps every outcome hidden", () => {
     document.documentElement.innerHTML = HTML;
-    const pendingEl = document.querySelector<HTMLElement>("[data-gracias-pending]");
+    const verifying = document.querySelector<HTMLElement>("[data-gracias-verifying]");
     const confirmedEl = document.querySelector<HTMLElement>("[data-gracias-confirmed]");
-    expect(pendingEl?.hidden).toBe(false);
+    const pendingEl = document.querySelector<HTMLElement>("[data-gracias-pending]");
+    const recoverEl = document.querySelector<HTMLElement>("[data-gracias-recover]");
+    expect(verifying?.hidden).toBe(false);
     expect(confirmedEl?.hidden).toBe(true);
+    expect(pendingEl?.hidden).toBe(true);
+    expect(recoverEl?.hidden).toBe(true);
   });
 
   it("is not linked from any other page's navigation or footer", () => {
@@ -131,7 +151,8 @@ describe("resolveGraciasView payment integrity", () => {
       transactionId: "ref_payco_fromurl",
       api,
     });
-    expect(view).toBe("pending");
+    // Nothing to look up on its own: the page asks for the details instead of waiting forever.
+    expect(view).toBe("recover");
     expect(api.getOrderStatus).not.toHaveBeenCalled();
   });
 
@@ -159,5 +180,142 @@ describe("resolveGraciasView payment integrity", () => {
       api,
     });
     expect(view).toBe("confirmed");
+  });
+});
+
+describe("return reference without the buyer's tab", () => {
+  it("resolves the reference from the return URL even with no stored session", async () => {
+    const api = { getOrderStatus: vi.fn(), sendPaymentHint: vi.fn() };
+    const view = await resolveGraciasView({
+      pending: undefined,
+      reference: "EVT-2026-000123",
+      transactionId: "ref_payco_123",
+      api,
+    });
+    // A reference alone is not proof and cannot carry the email: the page asks for it.
+    expect(view).toBe("recover");
+    expect(api.getOrderStatus).not.toHaveBeenCalled();
+    expect(api.sendPaymentHint).not.toHaveBeenCalled();
+  });
+
+  it("uses the stored email when the URL names the same order", async () => {
+    const api = {
+      getOrderStatus: vi.fn().mockResolvedValue(makeStatus("PAID")),
+      sendPaymentHint: vi.fn().mockResolvedValue({ outcome: "APPROVED_APPLIED" }),
+    };
+    const view = await resolveGraciasView({
+      pending: PENDING,
+      reference: "EVT-2026-000123",
+      transactionId: "ref_payco_123",
+      api,
+    });
+    expect(view).toBe("confirmed");
+    expect(api.getOrderStatus).toHaveBeenCalledWith(PENDING.reference, PENDING.buyerEmail);
+  });
+
+  it("does not reuse the stored email for a different order named by the URL", async () => {
+    const api = { getOrderStatus: vi.fn(), sendPaymentHint: vi.fn() };
+    const view = await resolveGraciasView({
+      pending: PENDING,
+      reference: "EVT-2026-000999",
+      transactionId: undefined,
+      api,
+    });
+    expect(view).toBe("recover");
+    expect(api.getOrderStatus).not.toHaveBeenCalled();
+  });
+
+  it("confirms a retry invoice by asking about its order", async () => {
+    const api = {
+      getOrderStatus: vi.fn().mockResolvedValue(makeStatus("PAID")),
+      sendPaymentHint: vi.fn(),
+    };
+    const view = await resolveGraciasView({
+      pending: PENDING,
+      reference: "EVT-2026-000123-2",
+      transactionId: undefined,
+      api,
+    });
+    expect(view).toBe("confirmed");
+    expect(api.getOrderStatus).toHaveBeenCalledWith("EVT-2026-000123", PENDING.buyerEmail);
+  });
+});
+
+describe("lookupOrder recovery outcomes", () => {
+  it("confirms only a PAID order", async () => {
+    const api = {
+      getOrderStatus: vi.fn().mockResolvedValue(makeStatus("PAID")),
+      sendPaymentHint: vi.fn(),
+    };
+    await expect(
+      lookupOrder({ reference: "EVT-2026-000123", buyerEmail: "Ana@Example.com ", api }),
+    ).resolves.toBe("confirmed");
+    // The email is normalized before it travels; the backend lowercases it as well.
+    expect(api.getOrderStatus).toHaveBeenCalledWith("EVT-2026-000123", "ana@example.com");
+  });
+
+  it("reports a non-PAID order as pending instead of success", async () => {
+    const api = {
+      getOrderStatus: vi.fn().mockResolvedValue(makeStatus("PENDING")),
+      sendPaymentHint: vi.fn(),
+    };
+    await expect(
+      lookupOrder({ reference: "EVT-2026-000123", buyerEmail: "ana@example.com", api }),
+    ).resolves.toBe("pending");
+  });
+
+  it("treats a refused lookup as not found, exactly like the backend does", async () => {
+    const api = {
+      getOrderStatus: vi
+        .fn()
+        .mockRejectedValue(
+          new ApiError({ code: "NOT_FOUND", status: 404, message: "Order reference is unknown" }),
+        ),
+      sendPaymentHint: vi.fn(),
+    };
+    await expect(
+      lookupOrder({ reference: "EVT-2026-000123", buyerEmail: "wrong@example.com", api }),
+    ).resolves.toBe("not_found");
+  });
+
+  it("distinguishes a failed lookup from a refused one", async () => {
+    const api = {
+      getOrderStatus: vi.fn().mockRejectedValue(new Error("network")),
+      sendPaymentHint: vi.fn(),
+    };
+    await expect(
+      lookupOrder({ reference: "EVT-2026-000123", buyerEmail: "ana@example.com", api }),
+    ).resolves.toBe("error");
+  });
+
+  it("asks for the missing email instead of querying without it", async () => {
+    const api = { getOrderStatus: vi.fn(), sendPaymentHint: vi.fn() };
+    await expect(
+      lookupOrder({ reference: "EVT-2026-000123", buyerEmail: "   ", api }),
+    ).resolves.toBe("not_found");
+    expect(api.getOrderStatus).not.toHaveBeenCalled();
+  });
+
+  it("rejects a reference that is not one of ours", async () => {
+    const api = { getOrderStatus: vi.fn(), sendPaymentHint: vi.fn() };
+    await expect(
+      lookupOrder({ reference: "HOLA", buyerEmail: "ana@example.com", api }),
+    ).resolves.toBe("not_found");
+    expect(api.getOrderStatus).not.toHaveBeenCalled();
+  });
+});
+
+describe("applyView", () => {
+  it("shows exactly one outcome block at a time", () => {
+    document.documentElement.innerHTML = HTML;
+    const ids = ["verifying", "confirmed", "pending", "recover"] as const;
+    for (const view of ids) {
+      applyView(view);
+      const hidden = ids.filter((id) => {
+        const el = document.querySelector<HTMLElement>(`[data-gracias-${id}]`);
+        return el === null || el.hidden;
+      });
+      expect(hidden).toHaveLength(ids.length - 1);
+    }
   });
 });

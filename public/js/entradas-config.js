@@ -9,7 +9,7 @@ window.RESET_ENTRADAS = {
      "general"  → la preventa aparece como "agotada" y se vende la general. */
   fase: "preventa",
 
-  /* LINKS DE PAGO (Wompi, Mercado Pago…): pega cada link entre las comillas.
+  /* LINKS DE PAGO (ePayco): pega cada link entre las comillas.
      Si un link está vacío, el botón abre WhatsApp con un mensaje listo. */
   links: {
     preventa: "",

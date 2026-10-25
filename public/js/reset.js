@@ -208,8 +208,8 @@
     var comprar = document.getElementById("comprar");
     if (comprar) {
       var EC = window.RESET_ENTRADAS || { fase: "preventa", links: {}, whatsapp: "573133340844" };
-      var precios = { preventa: "$160.000", duo: "$340.000", general: "$200.000" };
-      var nombres = { preventa: "la entrada en preventa ($160.000)", duo: "el plan Comparte esta experiencia, 2 entradas ($340.000)", general: "la entrada general ($200.000)" };
+      var precios = { preventa: "$159.900", duo: "$509.700", general: "$199.900" };
+      var nombres = { preventa: "la entrada en preventa ($159.900)", duo: "el plan Comparte tu experiencia, 3 entradas ($509.700)", general: "la entrada general ($199.900)" };
       var acepto = document.getElementById("acepto-terminos");
       var ayuda = document.getElementById("comprar-ayuda");
       var fase = EC.fase === "general" ? "general" : "preventa";

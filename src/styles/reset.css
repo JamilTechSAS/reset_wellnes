@@ -1588,11 +1588,19 @@ p {
 .tipo-precio {
   font-family: var(--f-serif);
   font-size: var(--t-precio);
-  grid-row: span 2;
+  grid-column: 2;
+  grid-row: 1;
+  text-align: right;
 }
+/* Fechas y disponibilidad: texto secundario, claramente menor que el precio y el nombre. */
 .tipo-nota {
-  font-size: var(--t-label);
-  color: color-mix(in srgb, var(--cafe) 75%, var(--vinnie));
+  grid-column: 1 / -1;
+  margin-top: 0.3rem;
+  font-size: 0.75rem; /* 12px · caption de la tarjeta */
+  line-height: 1.5;
+  letter-spacing: 0.01em;
+  text-wrap: pretty;
+  color: color-mix(in srgb, var(--cafe) 70%, var(--vinnie));
 }
 .tipo-nota:empty {
   display: none;
@@ -1601,10 +1609,8 @@ p {
   opacity: 0.5;
   cursor: not-allowed;
 }
-.tipo.is-off .tipo-precio {
-  text-decoration: line-through;
-  text-decoration-thickness: 1px;
-}
+/* El estado "no disponible" se comunica con opacidad y cursor; ningún precio vivo se tacha (tachar
+   se reserva al precio de referencia de la preventa, que es el único tachado real de la tarjeta). */
 
 /* Preventa con descuento: precio anterior tachado, precio nuevo destacado y etiqueta de -20% */
 .tipo-precio--oferta {
@@ -1639,9 +1645,19 @@ p {
   font-weight: 700;
   color: var(--cafe);
 }
-/* Mientras la preventa aún no abre (deshabilitada) no se tacha todo el bloque de oferta. */
-.tipo.is-off .tipo-precio--oferta {
-  text-decoration: none;
+/* Paquete: precio por persona (con su unidad), nunca tachado: no es un precio rebajado. */
+.tipo-precio--unidad {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.15rem;
+  line-height: 1;
+}
+.precio-unidad {
+  font-family: var(--f-body);
+  font-size: 0.6875rem; /* 11px · "por persona" */
+  letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--cafe) 60%, var(--vinnie));
 }
 
 .acepto {
@@ -2329,6 +2345,48 @@ p {
 .gracias-btn:hover {
   background: var(--cafe);
   color: var(--beige);
+}
+/* Recovery form: the return link names the order, the buyer supplies the email. */
+.gracias-form {
+  display: grid;
+  gap: 0.5rem;
+  max-width: 32rem;
+  margin: 0 0 2rem;
+}
+.gracias-form label {
+  font-size: 0.75rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--cafe) 70%, var(--beige));
+}
+.gracias-form input {
+  width: 100%;
+  min-height: 3rem;
+  padding: 0 1rem;
+  border: 1px solid color-mix(in srgb, var(--cafe) 35%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--beige) 92%, white);
+  color: var(--cafe);
+  font: inherit;
+  font-size: 1rem;
+}
+.gracias-form input:focus-visible {
+  outline: 2px solid var(--cafe);
+  outline-offset: 2px;
+}
+.gracias-form input + label {
+  margin-top: 0.75rem;
+}
+.gracias-form .gracias-btn {
+  margin-top: 1.25rem;
+  cursor: pointer;
+  background: transparent;
+}
+.gracias-msg {
+  margin: 0;
+  min-height: 1.25rem;
+  font-size: 0.875rem;
+  color: color-mix(in srgb, var(--cafe) 80%, var(--beige));
 }
 @media (max-width: 860px) {
   .gracias {

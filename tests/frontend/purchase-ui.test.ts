@@ -75,6 +75,7 @@ function makeState(overrides: Partial<PurchaseState> = {}): PurchaseState {
     verificationAttempts: 0,
     verificationStartedAt: null,
     hintOutcome: null,
+    recoveryPrefill: null,
     companion: EMPTY_PARTICIPANT_FORM,
     companionIssues: [],
     companionStatus: "idle",
@@ -167,7 +168,12 @@ describe("purchase step rendering", () => {
         ...event.sales,
         ticketTypes: event.sales.ticketTypes.map((ticket) => ({
           ...ticket,
-          currentTier: { name: "General", sequence: 2, priceInCents: 20_000_000 },
+          currentTier: {
+            name: "General",
+            sequence: 2,
+            priceInCents: 19_990_000,
+            maxPerOrder: null,
+          },
         })),
       },
     };
@@ -181,10 +187,10 @@ describe("purchase step rendering", () => {
       CONTEXT,
     );
     expect(bundle.body).not.toContain('id="pf-discount"');
-    expect(bundle.body).toContain("Comparte esta experiencia es un producto separado.");
+    expect(bundle.body).toContain("Comparte tu experiencia (3 entradas) es un producto separado.");
   });
 
-  it("shows the fixed Comparte esta experiencia total without a quantity discount", () => {
+  it("advertises the package without the old two-admission total", () => {
     const event = makeEvent();
     const generalEvent = {
       ...event,
@@ -192,33 +198,41 @@ describe("purchase step rendering", () => {
         ...event.sales,
         ticketTypes: event.sales.ticketTypes.map((ticket) => ({
           ...ticket,
-          currentTier: { name: "General", sequence: 2, priceInCents: 20_000_000 },
+          currentTier: {
+            name: "General",
+            sequence: 2,
+            priceInCents: 19_990_000,
+            maxPerOrder: null,
+          },
         })),
       },
     };
+    // A three-admission package: 3 × $169.900 = $509.700, always as quoted by the backend.
     const quote = makeQuote({
-      quantity: 2,
+      quantity: 3,
       ticketType: { code: "GENERAL", name: "Entrada general" },
-      pricingTier: { name: "General", sequence: 2, unitPriceInCents: 17_000_000 },
-      subtotalInCents: 34_000_000,
+      pricingTier: { name: "General", sequence: 2, unitPriceInCents: 16_990_000 },
+      subtotalInCents: 50_970_000,
       quantityDiscount: { applies: false, percentBps: 0, amountInCents: 0 },
       quantityDiscountInCents: 0,
       totalDiscountInCents: 0,
-      totalInCents: 34_000_000,
+      totalInCents: 50_970_000,
     });
     const step = renderPurchaseStep(
       makeState({
         step: "review",
         event: generalEvent,
-        quantity: 2,
-        bundleCode: "DOUBLE_EXPERIENCE",
+        quantity: 3,
+        bundleCode: "SHARE_EXPERIENCE",
         quote,
       }),
       CONTEXT,
     );
 
-    expect(step.body).toContain("Comparte esta experiencia");
-    expect(step.body).toContain("$340.000");
+    expect(step.body).toContain("Comparte tu experiencia");
+    expect(step.body).toContain("$509.700");
+    // The old $340.000 two-admission total is gone; the price always comes from the backend quote.
+    expect(step.body).not.toContain("$340.000");
     expect(step.body).not.toContain("Descuento por cantidad");
   });
 
@@ -341,30 +355,32 @@ describe("purchase step rendering", () => {
   });
 
   it("asks for the second person of a two-admission purchase", () => {
-    const status = makePaidOrderStatus({ quantity: 2, totalInCents: 40_000_000 });
+    const status = makePaidOrderStatus({ quantity: 2, totalInCents: 39_980_000 });
     const step = renderPurchaseStep(makeState({ step: "confirmed", status, quantity: 2 }), CONTEXT);
 
     expect(step.body).toContain("Registra la segunda persona");
     expect(step.body).toContain('data-companion-field="firstName"');
     expect(step.body).toContain('data-companion-field="dataProcessing"');
     expect(step.body).toContain('data-action="attach-companion"');
-    expect(step.body).toContain("$400.000");
+    expect(step.body).toContain("$399.800");
   });
 
   it("names the companion form after Comparte esta experiencia in the bundle", () => {
-    const status = makePaidOrderStatus({ quantity: 2, totalInCents: 34_000_000 });
+    // Three admissions: the holder plus two companions, for one package total of $509.700.
+    const status = makePaidOrderStatus({ quantity: 3, totalInCents: 50_970_000 });
     const step = renderPurchaseStep(
       makeState({
         step: "confirmed",
         status,
-        quantity: 2,
-        bundleCode: "DOUBLE_EXPERIENCE",
+        quantity: 3,
+        bundleCode: "SHARE_EXPERIENCE",
       }),
       CONTEXT,
     );
 
-    expect(step.body).toContain("Registra a tu acompañante");
-    expect(step.body).toContain("$340.000");
+    expect(step.body).toContain("Registra a tus acompañantes");
+    expect(step.body).toContain("$509.700");
+    expect(step.body).not.toContain("$340.000");
   });
 
   it("does not ask for a companion when only one admission was bought", () => {
@@ -374,7 +390,7 @@ describe("purchase step rendering", () => {
   });
 
   it("confirms a saved companion instead of asking again", () => {
-    const status = makePaidOrderStatus({ quantity: 2, totalInCents: 40_000_000 });
+    const status = makePaidOrderStatus({ quantity: 2, totalInCents: 39_980_000 });
     const step = renderPurchaseStep(
       makeState({
         step: "confirmed",
@@ -393,7 +409,7 @@ describe("purchase step rendering", () => {
   it("hides the companion form when the backend reports every admission assigned", () => {
     const status = makePaidOrderStatus({
       quantity: 2,
-      totalInCents: 40_000_000,
+      totalInCents: 39_980_000,
       admissions: { quantity: 2, assigned: 2, remainingUnassigned: 0 },
       participants: [
         { unit: 1, firstName: "Ana", lastName: "Pérez" },
@@ -460,6 +476,29 @@ describe("purchase step rendering", () => {
       CONTEXT,
     );
     expect(step.body).toContain('data-recover="reference"');
+    expect(step.body).toContain('data-recover="email"');
+    expect(step.foot).toContain('data-action="recover"');
+  });
+
+  it("carries the returned reference into the form and asks only for the missing email", () => {
+    const step = renderPurchaseStep(
+      makeState({
+        step: "problem",
+        problem: {
+          kind: "not_found",
+          title: "Confirma el correo de tu compra",
+          message:
+            "Encontramos la orden EVT-2026-000012. Escribe el correo con el que compraste para mostrarte el estado de tu compra.",
+          canRetry: false,
+          canRetryPayment: false,
+          canEditForm: false,
+        },
+        recoveryPrefill: { reference: "EVT-2026-000012", email: "" },
+      }),
+      CONTEXT,
+    );
+    expect(step.title).toContain("Confirma el correo");
+    expect(step.body).toContain('value="EVT-2026-000012"');
     expect(step.body).toContain('data-recover="email"');
     expect(step.foot).toContain('data-action="recover"');
   });
@@ -593,6 +632,22 @@ describe("purchase dialog", () => {
     expect(panel?.getAttribute("aria-describedby")).toBe("purchase-live");
     expect(overlay?.querySelector("#purchase-live")?.getAttribute("aria-live")).toBe("polite");
     expect(dialog.element).toBe(overlay);
+  });
+
+  it("opens the recovery form with the reference the return URL named", async () => {
+    // ePayco returns to `?ref_payco=…`; when our return URL also names the order there is
+    // something to ask about even though this tab has no stored session.
+    const { dialog } = openDialog();
+
+    dialog.open({ resume: { reference: "EVT-2026-000012" } });
+    await flush();
+    await flush();
+
+    const referenceInput = container.querySelector<HTMLInputElement>('[data-recover="reference"]');
+    const emailInput = container.querySelector<HTMLInputElement>('[data-recover="email"]');
+    expect(referenceInput?.value).toBe("EVT-2026-000012");
+    expect(emailInput?.value).toBe("");
+    expect(api.getOrderStatus).not.toHaveBeenCalled();
   });
 
   it("locks the page, moves focus and loads the event when opened", async () => {
@@ -801,7 +856,7 @@ describe("purchase dialog", () => {
       JSON.stringify({ reference: "EVT-2026-000001", buyerEmail: "ana@example.com" }),
     );
     api.getOrderStatus.mockResolvedValue(
-      makePaidOrderStatus({ quantity: 2, totalInCents: 40_000_000 }),
+      makePaidOrderStatus({ quantity: 2, totalInCents: 39_980_000 }),
     );
     const { dialog } = openDialog();
 

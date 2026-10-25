@@ -1,7 +1,7 @@
 /**
  * Final Purchase CTA Section Component (Phase 6A, real ticket products in Phase 6C)
  *
- * The three products are the client's own (Preventa / Comparte esta experiencia / General) with
+ * The three products are the client's own (Preventa / Comparte tu experiencia / General) with
  * the prices their material states, and the current sales phase is marked as such. These rows
  * are INFORMATION about the products: the payable amount is always the one the backend returns
  * when the buyer starts a purchase, so no price is ever hardcoded into the payment path.

@@ -4,7 +4,9 @@
  * Jobs that must exist but must NOT be on the payment path:
  *
  *   1. `expireOrders`  — releases inventory held by orders past their reservation window.
- *   2. `dispatchEmails` — retries failed / unsent confirmation emails with bounded backoff.
+ *   2. `dispatchEmails` — retries failed / unsent confirmation emails with bounded backoff
+ *      (legacy ticket-keyed outbox) and `postPurchaseEmails` — drains the order-keyed
+ *      post-purchase outbox written on the PAID transition.
  *   3. `reconciliation` — sweeps payment attempts whose webhook never arrived (Phase 5).
  *   4. `rateLimitCleanup` — deletes expired fixed-window counters.
  *   5. `sheetsSync`    — drains the Google Sheets projection outbox (Phase 5).
@@ -32,6 +34,11 @@ import { toAppError, unauthorizedError } from "../domain/errors.ts";
 import { RATE_LIMIT_CLEANUP_HORIZON_SECONDS } from "../domain/rate-limits.ts";
 import { dispatchEmails, type DispatchSummary } from "./email-dispatch.ts";
 import {
+  ZERO_POST_PURCHASE_DISPATCH_SUMMARY,
+  dispatchPostPurchaseEmails,
+  type PostPurchaseDispatchSummary,
+} from "./post-purchase-email-dispatch.ts";
+import {
   runReconciliationSweep,
   type ReconciliationSweepSummary,
 } from "./reconciliation-handler.ts";
@@ -39,6 +46,7 @@ import { runSheetsSync, type SheetsSyncSummary } from "./sheets-sync.ts";
 import type { BackendConfig } from "../config/env.ts";
 import type { Logger } from "../logging/logger.ts";
 import type { OrderStatusGateway, PaymentGateway } from "../db/payments.ts";
+import type { PostPurchaseEmailGateway } from "../db/post-purchase-emails.ts";
 import type { RateLimitGateway } from "../db/rate-limits.ts";
 import type { SheetsGateway } from "../db/sheets.ts";
 import type { ResendClient } from "../integrations/resend/client.ts";
@@ -56,6 +64,8 @@ export type MaintenanceResult = {
     readonly references: readonly string[];
   };
   readonly emails: DispatchSummary;
+  /** Order-keyed post-purchase emails dispatched (or scheduled for retry) in this run. */
+  readonly postPurchaseEmails: PostPurchaseDispatchSummary;
   readonly reconciliation: ReconciliationSweepSummary;
   /** Operational alerts raised for unresolved payments and the digest sent this run (H8). */
   readonly alerts: AlertDigestSummary;
@@ -89,6 +99,11 @@ export type RunMaintenanceInput = {
   readonly payments: PaymentGateway;
   readonly orderStatus: OrderStatusGateway;
   readonly resend: ResendClient | undefined;
+  /**
+   * Order-keyed post-purchase outbox. Optional so a deployment or test that does not wire it
+   * still runs every other job; the run then reports zeros for that job instead of failing.
+   */
+  readonly postPurchaseEmail?: PostPurchaseEmailGateway | undefined;
   readonly wompi: WompiClient;
   /**
    * ePayco validation client for reconciling ePayco attempts. Absent when the merchant
@@ -151,6 +166,25 @@ export async function runMaintenance(input: RunMaintenanceInput): Promise<Mainte
     resend: input.resend,
     limit: config.emailDispatchBatchSize,
   });
+
+  // Retries of the post-purchase email (a transient Resend failure, a crash mid-send). New
+  // messages are enqueued by the PAID trigger, never by this job.
+  const postPurchaseEmails = await runJob<PostPurchaseDispatchSummary>(
+    "post-purchase-emails",
+    logger,
+    jobErrors,
+    ZERO_POST_PURCHASE_DISPATCH_SUMMARY,
+    () =>
+      input.postPurchaseEmail === undefined
+        ? Promise.resolve(ZERO_POST_PURCHASE_DISPATCH_SUMMARY)
+        : dispatchPostPurchaseEmails({
+            config,
+            logger,
+            gateway: input.postPurchaseEmail,
+            resend: input.resend,
+            limit: config.emailDispatchBatchSize,
+          }),
+  );
 
   const reconciliation = await runJob<ReconciliationSweepSummary>(
     "reconciliation",
@@ -242,6 +276,7 @@ export async function runMaintenance(input: RunMaintenanceInput): Promise<Mainte
       references: expired.references,
     },
     emails,
+    postPurchaseEmails,
     reconciliation,
     alerts,
     sheetProjections,

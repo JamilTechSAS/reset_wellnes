@@ -38,8 +38,8 @@ export const EVENT_CONTENT_CONFIG: EventLandingConfig = {
     eventName: "Re set Sunset",
     edition: "Vol. 1 · Montería",
     organizer: "Reset Wellness Club",
-    // The client states "Cupos limitados" but never a number: no capacity is shown.
-    badgeText: "Cupos limitados",
+    // One event-wide capacity, never split by sales stage.
+    badgeText: "100 boletas en total",
     logoFullSrc: "/assets/reset/logo-reset.png",
     logoShortSrc: "/assets/reset/logo-reset-corto.png",
     logoAlt: "Reset Wellness Club",
@@ -59,7 +59,7 @@ export const EVENT_CONTENT_CONFIG: EventLandingConfig = {
     primaryCtaText: "COMPRAR ENTRADA",
     secondaryCtaText: "Conoce la experiencia",
     capacityNotice:
-      "Cupos limitados · La organización confirmará el aforo final antes de la apertura de ventas.",
+      "100 boletas en total · La venta abre por etapas y el valor final lo confirma el sistema al iniciar la compra.",
     facts: [
       { id: "fact-date", value: "15 Nov 2026", label: "Domingo" },
       { id: "fact-hours", value: "6 horas", label: "De 1:00 p.m. a 7:00 p.m." },
@@ -116,19 +116,20 @@ export const EVENT_CONTENT_CONFIG: EventLandingConfig = {
         iconName: "activity",
       },
       {
-        id: "exp-suero",
-        title: "Sueroterapia",
+        id: "exp-chocolaterapia",
+        title: "Chocolaterapia",
         description:
-          "Tratamiento intravenoso de hidratación y vitaminas, realizado por personal profesional durante el evento.",
+          "Un ritual de cuidado para la piel con los beneficios del cacao: nutrición, antioxidantes y un momento para consentirte.",
         tag: "Cuidado personal",
-        iconName: "droplet",
+        iconName: "catering",
       },
       {
-        id: "exp-bronceo",
-        title: "Bronceo",
-        description: "Un espacio de belleza para consentirte y salir con un glow natural.",
+        id: "exp-medicina-estetica",
+        title: "Medicina Estética",
+        description:
+          "Acompañamiento profesional con tratamientos de medicina estética para realzar tu bienestar y verte tan bien como te sientes.",
         tag: "Cuidado personal",
-        iconName: "sun",
+        iconName: "sparkle",
       },
     ],
   },
@@ -213,7 +214,7 @@ export const EVENT_CONTENT_CONFIG: EventLandingConfig = {
     dressCode: "Sport + [color por confirmar]",
     whatToBring: ["Vestido de baño", "Toalla", "Bloqueador", "Tu documento de identidad"],
     accessNote:
-      "Cupos limitados. El evento se realiza en una terraza, así que te recomendamos confirmar el clima del día y llegar con tiempo antes del inicio de las actividades.",
+      "El evento tiene 100 boletas en total. Se realiza en una terraza, así que te recomendamos confirmar el clima del día y llegar con tiempo antes del inicio de las actividades.",
   },
 
   faq: {
@@ -238,7 +239,7 @@ export const EVENT_CONTENT_CONFIG: EventLandingConfig = {
         id: "faq-acompanante",
         question: "¿Puedo ir con alguien?",
         answer:
-          "Sí. Después de la preventa estará disponible Comparte esta experiencia: dos entradas a un precio especial.",
+          "Sí. Durante la etapa General estará disponible Comparte tu experiencia: un paquete de 3 entradas por $509.700 ($169.900 por persona). También puedes comprar entradas General sueltas.",
       },
       {
         id: "faq-llevar",
@@ -349,21 +350,21 @@ export const EVENT_CONTENT_CONFIG: EventLandingConfig = {
         id: "ticket-preventa",
         name: "Preventa",
         priceLabel: "$159.900",
-        detail: "Fase actual de venta",
+        detail: "Del 25 de octubre, 10:00 a. m., al 28 de octubre, 11:59 p. m.",
         status: "current",
       },
       {
         id: "ticket-duo",
-        name: "Comparte esta experiencia",
-        priceLabel: "$340.000",
-        detail: "2 entradas · $170.000 por persona · se habilita al terminar la preventa",
+        name: "Comparte tu experiencia",
+        priceLabel: "$509.700",
+        detail: "3 entradas · $169.900 por persona · solo en la etapa General",
         status: "upcoming",
       },
       {
         id: "ticket-general",
         name: "General",
-        priceLabel: "$200.000",
-        detail: "Se habilita al terminar la preventa",
+        priceLabel: "$199.900",
+        detail: "Del 29 de octubre, 12:01 a. m., al 13 de noviembre, 11:59 p. m.",
         status: "upcoming",
       },
     ],

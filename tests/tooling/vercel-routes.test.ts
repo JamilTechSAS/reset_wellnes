@@ -37,7 +37,9 @@ describe("vercel.json clean URLs and return route", () => {
 
   it("builds gracias.html as its own Vite entry running the verification script", () => {
     const viteConfig = readFileSync(path.join(ROOT, "vite.config.ts"), "utf8");
-    expect(viteConfig).toContain('resolve(__dirname, "gracias.html")');
+    // The page registry is filtered by build target; `gracias.html` is a public page either way.
+    expect(viteConfig).toContain('gracias: "gracias.html"');
+    expect(viteConfig).toContain("includesPage(target, page)");
     const gracias = readFileSync(path.join(ROOT, "gracias.html"), "utf8");
     expect(gracias).toContain('src="/src/gracias.ts"');
     expect(gracias).not.toContain('src="/src/main.ts"');

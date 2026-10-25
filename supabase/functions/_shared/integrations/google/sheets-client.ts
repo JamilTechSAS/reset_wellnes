@@ -15,6 +15,15 @@
  *
  *   { version: 1, timestamp, nonce, payload: "<json string>", signature: "<base64url>" }
  *
+ * The payload is serialized as pure ASCII (`asciiJson`, every non-ASCII code unit escaped as
+ * `\uXXXX`). The canonical message must survive the trip through Apps Script unchanged, and
+ * a literal `ó` does not: on the 2026-10-24 staging run a payload carrying "Montería" was
+ * rejected with `UNAUTHORIZED / La firma no es válida.` while the same payload escaped as
+ * `Monter\u00eda` verified, because `e.postData.contents` does not re-encode non-ASCII text
+ * back to the same UTF-8 bytes the client signed. Escaping keeps the signing bytes ASCII, so
+ * the HMAC no longer depends on how the script decodes the request body; the script parses
+ * the escaping away and sees the same JSON values.
+ *
  * The script also enforces a short clock-skew window and a nonce cache. The spreadsheet ID
  * and tab names live only in Apps Script Script Properties; a request can select only the
  * fixed `data` or `status` grid, never an arbitrary spreadsheet, tab or range.
@@ -22,6 +31,18 @@
  * The connector is still an outbox drain, not a checkout dependency. A Google outage delays
  * the sheet and nothing else.
  */
+
+/**
+ * Serializes a payload to JSON using only ASCII characters: every non-ASCII code unit becomes
+ * a `\uXXXX` escape. The signed bytes and the bytes Apps Script re-reads are then identical
+ * for participant names, cities and anything else with accents or emoji.
+ */
+export function asciiJson(value: unknown): string {
+  return JSON.stringify(value).replace(
+    /[\u007f-\uffff]/g,
+    (character) => "\\u" + character.charCodeAt(0).toString(16).padStart(4, "0"),
+  );
+}
 
 export const SHEETS_REQUEST_VERSION = 1;
 export const SHEETS_MAX_DATA_ROWS = 5_000;
@@ -260,7 +281,7 @@ export function createSheetsClient(options: SheetsClientOptions): SheetsClient {
     // projections SYNCING until stale recovery instead of recording a normal failure.
     let body: string;
     try {
-      const payloadJson = JSON.stringify(payload);
+      const payloadJson = asciiJson(payload);
       const timestamp = Math.floor(now() / 1000);
       const nonce = nonceFactory();
       const signature = await hmacBase64Url(

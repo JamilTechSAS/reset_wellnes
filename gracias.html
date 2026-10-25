@@ -6,7 +6,7 @@
     <title>Pago confirmado · Reset Wellness Club</title>
     <meta
       name="description"
-      content="Confirmación de tu compra para Re set Sunset. Cuando el pago queda confirmado, recibes en tu correo el código QR para entrar al evento."
+      content="Confirmación de tu compra para Re set Sunset. Consulta tu orden con su referencia y el correo con el que compraste."
     />
     <meta name="robots" content="noindex, nofollow" />
     <link rel="canonical" href="https://www.resetwellness.com.co/gracias" />
@@ -64,7 +64,7 @@
           </div>
 
           <!-- Estado por defecto: verificación (sin afirmar pago). -->
-          <div class="gracias-texto" data-gracias-pending>
+          <div class="gracias-texto" data-gracias-verifying>
             <p class="gracias-etiqueta">Confirmando tu pago</p>
             <h1 class="gracias-titulo" id="gracias-titulo">
               <span>Estamos confirmando</span> <span>tu pago.</span>
@@ -74,12 +74,12 @@
               esto puede tardar unos minutos.
             </p>
             <p class="gracias-qr">
-              En cuanto quede confirmado, te llegará a tu correo el código QR con el que podrás
-              entrar al evento. No necesitas hacer nada más.
+              En cuanto quede confirmado, podrás consultar tu compra con la referencia de la orden y
+              el correo con el que compraste. No necesitas hacer nada más.
             </p>
             <p class="gracias-datos">
               15.11.2026 <span aria-hidden="true">·</span> 1:00 – 7:00 p.&nbsp;m.
-              <span aria-hidden="true">·</span> Terraza GHL
+              <span aria-hidden="true">·</span> Terraza del hotel GHL, Montería
             </p>
             <a class="gracias-btn" href="/">Volver al inicio</a>
           </div>
@@ -95,13 +95,72 @@
               respirar y hacer re set.
             </p>
             <p class="gracias-qr">
-              Muy pronto te llegará a tu correo el código QR con el que podrás entrar al evento.
+              Tu compra queda registrada a nombre del titular. El día del evento solo necesitas tu
+              documento de identidad.
             </p>
             <p class="gracias-datos">
               15.11.2026 <span aria-hidden="true">·</span> 1:00 – 7:00 p.&nbsp;m.
-              <span aria-hidden="true">·</span> Terraza GHL
+              <span aria-hidden="true">·</span> Terraza del hotel GHL, Montería
             </p>
             <a class="gracias-btn" href="/">Volver al inicio</a>
+          </div>
+
+          <!-- Pago todavía sin confirmar: nunca se presenta como éxito. -->
+          <div class="gracias-texto" data-gracias-pending hidden>
+            <p class="gracias-etiqueta">Pago en verificación</p>
+            <h1 class="gracias-titulo">
+              <span>Todavía no vemos</span> <span>tu pago confirmado.</span>
+            </h1>
+            <p>
+              Algunos pagos tardan unos minutos en confirmarse. Tu orden está registrada con la
+              referencia <strong data-gracias-pending-reference></strong>.
+            </p>
+            <p class="gracias-qr">
+              Si ya pagaste, vuelve a consultar en unos minutos. Si el estado no cambia, escríbenos
+              a
+              <a href="mailto:reset.wellness@gmail.com">reset.wellness@gmail.com</a> con tu
+              referencia.
+            </p>
+            <button class="gracias-btn" type="button" data-gracias-recheck>
+              Volver a consultar
+            </button>
+          </div>
+
+          <!-- Recuperación: la referencia del enlace puede resolverse sin la sesión del navegador. -->
+          <div class="gracias-texto" data-gracias-recover hidden>
+            <p class="gracias-etiqueta">Consultar mi compra</p>
+            <h1 class="gracias-titulo"><span>Ubiquemos</span> <span>tu compra.</span></h1>
+            <p>
+              La referencia de tu orden viene en el enlace de pago. Solo necesitamos el correo con
+              el que compraste para mostrarte el estado real de tu compra.
+            </p>
+            <div class="gracias-form">
+              <label for="gracias-reference">Referencia de la orden</label>
+              <input
+                id="gracias-reference"
+                data-gracias-reference
+                type="text"
+                autocomplete="off"
+                placeholder="EVT-2026-000001"
+              />
+              <label for="gracias-email">Correo con el que compraste</label>
+              <input
+                id="gracias-email"
+                data-gracias-email
+                type="email"
+                inputmode="email"
+                autocomplete="email"
+                placeholder="tucorreo@ejemplo.com"
+              />
+              <button class="gracias-btn" type="button" data-gracias-submit>
+                Consultar mi compra
+              </button>
+              <p class="gracias-msg" data-gracias-message aria-live="polite"></p>
+            </div>
+            <p class="gracias-datos">
+              15.11.2026 <span aria-hidden="true">·</span> 1:00 – 7:00 p.&nbsp;m.
+              <span aria-hidden="true">·</span> Terraza del hotel GHL, Montería
+            </p>
           </div>
         </div>
       </section>

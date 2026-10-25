@@ -75,6 +75,7 @@ describe("schema constraints", () => {
       [
         "attendance.event_id->events",
         "attendance.ticket_id->tickets",
+        "checkout_sessions.payment_id->payments",
         "consents.event_id->events",
         "consents.participant_id->participants",
         "discount_codes.event_id->events",
@@ -84,6 +85,8 @@ describe("schema constraints", () => {
         "discount_redemptions.order_id->orders",
         "email_deliveries.ticket_id->tickets",
         "operational_alerts.payment_id->payments",
+        // Post-purchase email outbox: one delivery row per paid order.
+        "order_email_deliveries.order_id->orders",
         "order_items.bundle_id->ticket_bundles",
         "order_items.order_id->orders",
         "order_items.pricing_tier_id->pricing_tiers",

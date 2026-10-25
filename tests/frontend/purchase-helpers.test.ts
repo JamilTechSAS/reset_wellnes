@@ -439,11 +439,12 @@ describe("parseReturnContext", () => {
     expect(context.isReturn).toBe(true);
   });
 
-  it("reads a reference when present and normalizes its case", () => {
+  it("reads a reference when present, normalizes its case and drops the retry suffix", () => {
     const context = parseReturnContext(
       new URL("http://localhost:3000/gracias?ref=evt-2026-000001-2"),
     );
-    expect(context.reference).toBe("EVT-2026-000001-2");
+    // The buyer-facing lookup is about the ORDER, not the payment attempt.
+    expect(context.reference).toBe("EVT-2026-000001");
   });
 
   it("ignores a reference that is not shaped like one of ours", () => {

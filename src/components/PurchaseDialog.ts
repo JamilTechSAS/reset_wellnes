@@ -29,6 +29,11 @@ import {
   formatCopCents,
   availabilityLabel,
 } from "../purchase/format.ts";
+import {
+  PACKAGE_CODE,
+  PACKAGE_NAME,
+  PACKAGE_TOTAL_CENTS,
+} from "../purchase/package-availability.ts";
 import { issuesForField, type ParticipantField } from "../purchase/validation.ts";
 import { selectTicketType } from "../purchase/ticket-selection.ts";
 import { escapeHtml, renderIcon } from "../utils/dom.ts";
@@ -51,11 +56,14 @@ export type PurchaseDialogContext = {
 
 export type OpenPurchaseOptions = {
   /**
-   * Resume a checkout return instead of starting a fresh purchase. `transactionId` is the
-   * `?ref_payco=` ePayco appended (a hint only). With no stored order this shows the recovery
-   * form, which is also what the "consultar mi compra" entry point uses.
+   * Resume a checkout return instead of starting a fresh purchase. `reference` is the order the
+   * return URL names (`?ref=` / `?x_id_invoice=`); `transactionId` is the `?ref_payco=` ePayco
+   * appended (a hint only). Neither is proof of payment. Without a stored order this shows the
+   * recovery form, which is also what the "consultar mi compra" entry point uses.
    */
-  readonly resume?: { readonly transactionId?: string | undefined } | undefined;
+  readonly resume?:
+    | { readonly reference?: string | undefined; readonly transactionId?: string | undefined }
+    | undefined;
   readonly quantity?: number | undefined;
   readonly acceptedTerms?: boolean | undefined;
   readonly tier?: string | undefined;
@@ -174,12 +182,10 @@ function summaryRow(
 }
 
 function quoteSummary(quote: Quote, bundleCode: PurchaseState["bundleCode"]): string {
-  const isBundle = bundleCode === "DOUBLE_EXPERIENCE";
+  const isBundle = bundleCode === PACKAGE_CODE;
   const rows = [
     summaryRow(
-      isBundle
-        ? "Comparte esta experiencia (2 entradas)"
-        : `${quote.ticketType.name} × ${quote.quantity}`,
+      isBundle ? PACKAGE_NAME : `${quote.ticketType.name} × ${quote.quantity}`,
       quote.subtotalInCents,
     ),
     quote.quantityDiscountInCents > 0
@@ -214,7 +220,7 @@ function discountNotice(quote: Quote): string {
     WRONG_TICKET_TYPE: "Ese código no aplica a esta entrada. Puedes continuar sin él.",
     WRONG_SALES_STAGE: "Los códigos de descuento solo funcionan en la etapa General.",
     MIN_QUANTITY: "Ese código requiere una cantidad mayor de entradas.",
-    WRONG_QUANTITY: "Los códigos solo aplican a una entrada General, no al paquete para dos.",
+    WRONG_QUANTITY: "Los códigos solo aplican a entradas General sueltas, no al paquete.",
     NOT_SUPPLIED: "",
   };
   const message = reasonCopy[discountCode.reason] ?? "Ese código no se pudo aplicar.";
@@ -266,8 +272,13 @@ function renderForm(state: PurchaseState, ctx: PurchaseDialogContext, showProble
   const event = state.event;
   const ticketType = selectTicketType(event, ctx.config.ticketTypeCode);
   const unit = previewUnitPrice(event, ctx.config.ticketTypeCode);
-  const isBundle = state.bundleCode === "DOUBLE_EXPERIENCE";
-  const previewTotal = isBundle ? 34_000_000 : unit === null ? null : unit * state.quantity;
+  const isBundle = state.bundleCode === PACKAGE_CODE;
+  // The package preview is its advertised total; the review step always shows the backend quote.
+  const previewTotal = isBundle
+    ? PACKAGE_TOTAL_CENTS
+    : unit === null
+      ? null
+      : unit * state.quantity;
   const currentTierName = ticketType?.currentTier?.name;
   const isGeneralStage = currentTierName === "General";
   const showDiscountCode = isGeneralStage && state.quantity === 1;
@@ -308,7 +319,7 @@ function renderForm(state: PurchaseState, ctx: PurchaseDialogContext, showProble
       </div>
       ${
         isBundle
-          ? `<p class="qty-unit">Comparte esta experiencia · $170.000 por persona</p>`
+          ? `<p class="qty-unit">Comparte tu experiencia</p>`
           : unit === null
             ? ""
             : `<p class="qty-unit">${ticketType === undefined ? "" : `${escapeHtml(ticketType.name)} · `}${escapeHtml(formatCopCents(unit))} por entrada${
@@ -319,11 +330,11 @@ function renderForm(state: PurchaseState, ctx: PurchaseDialogContext, showProble
       }
       ${
         isBundle
-          ? `<p class="purchase-section-note">Comparte esta experiencia incluye 2 entradas Generales por $340.000. Es un producto independiente y no admite códigos promocionales.</p>`
+          ? `<p class="purchase-section-note">Comparte tu experiencia es un producto independiente y no admite códigos promocionales.</p>`
           : currentTierName === "Preventa"
-            ? `<p class="purchase-section-note">Comparte esta experiencia estará disponible en la etapa General, al terminar la preventa.</p>`
+            ? `<p class="purchase-section-note">Comparte tu experiencia estará disponible en la etapa General, al terminar la preventa.</p>`
             : isGeneralStage && state.quantity === 2
-              ? `<p class="purchase-section-note">Dos entradas Generales individuales cuestan $400.000. Comparte esta experiencia es un producto separado.</p>`
+              ? `<p class="purchase-section-note">Dos entradas Generales individuales cuestan $400.000. Comparte tu experiencia (3 entradas) es un producto separado.</p>`
               : isGeneralStage
                 ? `<p class="purchase-section-note">Los códigos de descuento solo aplican a una entrada General.</p>`
                 : ""
@@ -383,7 +394,7 @@ function renderForm(state: PurchaseState, ctx: PurchaseDialogContext, showProble
       previewTotal === null
         ? ""
         : `<div class="summary preview">
-             ${summaryRow(isBundle ? "Comparte esta experiencia · 2 entradas" : `${state.quantity} × ${formatCopCents(unit ?? 0)}`, previewTotal, { strong: true })}
+             ${summaryRow(isBundle ? "Comparte tu experiencia" : `${state.quantity} × ${formatCopCents(unit ?? 0)}`, previewTotal, { strong: true })}
              <p class="summary-caption">Precio estimado. El valor definitivo se confirma al continuar.</p>
            </div>`
     }
@@ -432,7 +443,7 @@ function renderReview(state: PurchaseState, ctx: PurchaseDialogContext): string 
       <h3 class="purchase-section-title">Resumen de tu compra</h3>
       <div class="review-lines">
         <div class="review-line"><span>Evento</span><strong>${escapeHtml(quote.event.name)}</strong></div>
-        <div class="review-line"><span>Entrada</span><strong>${escapeHtml(state.bundleCode === "DOUBLE_EXPERIENCE" ? "Comparte esta experiencia" : quote.ticketType.name)}${ticketType?.currentTier === null || ticketType?.currentTier === undefined ? "" : ` · ${escapeHtml(ticketType.currentTier.name)}`}</strong></div>
+        <div class="review-line"><span>Entrada</span><strong>${escapeHtml(state.bundleCode === PACKAGE_CODE ? PACKAGE_NAME : quote.ticketType.name)}${ticketType?.currentTier === null || ticketType?.currentTier === undefined ? "" : ` · ${escapeHtml(ticketType.currentTier.name)}`}</strong></div>
         <div class="review-line"><span>Cantidad</span><strong>${quote.quantity}</strong></div>
         <div class="review-line"><span>Titular</span><strong>${escapeHtml(`${state.participant.firstName} ${state.participant.lastName}`.trim())}</strong></div>
       </div>
@@ -529,12 +540,13 @@ function renderCompanionForm(state: PurchaseState): string {
     return `<p class="inline-note tone-warning">${renderIcon("alert")}<span>${escapeHtml(state.companionError ?? "Esta compra no tiene más participantes por registrar.")}</span></p>`;
   }
   const p = state.companion;
-  const isBundle = state.bundleCode === "DOUBLE_EXPERIENCE";
+  const isBundle = state.bundleCode === PACKAGE_CODE;
   return `
     <section class="purchase-section" aria-labelledby="companion-title">
-      <h3 class="purchase-section-title" id="companion-title">${isBundle ? "Registra a tu acompañante" : "Registra la segunda persona"}</h3>
+      <h3 class="purchase-section-title" id="companion-title">${isBundle ? "Registra a tus acompañantes" : "Registra la segunda persona"}</h3>
       <p class="purchase-section-note">
-        Tu compra incluye dos entradas y la primera está a tu nombre. Completa los datos de la segunda persona.
+        Tu compra incluye más de una entrada y la primera está a tu nombre. Completa los datos de
+        la siguiente persona.
       </p>
       <div class="field-grid">
         ${field({ id: "pf-companion-first-name", field: "firstName", label: "Nombre", value: p.firstName, autocomplete: "off", issues: state.companionIssues, required: true, maxlength: 80, companion: true })}
@@ -657,11 +669,11 @@ function renderProblem(state: PurchaseState, ctx: PurchaseDialogContext): string
              <h3 class="purchase-section-title" id="recover-title">Consultar mi compra</h3>
              <div class="field">
                <label class="field-label" for="recover-reference">Referencia de la orden</label>
-               <input class="field-input" id="recover-reference" data-recover="reference" autocomplete="off" placeholder="EVT-2026-000001" />
+               <input class="field-input" id="recover-reference" data-recover="reference" autocomplete="off" placeholder="EVT-2026-000001" value="${escapeHtml(state.recoveryPrefill?.reference ?? "")}" />
              </div>
              <div class="field">
                <label class="field-label" for="recover-email">Correo con el que compraste</label>
-               <input class="field-input" id="recover-email" data-recover="email" type="email" inputmode="email" autocomplete="email" />
+               <input class="field-input" id="recover-email" data-recover="email" type="email" inputmode="email" autocomplete="email" value="${escapeHtml(state.recoveryPrefill?.email ?? "")}" />
              </div>
            </section>`
         : ""
@@ -969,8 +981,10 @@ export function mountPurchaseDialog(options: {
     overlay.classList.add("is-open");
     document.body.style.overflow = "hidden";
 
-    controller.setBundleCode(openOptions.tier === "duo" ? "DOUBLE_EXPERIENCE" : null);
-    if (openOptions.quantity !== undefined) {
+    // The ticket card decides the product: "Comparte tu experiencia" is one package of three
+    // General admissions, everything else is a per-admission purchase.
+    controller.setBundleCode(openOptions.tier === "duo" ? PACKAGE_CODE : null);
+    if (openOptions.quantity !== undefined && openOptions.tier !== "duo") {
       controller.setQuantity(openOptions.quantity);
     }
     if (openOptions.acceptedTerms === true) {
@@ -982,9 +996,10 @@ export function mountPurchaseDialog(options: {
     (titleEl ?? target)?.focus();
     if (openOptions.resume !== undefined) {
       const resume = openOptions.resume;
-      void controller.resumeReturn(
-        resume.transactionId === undefined ? {} : { transactionId: resume.transactionId },
-      );
+      void controller.resumeReturn({
+        ...(resume.reference === undefined ? {} : { reference: resume.reference }),
+        ...(resume.transactionId === undefined ? {} : { transactionId: resume.transactionId }),
+      });
     } else {
       void controller.start();
     }

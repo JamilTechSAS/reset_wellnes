@@ -7,7 +7,7 @@
 | Purpose      | Local work                                  | Integration + ePayco test money                                        | Real sales                          |
 | Database     | Local Supabase stack (Docker)               | Hosted Supabase project (separate)                                     | Hosted Supabase project (separate)  |
 | ePayco       | Test mode (`EPAYCO_TEST=true`)              | Test mode                                                              | Production (`EPAYCO_TEST=false`)    |
-| Wompi        | Legacy only; not used by the purchase flow  | Legacy only                                                            | Legacy only                         |
+| Wompi        | Dormant legacy webhook only                 | Dormant legacy webhook only                                            | Dormant legacy webhook only         |
 | Email        | Disabled by default (`EMAIL_ENABLED=false`) | Disabled in this phase (`EMAIL_ENABLED=false`); welcome email deferred | Resend verified domain when enabled |
 | `verify_jwt` | per function in `config.toml`               | same                                                                   | same                                |
 
@@ -16,7 +16,10 @@ Rules that the configuration loader enforces (see `_shared/config/env.ts`):
 - `APP_ENV` is the only switch. `production` requires `EPAYCO_TEST=false`; test credentials
   must never settle a real order, and the loader refuses the combination at startup.
 - `EPAYCO_BASE_URL` may only be overridden in development (integration tests point it at a fake).
-- Wompi keys are accepted by legacy code but are not part of this event's purchase flow.
+- `PAYMENT_PROVIDER` accepts only `epayco`. `wompi` and `mercadopago` are rejected at
+  startup as retired, so a stale environment cannot select a gateway that builds no checkout.
+- `WOMPI_*` values are optional and only read by the dormant `webhooks-wompi` function; they
+  are never required and are validated by prefix only when present.
 - Outside development: `https` is required for public URLs, CORS origins must be explicit
   origins (no `*`, no localhost), `MAINTENANCE_API_TOKEN` is required (≥32 chars), email
   credentials are required when `EMAIL_ENABLED=true` (the default), and `LOG_LEVEL=debug` is
@@ -256,6 +259,8 @@ documented responses ([api.md](api.md)).
   `EMAIL_REPLY_TO`, `ALERT_EMAIL_TO` (optional payment-alert digest recipients; invalid entries
   are ignored and reported, never a config error), `PAYMENT_RETURN_URL` (legacy fallback: `WOMPI_REDIRECT_URL`),
   `ORDER_RESERVATION_MINUTES`, `EMAIL_DISPATCH_BATCH_SIZE`,
+  `EMAIL_ASSETS_BASE_URL` (public directory hosting the post-purchase email images; defaults to
+  `<PUBLIC_WEB_BASE_URL>/correo/img`),
   `RATE_LIMIT_ENABLED`, `SHEETS_ENABLED`, `GOOGLE_APPS_SCRIPT_URL`,
   `LOG_LEVEL`, `TIMEZONE`, `SERVICE_NAME`. `APP_ENV` decides whether ePayco test mode is allowed;
   `GOOGLE_APPS_SCRIPT_SECRET` is a secret, not a public setting. `TICKET_BASE_URL` is a legacy
@@ -275,6 +280,36 @@ Two separate hosted projects, never mixed:
 `EPAYCO_BASE_URL` cannot be overridden outside `development`, so a test credential can never be
 pointed at a production endpoint. The frontend points at the sandbox project URL in preview
 deployments and at the production project URL in production (Vercel environment variables).
+
+### Production release record (2026-10-25)
+
+Project `pzogdjjdkgolybfcegcs` was brought from the 2026-10-07 schema to the current one and its
+catalogue was created for the first time:
+
+1. **Migrations.** `npx supabase db push --project-ref pzogdjjdkgolybfcegcs` applied the 22
+   migrations pending after `20261007233000`, in timestamp order. The set is additive — it drops
+   no table, view, column or row — and it leaves the legacy `tickets` / `attendance` / `consents` /
+   `email_deliveries` tables in place while no longer feeding them.
+2. **Catalogue.** [../supabase/ops/production/seed_reset_sunset_event.sql](../supabase/ops/production/seed_reset_sunset_event.sql)
+   creates `RESET-SUNSET-2026` (capacity 100, venue Terraza del hotel GHL, Montería), the `GENERAL`
+   ticket type with its Preventa and General tiers, the retired `DOUBLE_EXPERIENCE` bundle kept
+   inactive, and the active `SHARE_EXPERIENCE` bundle (3 admissions, COP 509.700). It is idempotent
+   and never writes `quantity_sold` / `quantity_reserved`, so it is safe to re-run.
+3. **Functions.** `health`, `events`, `webhooks-epayco`, `orders`, `orders-maintenance`, `checkin`
+   and `tickets` were deployed against that ref. `webhooks-wompi` is deliberately left on its
+   previous version and dormant: Wompi is retired and no new delivery can arrive.
+4. **Non-secret configuration** set as Edge Function secrets: `APP_ENV=production`,
+   `PAYMENT_PROVIDER=epayco`, `EPAYCO_TEST=false`, `PUBLIC_WEB_BASE_URL`,
+   `API_BASE_URL`, `PAYMENT_RETURN_URL=https://www.resetwellness.com.co/gracias`,
+   `CORS_ALLOWED_ORIGINS=https://www.resetwellness.com.co,https://resetwellness.com.co`,
+   `EMAIL_ENABLED=false`, `EMAIL_ASSETS_BASE_URL` and `MAINTENANCE_API_TOKEN`.
+
+**Outstanding:** the four ePayco credentials (`EPAYCO_PUBLIC_KEY`, `EPAYCO_PRIVATE_KEY`,
+`EPAYCO_P_KEY`, `EPAYCO_CUST_ID_CLIENTE`) are not configured in production. Until they are,
+`assertPaymentReady` refuses every order-creating endpoint and `/health` reports an incomplete
+configuration — the catalogue and quoting work, checkout does not. Add them with
+`npx supabase secrets set --project-ref pzogdjjdkgolybfcegcs --env-file <file>` (never on a command
+line, never in the repository), then confirm `/health` returns 200 before publishing the frontend.
 
 ### Frontend rules
 

@@ -1,4 +1,9 @@
-# Wompi integration
+# Wompi integration (retired)
+
+> **Status: retired.** Wompi is not a checkout provider for this event; `PAYMENT_PROVIDER`
+> accepts only `epayco`, and the backend no longer builds a Wompi checkout. This document is
+> kept as the reference for the **dormant** `webhooks-wompi` function and for historical
+> `payments` rows. Everything below describes how Wompi works, not how this site sells.
 
 All facts below were read from the **official documentation** on **2026-10-03** and are the
 basis for the code in `supabase/functions/_shared/integrations/wompi/`. Nothing here is taken

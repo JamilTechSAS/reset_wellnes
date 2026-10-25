@@ -2,7 +2,7 @@
  * Order API handlers (runtime-agnostic).
  *
  * These are the orchestration layer: parse the request, call the database transaction, verify
- * the arithmetic it returned, and build the Wompi checkout payload. They hold no HTTP or Deno
+ * the arithmetic it returned, and build the ePayco checkout payload. They hold no HTTP or Deno
  * specifics, so the exact code that runs in an Edge Function is what the unit tests exercise
  * (the thin `index.ts` adapters only read the request, the environment and the headers).
  *
@@ -17,13 +17,17 @@
 
 import { DISCOUNT_CODE_REASONS, isDiscountCodeReason } from "../domain/pricing.ts";
 import { copCents } from "../domain/money.ts";
-import { validationError } from "../domain/errors.ts";
+import { conflictError, toAppError, validationError } from "../domain/errors.ts";
 import { assertQuoteConsistency } from "../domain/pricing.ts";
 import type { BackendConfig } from "../config/env.ts";
 import type { CreateOrderResult, OrderGateway, QuoteResult } from "../db/orders.ts";
 import type { Logger } from "../logging/logger.ts";
-import { buildWompiCheckout, type WompiCheckout } from "../integrations/wompi/checkout.ts";
 import { buildEpaycoCheckout } from "../integrations/epayco/checkout.ts";
+import {
+  RETRY_REQUIRED_REASONS,
+  type CheckoutSessionGateway,
+  type CheckoutSessionOutcome,
+} from "../db/checkout-sessions.ts";
 import {
   createEpaycoApifyClient,
   EpaycoApifyError,
@@ -36,7 +40,13 @@ import {
   type ParsedCreateOrderRequest,
 } from "./order-requests.ts";
 
-export type PaymentCheckout = WompiCheckout | EpaycoCheckout;
+/**
+ * The only checkout payload the API can return.
+ *
+ * Wompi was retired, so there is no second variant to branch on: a buyer either receives
+ * ePayco Smart Checkout V2 material or the request failed.
+ */
+export type PaymentCheckout = EpaycoCheckout;
 
 export type QuoteResponse = {
   readonly event: { readonly code: string; readonly name: string };
@@ -172,18 +182,35 @@ export const EPAYCO_MIN_AMOUNT_PESOS = 5_000;
 export const EPAYCO_MAX_AMOUNT_PESOS = 5_000_000;
 
 /**
- * Creates an ePayco Smart Checkout session for ONE payment attempt and returns the
- * secret-free checkout payload. Shared by order creation and payment retry so both paths
+ * Creates (or resumes) the ePayco Smart Checkout session for ONE payment attempt and returns
+ * the secret-free checkout payload. Shared by order creation and payment retry so both paths
  * send the same invoice (the attempt reference: `EVT-…` for attempt 1, `EVT-…-N` after a
  * retry) that the confirmation webhook later maps back to the order.
+ *
+ * SESSION PINNING (migration 20261024170000). ePayco mints a new transaction id every time a
+ * session is opened, and `payments` keeps exactly one transaction id per reference. A repeated
+ * `POST /orders` used to create a second session for the same invoice, so an approval could
+ * arrive for a transaction the database did not record (staging, EVT-2026-000009). The
+ * database now decides:
+ *
+ *   REUSE          → hand the buyer the session that already exists; call ePayco not at all.
+ *   CREATE         → this request holds a short lease; create one and record it.
+ *   LEASED         → another request is doing it; refuse instead of racing it.
+ *   RETRY_REQUIRED → the attempt can no longer be paid (not PENDING, reservation elapsed, or
+ *                    a transaction is already recorded). Only a new attempt can be paid, so
+ *                    the buyer is sent to `POST /orders/{reference}/retry`.
  */
 export async function createEpaycoCheckoutForAttempt(input: {
   readonly config: BackendConfig;
+  /** The ORDER reference (`EVT-YYYY-NNNNNN`), without any retry suffix. */
+  readonly orderReference: string;
   readonly paymentReference: string;
   readonly amountInCents: number;
   readonly currency: string;
   readonly buyerEmail: string;
   readonly clientIp: string | undefined;
+  readonly sessions: CheckoutSessionGateway;
+  readonly logger: Logger;
   readonly epaycoApify?: EpaycoApifyClient | undefined;
 }): Promise<EpaycoCheckout> {
   const { config } = input;
@@ -206,6 +233,58 @@ export async function createEpaycoCheckoutForAttempt(input: {
     );
   }
 
+  // Both the session and the payload carry the ORDER reference on the return URL, so the
+  // post-payment page can name the purchase without depending on browser storage.
+  const returnUrl = withOrderReference(config.paymentReturnUrl, input.orderReference);
+
+  // The session must be identified by the attempt the database knows; the payload builder
+  // below is shared by the resume and create paths so both are byte-identical.
+  const payloadFor = (sessionId: string): EpaycoCheckout =>
+    buildEpaycoCheckout({
+      sessionId,
+      publicKey: config.epayco.publicKey,
+      test: config.epayco.test,
+      reference: input.paymentReference,
+      amountInCents: input.amountInCents,
+      currency: input.currency,
+      redirectUrl: returnUrl,
+      confirmationUrl: `${config.apiBaseUrl}/webhooks-epayco`,
+      customerData: {
+        email: input.buyerEmail,
+        fullName: undefined,
+        phoneNumber: undefined,
+        phoneNumberPrefix: undefined,
+      },
+    });
+
+  const plan = await input.sessions.begin({ paymentReference: input.paymentReference });
+  if (plan.state === "REUSE") {
+    input.logger.info("checkout session resumed", {
+      reference: input.paymentReference,
+      attempt: plan.paymentAttempt,
+    });
+    return payloadFor(plan.sessionId);
+  }
+  if (plan.state === "LEASED") {
+    input.logger.warn("checkout session creation already in progress", {
+      reference: input.paymentReference,
+      attempt: plan.paymentAttempt,
+    });
+    throw conflictError("A checkout session is already being created for this payment", {
+      context: { surface: "checkout-session", detail: "CHECKOUT_LEASE_ACTIVE" },
+    });
+  }
+  if (plan.state === "RETRY_REQUIRED") {
+    input.logger.warn("checkout session requires a new payment attempt", {
+      reference: input.paymentReference,
+      attempt: plan.paymentAttempt,
+      reason: plan.reason,
+    });
+    throw conflictError("This payment attempt cannot open a checkout session", {
+      context: { surface: "checkout-session", detail: plan.reason },
+    });
+  }
+
   const apify =
     input.epaycoApify ??
     createEpaycoApifyClient({
@@ -214,77 +293,127 @@ export async function createEpaycoCheckoutForAttempt(input: {
       test: config.epayco.test,
     });
 
-  const session = await apify.createSession({
-    checkoutVersion: "2",
-    name: "Re set Sunset Vol. 1",
-    description: `Entrada Re set Sunset Vol. 1 · Ref: ${input.paymentReference}`,
-    currency: input.currency,
-    amount: amountInPesos,
-    ip: input.clientIp,
-    invoice: input.paymentReference,
-    response: config.paymentReturnUrl,
-    confirmation: `${config.apiBaseUrl}/webhooks-epayco`,
-    test: config.epayco.test,
-    taxBase: 0,
-    tax: 0,
-    taxIco: 0,
-    country: "CO",
-    lang: "ES",
-  });
+  let sessionId: string;
+  try {
+    const session = await apify.createSession({
+      checkoutVersion: "2",
+      name: "Re set Sunset Vol. 1",
+      description: `Entrada Re set Sunset Vol. 1 · Ref: ${input.paymentReference}`,
+      currency: input.currency,
+      amount: amountInPesos,
+      ip: input.clientIp,
+      invoice: input.paymentReference,
+      response: returnUrl,
+      confirmation: `${config.apiBaseUrl}/webhooks-epayco`,
+      test: config.epayco.test,
+      taxBase: 0,
+      tax: 0,
+      taxIco: 0,
+      country: "CO",
+      lang: "ES",
+    });
+    sessionId = session.sessionId;
+  } catch (error) {
+    // Free the lease so the buyer can retry at once. Best effort: if this fails the lease
+    // expires on its own, which only costs a short wait.
+    await input.sessions
+      .abandon({ paymentReference: input.paymentReference, generation: plan.generation })
+      .catch(() => undefined);
+    throw error;
+  }
 
-  return buildEpaycoCheckout({
-    sessionId: session.sessionId,
-    publicKey: config.epayco.publicKey,
-    test: config.epayco.test,
+  const outcome: CheckoutSessionOutcome = await input.sessions.complete({
+    paymentReference: input.paymentReference,
+    generation: plan.generation,
+    sessionId,
+  });
+  if (outcome === "RECORDED") {
+    input.logger.info("checkout session created", {
+      reference: input.paymentReference,
+      attempt: plan.paymentAttempt,
+    });
+    return payloadFor(sessionId);
+  }
+
+  // The lease was lost or the reservation lapsed between the provider call and this write.
+  // Never hand the browser a session the database does not know about: prefer the winner's.
+  input.logger.warn("checkout session was not recorded", {
     reference: input.paymentReference,
-    amountInCents: input.amountInCents,
-    currency: input.currency,
-    redirectUrl: config.paymentReturnUrl,
-    confirmationUrl: `${config.apiBaseUrl}/webhooks-epayco`,
-    customerData: {
-      email: input.buyerEmail,
-      fullName: undefined,
-      phoneNumber: undefined,
-      phoneNumberPrefix: undefined,
-    },
+    attempt: plan.paymentAttempt,
+    outcome,
+  });
+  const after = await input.sessions.begin({ paymentReference: input.paymentReference });
+  if (after.state === "REUSE") {
+    return payloadFor(after.sessionId);
+  }
+  if (after.state === "CREATE") {
+    // The recovery begin claimed a lease of its own. Release it, or the buyer's immediate
+    // retry would be answered LEASED for a session nobody is creating. Best effort: if this
+    // fails the lease expires on its own.
+    await input.sessions
+      .abandon({ paymentReference: input.paymentReference, generation: after.generation })
+      .catch(() => undefined);
+  }
+  throw conflictError("The checkout session was replaced while it was being created", {
+    context: { surface: "checkout-session", detail: "CHECKOUT_SESSION_NOT_RECORDED" },
   });
 }
 
 /**
- * Builds the checkout payload (ePayco or Wompi) for a freshly created (or replayed) order.
+ * Adds the ORDER reference to the provider's return URL.
+ *
+ * ePayco appends only its own `ref_payco` to the session's `response` URL, so the browser came
+ * back to `/gracias` with no way to name the purchase: the page had to rely on `sessionStorage`,
+ * and any lost session (a different origin, a cleared session, a different device) ended on the
+ * "no pudimos ubicar tu compra" screen even when the payment was approved.
+ *
+ * The reference is a CONVENIENCE, never proof: the page still asks `GET /orders/{reference}` with
+ * the buyer email, and the backend answers the same 404 for a wrong email and an unknown order.
+ * `ref` is the parameter `src/purchase/return-route.ts` already reads.
+ */
+export function withOrderReference(
+  returnUrl: string | undefined,
+  orderReference: string,
+): string | undefined {
+  if (returnUrl === undefined) {
+    return undefined;
+  }
+  try {
+    const url = new URL(returnUrl);
+    url.searchParams.set("ref", orderReference);
+    return url.toString();
+  } catch {
+    // The loader already validated the URL; if it still is not parseable, send it untouched
+    // rather than break the redirect.
+    return returnUrl;
+  }
+}
+
+/**
+ * Builds the ePayco checkout payload for a freshly created (or replayed) order.
  */
 async function buildCheckout(
   order: CreateOrderResult,
   config: BackendConfig,
   buyerEmail: string,
   clientIp: string | undefined,
+  sessions: CheckoutSessionGateway,
+  logger: Logger,
   epaycoApify?: EpaycoApifyClient,
 ): Promise<PaymentCheckout> {
-  if (config.paymentProvider === "epayco") {
-    return createEpaycoCheckoutForAttempt({
-      config,
-      paymentReference: order.wompiReference,
-      amountInCents: order.totalInCents,
-      currency: order.currency,
-      buyerEmail,
-      clientIp,
-      epaycoApify,
-    });
-  }
-
-  return buildWompiCheckout({
-    publicKey: config.wompi.publicKey,
-    integritySecret: config.wompi.integritySecret,
-    reference: order.wompiReference,
+  return createEpaycoCheckoutForAttempt({
+    config,
+    orderReference: order.reference,
+    // Legacy column name: `wompiReference` is the per-attempt payment reference the database
+    // generated, independently of which provider charges it.
+    paymentReference: order.wompiReference,
     amountInCents: order.totalInCents,
     currency: order.currency,
-    redirectUrl: config.paymentReturnUrl,
-    customerData: {
-      email: buyerEmail,
-      fullName: undefined,
-      phoneNumber: undefined,
-      phoneNumberPrefix: undefined,
-    },
+    buyerEmail,
+    clientIp,
+    sessions,
+    logger,
+    epaycoApify,
   });
 }
 
@@ -292,11 +421,15 @@ async function buildCheckout(
  * `POST /orders`.
  *
  * Creates the order atomically in the database and returns everything the frontend needs to
- * open Wompi Checkout. A replayed request (same idempotency key, same buyer) returns the
- * original order and a freshly computed signature for the SAME amount and reference, so a
- * network retry can safely reopen the checkout.
+ * open the checkout. A replayed request (same idempotency key, same buyer) returns the
+ * original order and — for ePayco — the SAME checkout session, so a network retry, a double
+ * click or a reopened modal cannot mint a second provider transaction under one reference.
  *
- * @throws {AppError} NOT_FOUND / CONFLICT / VALIDATION_ERROR — mapped from SQLSTATE.
+ * @throws {AppError} NOT_FOUND / CONFLICT / VALIDATION_ERROR — mapped from SQLSTATE. A
+ *   CONFLICT also covers the checkout-session outcomes: another request is creating the
+ *   session (`CHECKOUT_LEASE_ACTIVE`) or the attempt can only be paid again through
+ *   `POST /orders/{reference}/retry` (`ORDER_NOT_PENDING` / `RESERVATION_EXPIRED` /
+ *   `TRANSACTION_RECORDED`).
  */
 export async function handleCreateOrder(options: {
   readonly rawBody: unknown;
@@ -306,6 +439,8 @@ export async function handleCreateOrder(options: {
   readonly gateway: OrderGateway;
   readonly config: BackendConfig;
   readonly logger: Logger;
+  /** Required: an ePayco checkout is only opened through a session the database pinned. */
+  readonly checkoutSessions: CheckoutSessionGateway;
   readonly epaycoApify?: EpaycoApifyClient | undefined;
 }): Promise<CreateOrderResponse> {
   // Participant field problems are NOT swallowed: `ParticipantValidationError` is an
@@ -357,6 +492,8 @@ export async function handleCreateOrder(options: {
     options.config,
     request.buyer.email,
     options.ipAddress,
+    options.checkoutSessions,
+    options.logger,
     options.epaycoApify,
   );
 
@@ -407,6 +544,70 @@ export function parseIdempotencyKey(value: string | null): string | undefined {
     });
   }
   return trimmed;
+}
+
+/**
+ * The closed vocabulary of checkout-session refusals the API may echo back to a browser.
+ *
+ * `CHECKOUT_LEASE_ACTIVE` / `CHECKOUT_SESSION_NOT_RECORDED` are raised by this handler;
+ * the rest come from `begin_checkout_session`. They are code-like identifiers, never
+ * provider or buyer data, so the HTTP layer can safely return them in `details.reason`
+ * (the Spanish `message` stays generic).
+ */
+export const CHECKOUT_CONFLICT_REASONS: readonly string[] = [
+  "CHECKOUT_LEASE_ACTIVE",
+  "CHECKOUT_SESSION_NOT_RECORDED",
+  ...RETRY_REQUIRED_REASONS,
+];
+
+/**
+ * `{ reason }` for a checkout-session CONFLICT, or undefined for every other error.
+ *
+ * The frontend needs to tell "we are preparing your session" apart from a sell-out and from
+ * "start a new attempt"; exposing the reason is what makes that possible without leaking
+ * SQLSTATE text or provider details. Anything outside the allowlist is dropped.
+ */
+export function checkoutConflictDetails(error: unknown): { readonly reason: string } | undefined {
+  const appError = toAppError(error);
+  if (appError.code !== "CONFLICT" || appError.context.surface !== "checkout-session") {
+    return undefined;
+  }
+  const reason = appError.context.detail;
+  return typeof reason === "string" && CHECKOUT_CONFLICT_REASONS.includes(reason)
+    ? { reason }
+    : undefined;
+}
+
+/**
+ * The closed vocabulary of purchase-rule refusals the API may echo back to a browser.
+ *
+ * `QUANTITY_LIMIT`  — the active sales stage sells fewer tickets per order than requested
+ *                     (Preventa: one admission per payment).
+ * `BUNDLE_NOT_AVAILABLE` — the named package is not on sale in the active stage yet.
+ *
+ * Both identifiers are raised by this repository's SQL and carry no provider text, SQLSTATE
+ * message or buyer data, so they are safe in `details.reason`. Every other detail — `SOLD_OUT`,
+ * `IDEMPOTENCY_KEY_CONFLICT`, a constraint name, an arbitrary `DETAIL` string — stays behind
+ * the generic `CONFLICT` message.
+ */
+export const PURCHASE_RULE_REASONS: readonly string[] = ["QUANTITY_LIMIT", "BUNDLE_NOT_AVAILABLE"];
+
+/**
+ * `{ reason }` for an allowlisted purchase-rule CONFLICT, or undefined for everything else.
+ *
+ * The Spanish `message` and the HTTP status are untouched: the reason only lets the storefront
+ * tell "this stage sells one ticket" and "this package is not available yet" apart from a
+ * sell-out, instead of showing one generic conflict for three different situations.
+ */
+export function purchaseRuleDetails(error: unknown): { readonly reason: string } | undefined {
+  const appError = toAppError(error);
+  if (appError.code !== "CONFLICT") {
+    return undefined;
+  }
+  const reason = appError.context.detail;
+  return typeof reason === "string" && PURCHASE_RULE_REASONS.includes(reason)
+    ? { reason }
+    : undefined;
 }
 
 /** Exported for the handler tests: the full reason set the API understands. */

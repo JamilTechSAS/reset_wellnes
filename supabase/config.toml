@@ -430,10 +430,12 @@ enabled = true
 # Project Edge Function configuration
 # ---------------------------------------------------------------------------
 # By default Edge Functions require a valid Supabase JWT. Endpoints called by
-# third parties (the Wompi webhook), the public site or the operator scanner cannot
+# third parties (the ePayco webhook), the public site or the operator scanner cannot
 # rely on the platform gate, so they opt out explicitly and authenticate their own
 # callers:
-#   - webhooks-wompi : Wompi event checksum (see docs/wompi-integration.md)
+#   - webhooks-wompi : DORMANT legacy endpoint. Wompi is retired as a checkout provider; it
+#                      stays deployed only to answer a late delivery for a historical
+#                      payment (event checksum, see docs/wompi-integration.md).
 #   - checkin        : Supabase Auth bearer token verified INSIDE the function
 #                      (auth.getUser) plus a row in public.operators. The platform
 #                      verify_jwt gate is off so the response envelope stays uniform
@@ -456,8 +458,10 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.webhooks-wompi]
-# Wompi cannot present a Supabase JWT. The delivery is authenticated by the event checksum
-# (events secret) and the payment itself by a private-key transaction lookup.
+# DORMANT. Wompi is retired: no checkout can be created with it, so no new delivery can
+# arrive. The function is kept deployed only so a late redelivery for a HISTORICAL payment can
+# still be answered, and it remains authenticated by the event checksum (events secret) plus a
+# private-key transaction lookup. Safe to delete once no historical payment can still retry.
 verify_jwt = false
 [functions.events]
 # Public landing page: event content and coarse availability only, no personal data.

@@ -1,9 +1,9 @@
 /**
  * Content Configuration Tests (Phase 6A contract, Phase 6C real client content)
  *
- * These tests pin the material the client actually delivered for `Re set Sunset Vol. 1` and —
- * just as important — pin the ABSENCE of the placeholder/demo data of the earlier phases. A
- * change that reintroduces "Medellín", a 120-person capacity, an invented Maps link or a fake
+ * These tests pin the material the client actually delivered for `Re set Sunset Vol. 1` and ÔÇö
+ * just as important ÔÇö pin the ABSENCE of the placeholder/demo data of the earlier phases. A
+ * change that reintroduces "Medell├¡n", a 120-person capacity, an invented Maps link or a fake
  * contact address fails here, before it can reach the published page.
  */
 
@@ -19,7 +19,7 @@ const BRAND_COLOURS = ["#513229", "#f4f1e2", "#d7d4b1", "#fce6b7"] as const;
 
 /** Demo values from earlier phases that must never come back into production copy. */
 const REMOVED_PLACEHOLDERS = [
-  "Medellín",
+  "Medell├¡n",
   "El Poblado",
   "21 de noviembre",
   "Experiencia Exclusiva",
@@ -71,9 +71,9 @@ describe("EVENT_CONTENT_CONFIG", () => {
     expect(branding.logoFullWidth).toBeGreaterThan(0);
     expect(branding.logoFullHeight).toBeGreaterThan(0);
 
-    // "Cupos limitados" is the client's own wording; they never published a number.
-    expect(branding.badgeText).toBe("Cupos limitados");
-    expect(branding.badgeText).not.toMatch(/\d/);
+    // "100 boletas en total" is the client's own wording; they never published a number.
+    expect(branding.badgeText).toBe("100 boletas en total");
+    expect(branding.badgeText).toContain("100 boletas en total");
   });
 
   it("defines the hero with the confirmed date, schedule and venue", () => {
@@ -89,7 +89,7 @@ describe("EVENT_CONTENT_CONFIG", () => {
     expect(hero.imagePendingNote).toBeTruthy();
   });
 
-  it("publishes only verified hero facts — never a capacity figure", () => {
+  it("publishes only verified hero facts ÔÇö never a capacity figure", () => {
     expect(EVENT_CONTENT_CONFIG.hero.facts.length).toBeGreaterThanOrEqual(3);
     for (const fact of EVENT_CONTENT_CONFIG.hero.facts) {
       expect(fact.id).toBeTruthy();
@@ -107,8 +107,8 @@ describe("EVENT_CONTENT_CONFIG", () => {
       "Spinning",
       "Inmersión en hielo",
       "Quiropráctica",
-      "Sueroterapia",
-      "Bronceo",
+      "Chocolaterapia",
+      "Medicina Estética",
     ]);
     for (const item of EVENT_CONTENT_CONFIG.experiences.items) {
       expect(item.id).toBeTruthy();
@@ -199,7 +199,7 @@ describe("EVENT_CONTENT_CONFIG", () => {
     const delivery = faq.items.find((item) => item.id === "faq-entrega");
     expect(delivery?.isPending).toBeUndefined();
     expect(delivery?.answer).toContain("documento de identidad");
-    expect(delivery?.answer).not.toMatch(/env[ií]a al correo/i);
+    expect(delivery?.answer).not.toMatch(/env[i├¡]a al correo/i);
     expect(delivery?.answer).not.toMatch(/se genera tu entrada/i);
   });
 
@@ -231,15 +231,15 @@ describe("EVENT_CONTENT_CONFIG", () => {
 
     expect(finalCta.ticketOptions.map((option) => [option.name, option.priceLabel])).toEqual([
       ["Preventa", "$159.900"],
-      ["Comparte esta experiencia", "$340.000"],
-      ["General", "$200.000"],
+      ["Comparte tu experiencia", "$509.700"],
+      ["General", "$199.900"],
     ]);
 
     const current = finalCta.ticketOptions.filter((option) => option.status === "current");
     expect(current).toHaveLength(1);
     expect(current[0]?.name).toBe("Preventa");
-    // The 2-ticket bundle is $170.000 per person; that arithmetic is the client's, not ours.
-    expect(finalCta.ticketOptions[1]?.detail).toContain("$170.000");
+    // The 2-ticket bundle is $169.900 per person; that arithmetic is the client's, not ours.
+    expect(finalCta.ticketOptions[1]?.detail).toContain("$169.900");
   });
 
   it("never carries a discount code or a percentage claim", () => {

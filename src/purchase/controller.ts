@@ -38,6 +38,8 @@ import {
 /** One assigned person of the paid order, as projected by `GET /orders/{reference}`. */
 export type OrderParticipant = OrderStatus["participants"][number];
 import type { FrontendConfig } from "../config/env.ts";
+import { PACKAGE_ADMISSIONS, type PackageCode } from "./package-availability.ts";
+import { normalizeReturnedReference } from "./return-route.ts";
 import { selectTicketType } from "./ticket-selection.ts";
 import {
   availabilityIsPurchasable,
@@ -101,7 +103,7 @@ export type PurchaseState = {
   readonly event: PublicEvent | null;
   readonly availability: AvailabilityLabel;
   readonly quantity: number;
-  readonly bundleCode: "DOUBLE_EXPERIENCE" | null;
+  readonly bundleCode: PackageCode | null;
   readonly discountCode: string;
   readonly participant: ParticipantFormValues;
   readonly issues: readonly FieldIssue[];
@@ -115,6 +117,13 @@ export type PurchaseState = {
   readonly verificationStartedAt: number | null;
   /** Set when a payment hint was sent, so the UI can explain the acceleration. */
   readonly hintOutcome: string | null;
+  /**
+   * Values for the "consultar mi compra" form when a return could not resolve itself.
+   *
+   * The return URL names the order (`?ref=EVT-…`), so a buyer whose browser lost the session
+   * (another tab, a cleared session, another device) never has to retype what the link said.
+   */
+  readonly recoveryPrefill: { readonly reference: string; readonly email: string } | null;
   /** Second person of a two-admission purchase; never persisted to storage. */
   readonly companion: ParticipantFormValues;
   readonly companionIssues: readonly FieldIssue[];
@@ -155,7 +164,7 @@ export type PurchaseController = {
   subscribe(listener: (state: PurchaseState) => void): () => void;
   start(): Promise<void>;
   setQuantity(quantity: number): void;
-  setBundleCode(bundleCode: "DOUBLE_EXPERIENCE" | null): void;
+  setBundleCode(bundleCode: PackageCode | null): void;
   setDiscountCode(value: string): void;
   setField(field: ParticipantField, value: string | boolean): void;
   setCompanionField(field: ParticipantField, value: string | boolean): void;
@@ -163,7 +172,10 @@ export type PurchaseController = {
   requestQuote(): Promise<void>;
   backToForm(): void;
   submit(): Promise<void>;
-  resumeReturn(options: { readonly transactionId?: string | undefined }): Promise<void>;
+  resumeReturn(options: {
+    readonly reference?: string | undefined;
+    readonly transactionId?: string | undefined;
+  }): Promise<void>;
   refreshStatus(): Promise<void>;
   retryPayment(): Promise<void>;
   recoverOrder(reference: string, buyerEmail: string): Promise<void>;
@@ -195,6 +207,7 @@ function initialState(): PurchaseState {
     verificationAttempts: 0,
     verificationStartedAt: null,
     hintOutcome: null,
+    recoveryPrefill: null,
     companion: EMPTY_PARTICIPANT_FORM,
     companionIssues: [],
     companionStatus: "idle",
@@ -389,7 +402,7 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
 
   function persistDraft(): void {
     saveDraft(store, {
-      quantity: state.bundleCode === null ? state.quantity : 1,
+      quantity: state.bundleCode === null ? state.quantity : PACKAGE_ADMISSIONS,
       discountCode: state.bundleCode === null ? state.discountCode : "",
       participant: {
         firstName: state.participant.firstName,
@@ -435,7 +448,7 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
     const draft = loadDraft(store);
     const quantity =
       state.bundleCode !== null
-        ? 2
+        ? PACKAGE_ADMISSIONS
         : clamp(draft?.quantity ?? state.quantity, 1, MAX_QUANTITY_FALLBACK);
     const savedDiscountCode =
       state.bundleCode === null && quantity === 1
@@ -544,9 +557,9 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
     persistDraft();
   }
 
-  function setBundleCode(bundleCode: "DOUBLE_EXPERIENCE" | null): void {
+  function setBundleCode(bundleCode: PackageCode | null): void {
     const leavingBundle = state.bundleCode !== null && bundleCode === null;
-    const quantity = bundleCode !== null ? 2 : leavingBundle ? 1 : state.quantity;
+    const quantity = bundleCode !== null ? PACKAGE_ADMISSIONS : leavingBundle ? 1 : state.quantity;
     emit({
       bundleCode,
       quantity,
@@ -833,26 +846,46 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
   }
 
   async function resumeReturn(returnOptions: {
+    readonly reference?: string | undefined;
     readonly transactionId?: string | undefined;
   }): Promise<void> {
     const pending = loadPendingOrder(store);
-    if (pending === undefined) {
+    // The provider's return URL names the order (`?ref=EVT-…`); sessionStorage is the fallback for
+    // links that carry nothing. The reference only points at WHICH order to ask about — the buyer
+    // email is still required, and the backend answers the same 404 for a wrong email as for an
+    // unknown order, so naming an order reveals nothing.
+    const returnedReference = normalizeReturnedReference(returnOptions.reference);
+    const reference = returnedReference ?? pending?.reference;
+    const storedEmail = pending?.reference === reference ? pending?.buyerEmail : undefined;
+
+    if (reference === undefined || storedEmail === undefined) {
       emit({
         step: "problem",
         busy: false,
-        problem: {
-          kind: "not_found",
-          title: "No pudimos ubicar tu compra en este navegador",
-          message:
-            "Usa la referencia de tu orden y el correo con el que compraste para consultar el estado de tu compra.",
-          canRetry: false,
-          canRetryPayment: false,
-          canEditForm: false,
-        },
+        problem:
+          reference === undefined
+            ? {
+                kind: "not_found",
+                title: "No pudimos ubicar tu compra en este navegador",
+                message:
+                  "Usa la referencia de tu orden y el correo con el que compraste para consultar el estado de tu compra.",
+                canRetry: false,
+                canRetryPayment: false,
+                canEditForm: false,
+              }
+            : {
+                kind: "not_found",
+                title: "Confirma el correo de tu compra",
+                message: `Encontramos la orden ${reference}. Escribe el correo con el que compraste para mostrarte el estado de tu compra.`,
+                canRetry: false,
+                canRetryPayment: false,
+                canEditForm: false,
+              },
+        recoveryPrefill: { reference: reference ?? "", email: storedEmail ?? "" },
       });
       return;
     }
-    adopt(pending);
+    adopt({ reference, buyerEmail: storedEmail });
     emit({ step: "verifying", busy: false, problem: null });
     await ensureEvent();
     // A payment hint only accelerates what the webhook would do anyway; it is never trusted.

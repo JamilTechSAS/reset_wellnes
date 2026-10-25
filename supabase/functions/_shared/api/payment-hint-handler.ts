@@ -38,7 +38,7 @@ import { normalizeLookupEmail } from "./order-status-handler.ts";
 import type { WompiClient } from "../integrations/wompi/client.ts";
 import type { BuyerPaymentLookup, PaymentGateway } from "../db/payments.ts";
 import type { Json } from "../db/database.types.ts";
-import type { PaymentProvider } from "../config/env.ts";
+import type { LegacyPaymentProvider } from "../config/env.ts";
 import type { Logger } from "../logging/logger.ts";
 
 const REFERENCE_PATTERN = /^EVT-[0-9]{4}-[0-9]{6,}(-[0-9]+)?$/;
@@ -142,7 +142,11 @@ export async function handlePaymentHint(input: {
   readonly wompi: WompiClient;
   readonly logger: Logger;
   readonly epayco?: EpaycoClient | undefined;
-  readonly provider?: PaymentProvider | undefined;
+  /**
+   * The provider that charged the attempt. Typed with the LEGACY union because a hint can
+   * still arrive for a historical `wompi` payment; new orders only ever carry `epayco`.
+   */
+  readonly provider?: LegacyPaymentProvider | undefined;
   /**
    * `config.epayco.test`. Only `true` admits ePayco sandbox transactions; anything else is
    * live mode, so a missing value can never let a test payment settle a real order.

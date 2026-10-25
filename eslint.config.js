@@ -19,6 +19,8 @@ export default defineConfig([
       "node_modules/**",
       "coverage/**",
       "dist/**",
+      // Vercel's prebuilt output (`vercel build`) is generated JavaScript, ignored by git.
+      ".vercel/**",
       "supabase/functions/_shared/db/database.types.ts",
       "supabase/.temp/**",
       "integrations/google-apps-script/**",

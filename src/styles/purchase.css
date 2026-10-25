@@ -741,3 +741,67 @@
     animation: none;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Checkout containment notice
+   Shown by builds that must not sell (`VITE_CHECKOUT_ENABLED=false`): the page keeps its real
+   content, but starting a purchase is refused with an explanation instead of an order.
+   --------------------------------------------------------------------------- */
+
+.checkout-unavailable {
+  position: fixed;
+  inset-inline: var(--space-4);
+  bottom: var(--space-4);
+  z-index: 90;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  max-width: 640px;
+  margin-inline: auto;
+  padding: var(--space-4) var(--space-5);
+  color: var(--color-text-primary);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+}
+
+.checkout-unavailable-body {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.checkout-unavailable-title {
+  font-weight: var(--font-weight-bold);
+  margin: 0;
+}
+
+.checkout-unavailable-text {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+}
+
+.checkout-unavailable-close {
+  flex: 0 0 auto;
+  padding: var(--space-2) var(--space-4);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  color: var(--color-primary);
+  background: var(--color-primary-subtle);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.checkout-unavailable-close:hover {
+  background: var(--color-bg-glass-subtle);
+}
+
+@media (max-width: 480px) {
+  .checkout-unavailable {
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+}

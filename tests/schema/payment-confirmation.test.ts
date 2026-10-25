@@ -352,6 +352,87 @@ describe("confirm_payment replay and refusal", () => {
     expect(message).toContain("REFERENCE_MISMATCH");
   });
 
+  it("refuses a second transaction under the same reference and changes nothing", async () => {
+    // Staging 2026-10-24 (EVT-2026-000009): ePayco recorded transaction 390996271 as declined,
+    // then approved a SECOND transaction (390996469) under the same merchant reference. One
+    // payment row holds one transaction id, so the approval is refused with the typed
+    // REFERENCE_MISMATCH conflict the webhook turns into a PAYMENT_CONFLICT alert. Nothing may
+    // move: not the order, not the payment, not inventory, not admissions.
+    await db.exec("delete from public.operational_alerts");
+    const order = await createOrder(2);
+    const declined = await confirm({ order, status: "DECLINED", transactionId: "390996271" });
+    expect(declined.paymentStatus).toBe("declined");
+    // A decline closes the attempt and leaves the order FAILED — as EVT-2026-000009 was when
+    // the second, approved transaction arrived.
+    expect(declined.orderStatus).toBe("FAILED");
+
+    const soldBefore = await scalar<number>(
+      `select quantity_sold from public.pricing_tiers where name = 'Preventa 1'`,
+    );
+    const reservedBefore = await scalar<number>(
+      `select quantity_reserved from public.pricing_tiers where name = 'Preventa 1'`,
+    );
+
+    const message = await rejection(
+      confirm({ order, status: "APPROVED", transactionId: "390996469" }),
+    );
+    expect(message).toContain("REFERENCE_MISMATCH");
+
+    expect(
+      await scalar<string>(`select status::text from public.orders where id = '${order.orderId}'`),
+    ).toBe("FAILED");
+    expect(
+      await scalar<string>(
+        `select status::text from public.payments where order_id = '${order.orderId}'`,
+      ),
+    ).toBe("declined");
+    // The rejected approval did not become a second payment attempt either.
+    expect(
+      await scalar<number>(
+        `select count(*)::int from public.payments where order_id = '${order.orderId}'`,
+      ),
+    ).toBe(1);
+    expect(
+      await scalar<number>(
+        `select quantity_sold from public.pricing_tiers where name = 'Preventa 1'`,
+      ),
+    ).toBe(soldBefore);
+    expect(
+      await scalar<number>(
+        `select quantity_reserved from public.pricing_tiers where name = 'Preventa 1'`,
+      ),
+    ).toBe(reservedBefore);
+    // Still only the registration captured at checkout, and no admission of any kind.
+    expect(
+      await scalar<number>(
+        `select count(*)::int from public.participants where order_id = '${order.orderId}'`,
+      ),
+    ).toBe(1);
+    expect(
+      await scalar<number>(
+        `select count(*)::int from public.tickets where order_id = '${order.orderId}'`,
+      ),
+    ).toBe(0);
+
+    // The alert the webhook raises for that refusal is recorded once, however often ePayco
+    // redelivers the same approved transaction.
+    const record = async () =>
+      (
+        await db.query<{ r: { created: boolean; occurrences: number } }>(
+          `select public.record_operational_alert(
+             'conflict:${order.reference}:390996469', 'PAYMENT_CONFLICT', 'critical',
+             '${order.reference}', null, 'epayco',
+             'CONFLICT REFERENCE_MISMATCH ref 390996469') as r`,
+        )
+      ).rows[0]?.r;
+    expect(await record()).toMatchObject({ created: true, occurrences: 1 });
+    expect(await record()).toMatchObject({ created: false, occurrences: 2 });
+    expect(await scalar<number>("select count(*)::int from public.operational_alerts")).toBe(1);
+    expect(
+      await scalar<string>("select order_reference from public.operational_alerts limit 1"),
+    ).toBe(order.reference);
+  });
+
   it("refuses an unknown order reference", async () => {
     const order = await createOrder(1);
     const message = await rejection(

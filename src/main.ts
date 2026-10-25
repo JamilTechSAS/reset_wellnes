@@ -26,6 +26,7 @@ import { renderFooter } from "./components/Footer.ts";
 import { mountPurchaseDialog, type PurchaseDialogContext } from "./components/PurchaseDialog.ts";
 import { mountLegalDialog, type LegalDialog } from "./components/LegalDialog.ts";
 import { createPurchaseController } from "./purchase/controller.ts";
+import { showCheckoutUnavailable } from "./purchase/checkout-unavailable.ts";
 import { parseReturnContext } from "./purchase/return-route.ts";
 import { openEpaycoCheckout } from "./purchase/epayco.ts";
 import { dispatchBuyTicket, onBuyTicket, onOpenLegal } from "./utils/events.ts";
@@ -175,16 +176,31 @@ export function bootstrap(): { cleanup: () => void } {
   const dialog = mountPurchaseDialog({ controller, context: purchaseContext() });
   const legal: LegalDialog = mountLegalDialog();
 
+  // Containment build (`VITE_CHECKOUT_ENABLED=false`): the catalogue, prices and dates are real,
+  // but no entry point may start an order. Every purchase and lookup path is funnelled through
+  // these two callbacks, so refusing here is enough to keep the whole page read-only.
+  const checkoutEnabled = FRONTEND_CONFIG.checkoutEnabled;
+  const openPurchase = (): void => {
+    if (!checkoutEnabled) {
+      showCheckoutUnavailable();
+      return;
+    }
+    dialog.open();
+  };
+  const openLookup = (): void => {
+    if (!checkoutEnabled) {
+      showCheckoutUnavailable();
+      return;
+    }
+    dialog.open({ resume: {} });
+  };
+
   const rootElement = document.getElementById("app");
   let appCleanup = (): void => undefined;
   if (rootElement !== null) {
     const app = initApp(rootElement, {
-      openPurchase: () => {
-        dialog.open();
-      },
-      openLookup: () => {
-        dialog.open({ resume: {} });
-      },
+      openPurchase,
+      openLookup,
       openLegal: (tab) => {
         legal.open(tab);
       },
@@ -200,11 +216,13 @@ export function bootstrap(): { cleanup: () => void } {
       ticketTypeCode: FRONTEND_CONFIG.ticketTypeCode,
     },
     openPurchase: (_source, details) => {
+      if (!checkoutEnabled) {
+        showCheckoutUnavailable();
+        return;
+      }
       dialog.open(details);
     },
-    openLookup: () => {
-      dialog.open({ resume: {} });
-    },
+    openLookup,
     openLegal: (tab) => {
       legal.open(tab as LegalTabId);
     },
@@ -215,14 +233,21 @@ export function bootstrap(): { cleanup: () => void } {
     legal.open(detail.tab);
   });
 
-  // A direct return from ePayco (`/gracias?ref_payco=…`) resumes automatically.
+  // A direct return from ePayco (`/gracias?ref_payco=…&ref=EVT-…`) resumes automatically. Neither
+  // the reference nor the transaction id is proof of payment: the dialog asks the backend.
   const returnContext = parseReturnContext(new URL(window.location.href));
-  if (returnContext.isReturn) {
+  if (returnContext.isReturn && !checkoutEnabled) {
+    // A return URL in a containment build can only come from an attempt made before this build;
+    // it must not resume a flow that could retry a payment.
+    showCheckoutUnavailable();
+  } else if (returnContext.isReturn) {
     dialog.open({
-      resume:
-        returnContext.transactionId === undefined
+      resume: {
+        ...(returnContext.reference === undefined ? {} : { reference: returnContext.reference }),
+        ...(returnContext.transactionId === undefined
           ? {}
-          : { transactionId: returnContext.transactionId },
+          : { transactionId: returnContext.transactionId }),
+      },
     });
   } else {
     const tabFromHash = legalTabFromHash(new URL(window.location.href).hash);

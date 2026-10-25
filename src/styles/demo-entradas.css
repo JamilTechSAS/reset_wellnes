@@ -1,0 +1,393 @@
+/**
+ * Demo page styles (`/demo-entradas`)
+ *
+ * The demo must look like the product, so it reuses the site's palette, typography, price
+ * vocabulary (`precio-*` from `reset.css`), stepper (`.qty-stepper` from `purchase.css`) and checkout
+ * surface (`.purchase-overlay` / `.purchase-panel`). Only what is genuinely new lives here: the
+ * demo banner, the option card, the sticky summary column and the assurance copy.
+ *
+ * Loaded only by `src/demo/demo-entradas.ts`, so `/entradas` never downloads it.
+ */
+
+.demo-page {
+  background: var(--color-bg-base);
+}
+
+/* ---------------------------------------------------------------------------
+   Intro
+   --------------------------------------------------------------------------- */
+
+.demo-intro {
+  padding: calc(7rem + env(safe-area-inset-top, 0px)) clamp(1.25rem, 6vw, 6.5rem)
+    clamp(2.5rem, 5vw, 4rem);
+  color: var(--cafe);
+  background: var(--color-bg-base);
+}
+
+.demo-intro-inner {
+  display: grid;
+  gap: 1.1rem;
+  justify-items: start;
+  max-width: 1240px;
+  margin: 0 auto;
+}
+
+.demo-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0.4rem 0.95rem;
+  font-family: var(--f-body);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--cafe);
+  background: var(--bay);
+  border: 1.5px solid var(--cafe);
+  border-radius: 999px;
+}
+
+.demo-flag-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  background: currentColor;
+  border-radius: 50%;
+}
+
+.demo-title {
+  max-width: 26ch;
+  margin: 0;
+  font-family: var(--f-serif);
+  font-size: clamp(2.1rem, 4.6vw, 3.6rem);
+  font-weight: 400;
+  line-height: 1.06;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+
+.demo-lede {
+  max-width: 62ch;
+  margin: 0;
+  font-size: 1.0625rem;
+  line-height: 1.65;
+  color: color-mix(in srgb, var(--cafe) 82%, var(--vinnie));
+}
+
+.demo-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem 1.9rem;
+  margin: 0.3rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.demo-facts li {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.demo-fact-label {
+  font-size: 0.6875rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--cafe) 62%, var(--vinnie));
+}
+
+.demo-fact-value {
+  font-size: 0.9375rem;
+  font-weight: 700;
+}
+
+.demo-disclaimer {
+  max-width: 72ch;
+  margin: 0.2rem 0 0;
+  padding: 0.85rem 1.05rem;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  background: var(--color-bg-surface);
+  border-left: 3px solid var(--cafe);
+}
+
+.demo-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 2.75rem;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--cafe);
+  text-decoration: none;
+  border-bottom: 1.5px solid currentColor;
+}
+
+.demo-back:hover {
+  opacity: 0.72;
+}
+
+/* ---------------------------------------------------------------------------
+   Section shell
+   --------------------------------------------------------------------------- */
+
+.demo-entradas-inner {
+  max-width: 1240px;
+  margin: 0 auto;
+}
+
+.demo-entradas .entradas-titulo {
+  margin-bottom: 0.75rem;
+  font-family: var(--f-serif);
+  font-weight: 400;
+}
+
+.demo-entradas .entradas-sub {
+  max-width: 60ch;
+  margin-bottom: 2rem;
+}
+
+.demo-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2rem;
+}
+
+@media (min-width: 960px) {
+  .demo-grid {
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr);
+    gap: clamp(2rem, 4vw, 4rem);
+    align-items: start;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Ticket option card
+   --------------------------------------------------------------------------- */
+
+.demo-tipos {
+  display: grid;
+  gap: 0.9rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.demo-tipo {
+  display: grid;
+  gap: 0.8rem;
+  padding: 1.1rem 1.15rem;
+  background: var(--beige);
+  border: 1.5px solid color-mix(in srgb, var(--cafe) 32%, transparent);
+  border-radius: 18px;
+  transition:
+    border-color 0.25s var(--ease),
+    background-color 0.25s var(--ease),
+    box-shadow 0.25s var(--ease);
+}
+
+.demo-tipo.is-selected {
+  background: var(--color-bg-surface);
+  border-color: var(--cafe);
+  box-shadow: inset 0 0 0 1px var(--cafe);
+}
+
+.demo-tipo-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.demo-tipo-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  font-family: var(--f-body);
+  font-size: var(--t-ui);
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.demo-chip {
+  padding: 0.15rem 0.5rem;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: var(--vinnie);
+  border-radius: 999px;
+}
+
+.demo-tipo-price {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.2rem;
+  margin: 0;
+  line-height: 1;
+  text-align: right;
+}
+
+.demo-tipo-note {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: color-mix(in srgb, var(--cafe) 78%, var(--vinnie));
+}
+
+.demo-tipo-window {
+  margin: 0;
+  font-size: 0.75rem;
+  color: color-mix(in srgb, var(--cafe) 62%, var(--vinnie));
+}
+
+.demo-tipo-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.15rem;
+}
+
+.demo-line-total {
+  margin: 0;
+  font-family: var(--f-serif);
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 420px) {
+  .demo-tipo-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .demo-tipo-price {
+    align-items: flex-start;
+    text-align: left;
+  }
+}
+
+/* The shared stepper, sized down for a card. */
+.demo-stepper {
+  gap: 0.5rem;
+  padding: 0.35rem;
+  background: color-mix(in srgb, var(--beige) 55%, var(--color-bg-surface));
+  border-color: color-mix(in srgb, var(--cafe) 22%, transparent);
+}
+
+.demo-stepper .qty-btn {
+  width: 44px;
+  height: 44px;
+  font-size: 1.125rem;
+  line-height: 1;
+  background: var(--color-bg-surface);
+  border-color: color-mix(in srgb, var(--cafe) 22%, transparent);
+}
+
+.demo-stepper .qty-value {
+  gap: 0.4rem;
+}
+
+.demo-stepper .qty-value-number {
+  min-width: 1ch;
+  font-family: var(--f-serif);
+  font-size: 1.25rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.demo-stepper .qty-value-label {
+  font-size: 0.75rem;
+}
+
+.demo-note {
+  max-width: 60ch;
+  margin: 1.5rem 0 0;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: color-mix(in srgb, var(--cafe) 72%, var(--vinnie));
+}
+
+/* ---------------------------------------------------------------------------
+   Summary column
+   --------------------------------------------------------------------------- */
+
+.demo-aside {
+  display: grid;
+  gap: 0.9rem;
+  align-content: start;
+}
+
+@media (min-width: 960px) {
+  .demo-aside {
+    position: sticky;
+    top: 5.5rem;
+    padding: 1.25rem;
+    background: color-mix(in srgb, var(--beige) 65%, var(--color-bg-surface));
+    border: 1.5px solid color-mix(in srgb, var(--cafe) 22%, transparent);
+    border-radius: 22px;
+  }
+}
+
+.demo-aside-title {
+  margin: 0;
+  font-family: var(--f-body);
+  font-size: var(--t-etiqueta);
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--cafe) 72%, var(--vinnie));
+}
+
+.demo-aside .demo-summary {
+  background: var(--color-bg-surface);
+  border-color: color-mix(in srgb, var(--cafe) 20%, transparent);
+}
+
+.demo-summary .summary-caption {
+  margin: 0.15rem 0 0;
+}
+
+.demo-comprar {
+  width: 100%;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.demo-comprar[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.demo-assurance {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.55;
+  color: color-mix(in srgb, var(--cafe) 70%, var(--vinnie));
+}
+
+.demo-assurance-list {
+  display: grid;
+  gap: 0.15rem;
+  margin: 0;
+  padding-left: 1.05rem;
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: color-mix(in srgb, var(--cafe) 70%, var(--vinnie));
+}
+
+/* ---------------------------------------------------------------------------
+   Demo checkout panel
+   --------------------------------------------------------------------------- */
+
+.demo-overlay .purchase-panel {
+  color: var(--color-text-primary);
+}
+
+.demo-overlay .summary-caption {
+  margin: 0;
+}

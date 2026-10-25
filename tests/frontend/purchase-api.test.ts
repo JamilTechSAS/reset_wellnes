@@ -17,10 +17,9 @@ import {
 } from "../../src/api/client.ts";
 import { createTicketingApi } from "../../src/api/ticketing.ts";
 import type { ApiClient } from "../../src/api/client.ts";
-import type { WompiCheckout } from "../../src/api/types.ts";
 import {
   makeAttachedParticipant,
-  makeCheckout,
+  makeEpaycoCheckout,
   makePaidOrderStatus,
 } from "./support/ticketing-fixtures.ts";
 
@@ -478,7 +477,7 @@ describe("ticketing endpoints", () => {
   });
 
   it("passes the checkout payload through with no client-side mutation", async () => {
-    const checkout = makeCheckout({ amountInCents: 12_345_600 });
+    const checkout = makeEpaycoCheckout({ amountInCents: 12_345_600 });
     const api = createTicketingApi(recordingClient({ checkout }).client);
     const order = await api.createOrder({
       eventCode: "RESET-SUNSET-2026",
@@ -496,8 +495,7 @@ describe("ticketing endpoints", () => {
       },
     });
     expect(order.checkout).toEqual(checkout);
-    expect((order.checkout as WompiCheckout).integritySignature).toBe(
-      "fixture-integrity-signature",
-    );
+    expect(order.checkout.provider).toBe("epayco");
+    expect(order.checkout.sessionId).toBe("fixture-epayco-session-123");
   });
 });

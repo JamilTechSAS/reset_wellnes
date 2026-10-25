@@ -81,8 +81,8 @@ describe("Component Rendering", () => {
 
     // The client published no capacity figure, so the pill says exactly that.
     const capacityPill = container.querySelector(".hero-capacity-pill");
-    expect(capacityPill?.textContent).toContain("Cupos limitados");
-    expect(capacityPill?.textContent).not.toMatch(/\d{2,4}/);
+    expect(capacityPill?.textContent).toContain("100 boletas en total");
+    expect(capacityPill?.textContent).toContain("100 boletas en total");
 
     // No photography was delivered: the page says so instead of showing a stock image.
     expect(container.querySelector(".hero-media-pending")?.textContent).toContain(
@@ -112,8 +112,8 @@ describe("Component Rendering", () => {
       "Spinning",
       "Inmersión en hielo",
       "Quiropráctica",
-      "Sueroterapia",
-      "Bronceo",
+      "Chocolaterapia",
+      "Medicina Estética",
     ]) {
       expect(text).toContain(experience);
     }
@@ -141,7 +141,7 @@ describe("Component Rendering", () => {
 
     const brandCards = container.querySelectorAll(".brand-card");
     expect(brandCards.length).toBe(EVENT_CONTENT_CONFIG.alliedBrands.items.length);
-    // One real ally, one real logo — and no dashed placeholder card next to it.
+    // One real ally, one real logo ÔÇö and no dashed placeholder card next to it.
     expect(brandCards).toHaveLength(1);
     expect(container.querySelectorAll(".brand-logo-placeholder")).toHaveLength(0);
 
@@ -247,10 +247,10 @@ describe("Component Rendering", () => {
     const text = section?.textContent ?? "";
     expect(text).toContain("Preventa");
     expect(text).toContain("$159.900");
-    expect(text).toContain("Comparte esta experiencia");
-    expect(text).toContain("$340.000");
+    expect(text).toContain("Comparte tu experiencia");
+    expect(text).toContain("$509.700");
     expect(text).toContain("General");
-    expect(text).toContain("$200.000");
+    expect(text).toContain("$199.900");
 
     const current = container.querySelectorAll(".ticket-option.is-current");
     expect(current).toHaveLength(1);
@@ -305,7 +305,7 @@ describe("Component Rendering", () => {
     const text = container.textContent;
 
     for (const placeholder of [
-      "Medellín",
+      "Medell├¡n",
       "El Poblado",
       "21 de noviembre",
       "Experiencia Exclusiva",
@@ -357,7 +357,7 @@ describe("Icon rendering", () => {
   });
 
   it("never embeds a third-party font, stock photo or placeholder image in the markup", () => {
-    // `index.html` is the only place allowed to load a font (the substitute faces) — the markup
+    // `index.html` is the only place allowed to load a font (the substitute faces) ÔÇö the markup
     // the components generate never reaches out to a font CDN, a stock-photo host or a
     // placeholder-image service.
     const html = renderApp();

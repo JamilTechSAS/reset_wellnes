@@ -151,6 +151,25 @@ async function rejection(promise: Promise<unknown>): Promise<string> {
   }
 }
 
+/**
+ * Ends the first stage's window and opens the second one, the way the real campaign moves from
+ * Preventa to General. Stage selection is time-based now, so this is how a test reaches the
+ * General-priced stage (where the bundle and the coupon fixtures live).
+ */
+async function closeFirstStage(db: PGlite): Promise<void> {
+  await db.exec(`
+    update public.pricing_tiers set sales_ends_at = now() where sequence = 1;
+    update public.pricing_tiers set sales_starts_at = now() - interval '1 minute' where sequence = 2;
+  `);
+}
+
+async function reopenFirstStage(db: PGlite): Promise<void> {
+  await db.exec(`
+    update public.pricing_tiers set sales_ends_at = null where sequence = 1;
+    update public.pricing_tiers set sales_starts_at = now() - interval '1 day' where sequence = 2;
+  `);
+}
+
 /** Fresh database per test group, seeded with a stage ladder, a named bundle and test codes. */
 async function seed(db: PGlite): Promise<void> {
   await db.exec(`
@@ -162,19 +181,24 @@ async function seed(db: PGlite): Promise<void> {
         returning id into v_event;
       insert into public.ticket_types (event_id, code, name, min_per_order, max_per_order)
         values (v_event, 'GENERAL', 'Entrada general', 1, 6) returning id into v_tt;
-      -- Stage 1: cheap but tiny (3 units). Stage 2: pricier, unlimited. Stage 3: future.
+      -- Stage 1: cheap. Stage 2: pricier. Stage 3: future. No tier carries its own quota: the
+      -- event capacity (120) is the only inventory ceiling in the shared-pool model.
       insert into public.pricing_tiers
         (ticket_type_id, name, sequence, price_cents, quantity_limit, sales_starts_at)
       values
-        (v_tt, 'Preventa 1', 1, 9500000, 3, now() - interval '1 day'),
+        (v_tt, 'Preventa 1', 1, 9500000, null, now() - interval '1 day'),
         (v_tt, 'General', 2, 11500000, null, now() - interval '1 day'),
         (v_tt, 'Preventa futura', 3, 5000000, null, now() + interval '30 days');
       select id into v_tier2 from public.pricing_tiers where ticket_type_id = v_tt and sequence = 2;
       insert into public.quantity_discounts (ticket_type_id, min_quantity, percent_bps)
         values (v_tt, 3, 1000);
+      -- DOUBLE_EXPERIENCE is the historical product (still readable); SHARE_EXPERIENCE is the
+      -- current three-admission package.
       insert into public.ticket_bundles
         (event_id, ticket_type_id, pricing_tier_id, code, name, included_admissions, price_cents)
-      values (v_event, v_tt, v_tier2, 'DOUBLE_EXPERIENCE', 'Doble experiencia', 2, 34000000);
+      values
+        (v_event, v_tt, v_tier2, 'DOUBLE_EXPERIENCE', 'Doble experiencia', 2, 34000000),
+        (v_event, v_tt, v_tier2, 'SHARE_EXPERIENCE', 'Comparte tu experiencia', 3, 50970000);
       insert into public.discount_codes (event_id, ticket_type_id, pricing_tier_id, code, kind, percent_bps, max_redemptions, max_quantity)
         values (v_event, v_tt, v_tier2, 'AMIGOS', 'PERCENT', 2500, 1, 6);
       insert into public.discount_codes (event_id, ticket_type_id, pricing_tier_id, code, kind, amount_cents, max_quantity)
@@ -220,31 +244,29 @@ describe("pricing: stage selection and parity", () => {
     }
   });
 
-  it("skips an exhausted stage instead of failing, and reports sold out when none can serve", async () => {
+  it("keeps the same stage while the shared pool has stock and reports SOLD_OUT when it is empty", async () => {
+    // A per-stage quota no longer exists: the only ceiling is the event capacity (120 here).
+    // Consuming admissions on a tier does not push the buyer to a pricier stage.
     await db.exec(`update public.pricing_tiers set quantity_reserved = 3 where sequence = 1`);
     try {
       const twoUnits = await quote(db, 2);
-      expect(twoUnits.pricingTier.sequence).toBe(2);
+      expect(twoUnits.pricingTier.sequence).toBe(1);
+      expect(twoUnits.availableQuantity).toBe(117);
 
-      // Stage 1 is full and stage 2 is unlimited, so nothing is ever truly sold out here;
-      // prove the SOLD_OUT path by making stage 2 unable to serve the quantity.
-      await db.exec(
-        `update public.pricing_tiers set quantity_limit = 1, quantity_reserved = 1 where sequence = 2`,
-      );
-      const failed = await rejection(db.query(quoteSql(2)));
-      expect(failed).toContain("SOLD_OUT");
+      // Drain the pool by reporting the remaining admissions as sold.
+      await db.exec(`update public.pricing_tiers set quantity_sold = 117 where sequence = 2`);
+      expect(await rejection(db.query(quoteSql(2)))).toContain("SOLD_OUT");
     } finally {
       await db.exec(`
-        update public.pricing_tiers set quantity_reserved = 0, quantity_limit = 3 where sequence = 1;
-        update public.pricing_tiers set quantity_reserved = 0, quantity_limit = null where sequence = 2;
+        update public.pricing_tiers set quantity_reserved = 0 where sequence = 1;
+        update public.pricing_tiers set quantity_sold = 0 where sequence = 2;
       `);
     }
   });
 
   it("agrees with the TypeScript rules on the applied discount amounts", async () => {
-    await db.exec(
-      "update public.pricing_tiers set quantity_sold = quantity_limit - quantity_reserved where sequence = 1",
-    );
+    // Codes are bound to an exact stage, so this one needs the second stage to be the open one.
+    await closeFirstStage(db);
     try {
       // Coupons are intentionally valid for one General ticket only.
       const q = await quote(db, 1, "AMIGOS");
@@ -265,16 +287,14 @@ describe("pricing: stage selection and parity", () => {
       // General: 11.5M minus the 25% single-ticket code = 8.625M.
       expect(q.totalInCents).toBe(8_625_000);
     } finally {
-      await db.exec("update public.pricing_tiers set quantity_sold = 0 where sequence = 1");
+      await reopenFirstStage(db);
     }
   });
 
   it("switches to STACK when the policy row says so", async () => {
     await db.exec(`update public.pricing_policy set discount_combination = 'STACK'`);
     try {
-      await db.exec(
-        "update public.pricing_tiers set quantity_sold = quantity_limit - quantity_reserved where sequence = 1",
-      );
+      await closeFirstStage(db);
       // The tier quantity discount starts at three tickets; the single-ticket coupon is refused here.
       const q = await quote(db, 3, "AMIGOS");
       const resolved = resolveDiscountAmounts({
@@ -291,9 +311,8 @@ describe("pricing: stage selection and parity", () => {
       expect(q.totalInCents).toBe(resolved.total);
       expect(q.totalInCents).toBe(31_050_000);
     } finally {
-      await db.exec(
-        `update public.pricing_policy set discount_combination = 'BEST_SINGLE'; update public.pricing_tiers set quantity_sold = 0 where sequence = 1`,
-      );
+      await db.exec(`update public.pricing_policy set discount_combination = 'BEST_SINGLE'`);
+      await reopenFirstStage(db);
     }
   });
 
@@ -315,54 +334,51 @@ describe("pricing: stage selection and parity", () => {
   });
 
   it("applies a FIXED code to its configured General tier and caps it at the subtotal", async () => {
-    await db.exec(
-      "update public.pricing_tiers set quantity_sold = quantity_limit - quantity_reserved where sequence = 1",
-    );
+    await closeFirstStage(db);
     try {
       const q = await quote(db, 1, "FIJO");
       expect(q.pricingTier.name).toBe("General");
       expect(q.discountCode.kind).toBe("FIXED");
       expect(q.totalInCents).toBe(10_500_000);
     } finally {
-      await db.exec("update public.pricing_tiers set quantity_sold = 0 where sequence = 1");
+      await reopenFirstStage(db);
     }
   });
 
-  it("keeps General locked until Preventa is exhausted and prices only Doble experiencia at $340,000", async () => {
-    await db.exec("update public.pricing_tiers set quantity_sold = 2 where sequence = 1");
+  it("refuses the package while its stage is closed and prices it once that stage opens", async () => {
+    // Preventa is the open stage: the package belongs to General, so the answer is BUNDLE_NOT_
+    // AVAILABLE — the schedule, not inventory.
+    expect(await rejection(db.query(quoteSql(3, null, 15, "SHARE_EXPERIENCE")))).toContain(
+      "BUNDLE_NOT_AVAILABLE",
+    );
+
+    await closeFirstStage(db);
     try {
-      expect(await rejection(db.query(quoteSql(2)))).toContain("SOLD_OUT");
-      expect(await rejection(db.query(quoteSql(2, null, 15, "DOUBLE_EXPERIENCE")))).toContain(
-        "SOLD_OUT",
-      );
-
-      await db.exec(
-        "update public.pricing_tiers set quantity_sold = quantity_limit - quantity_reserved where sequence = 1",
-      );
-
-      const bundle = await quote(db, 2, null, "DOUBLE_EXPERIENCE");
+      const bundle = await quote(db, 3, null, "SHARE_EXPERIENCE");
       expect(bundle.pricingTier.name).toBe("General");
-      expect(bundle.quantity).toBe(2);
-      expect(bundle.subtotalInCents).toBe(34_000_000);
+      expect(bundle.quantity).toBe(3);
+      expect(bundle.subtotalInCents).toBe(50_970_000);
       expect(bundle.quantityDiscountInCents).toBe(0);
       expect(bundle.discountCodeInCents).toBe(0);
-      expect(bundle.totalInCents).toBe(34_000_000);
+      expect(bundle.totalInCents).toBe(50_970_000);
+      // 3 × 16.990.000 = 50.970.000: the package total is charged once, never times three.
+      expect(bundle.totalInCents).toBe(16_990_000 * 3);
 
-      const individualTickets = await quote(db, 2);
+      // Three individual admissions stay individually priced (3 × 11.500.000) and the seeded
+      // 10 % quantity discount applies to them, unlike the fixed-price package.
+      const individualTickets = await quote(db, 3);
       expect(individualTickets.pricingTier.name).toBe("General");
-      expect(individualTickets.subtotalInCents).toBe(23_000_000);
-      expect(individualTickets.quantityDiscountInCents).toBe(0);
-      expect(individualTickets.totalInCents).toBe(23_000_000);
+      expect(individualTickets.subtotalInCents).toBe(34_500_000);
+      expect(individualTickets.quantityDiscountInCents).toBe(3_450_000);
+      expect(individualTickets.totalInCents).toBe(31_050_000);
     } finally {
-      await db.exec("update public.pricing_tiers set quantity_sold = 0 where sequence = 1");
+      await reopenFirstStage(db);
     }
   });
 
   it("accepts coupons only for one ticket on the configured General tier", async () => {
     expect((await quote(db, 1, "GENERAL10")).discountCode.reason).toBe("WRONG_SALES_STAGE");
-    await db.exec(
-      "update public.pricing_tiers set quantity_sold = quantity_limit - quantity_reserved where sequence = 1",
-    );
+    await closeFirstStage(db);
     try {
       const single = await quote(db, 1, "GENERAL10");
       expect(single.discountCode.reason).toBe("OK");
@@ -376,7 +392,7 @@ describe("pricing: stage selection and parity", () => {
         ),
       ).toContain("DISCOUNT_WRONG_QUANTITY");
     } finally {
-      await db.exec("update public.pricing_tiers set quantity_sold = 0 where sequence = 1");
+      await reopenFirstStage(db);
     }
   });
 
@@ -485,48 +501,58 @@ describe("order creation", () => {
     expect(payments.rows[0]?.approved_at).toBeNull();
   });
 
-  it("reserves inventory and never exceeds the stage limit", async () => {
-    const before = await db.query<{ quantity_reserved: number }>(
-      `select quantity_reserved from public.pricing_tiers where sequence = 1`,
+  it("reserves from the shared pool and refuses to oversell it", async () => {
+    const capacity = await db.query<{ capacity: number }>(
+      `select capacity from public.events where code = '${EVENT}'`,
     );
-    const reserved = before.rows[0]?.quantity_reserved ?? 0;
+    const total = capacity.rows[0]?.capacity ?? 0;
 
-    // Stage 1 holds 3 units and `reserved` are already taken; asking for the rest succeeds.
-    const remaining = 3 - reserved;
-    if (remaining > 0) {
-      await createOrder(db, { quantity: remaining, key: `idem-fill-${String(remaining)}-0001` });
+    const before = await db.query<{ used: number }>(
+      `select coalesce(sum(quantity_reserved + quantity_sold), 0)::int as used from public.pricing_tiers`,
+    );
+    const used = before.rows[0]?.used ?? 0;
+
+    // Fill the pool exactly, then ask for one more admission.
+    await db.exec(
+      `update public.pricing_tiers set quantity_reserved = ${String(total - used)} where sequence = 2`,
+    );
+    try {
+      expect(await rejection(db.query(quoteSql(1)))).toContain("SOLD_OUT");
+      const ordersBefore = await db.query<{ count: number }>(
+        `select count(*)::int as count from public.orders`,
+      );
+      expect(
+        await rejection(db.query(orderSql({ quantity: 1, key: "idem-full-000000000001" }))),
+      ).toContain("SOLD_OUT");
+      const ordersAfter = await db.query<{ count: number }>(
+        `select count(*)::int as count from public.orders`,
+      );
+      // The refusal happens before anything is written: no order, no payment, no reservation.
+      expect(ordersAfter.rows[0]?.count).toBe(ordersBefore.rows[0]?.count);
+    } finally {
+      await db.exec(`update public.pricing_tiers set quantity_reserved = 0 where sequence = 2`);
     }
-
-    const after = await db.query<{ quantity_reserved: number; quantity_limit: number }>(
-      `select quantity_reserved, quantity_limit from public.pricing_tiers where sequence = 1`,
-    );
-    expect(after.rows[0]?.quantity_reserved).toBe(3);
-    expect(after.rows[0]?.quantity_limit).toBe(3);
-
-    // The next order falls through to stage 2 (pricier), not an error.
-    const order = await createOrder(db, { quantity: 1, key: "idem-stage2-00000001" });
-    expect(order.pricingTierName).toBe("General");
-    expect(order.unitPriceInCents).toBe(11_500_000);
   });
 
-  it("creates Doble experiencia for $340,000 and reserves exactly two General admissions", async () => {
+  it("creates Comparte tu experiencia for $509,700 and reserves exactly three General admissions", async () => {
+    await closeFirstStage(db);
     const before = await db.query<{ quantity_reserved: number }>(
       `select quantity_reserved from public.pricing_tiers where sequence = 2`,
     );
     const order = await createOrder(db, {
-      quantity: 2,
-      bundleCode: "DOUBLE_EXPERIENCE",
-      key: "idem-double-experience-01",
+      quantity: 3,
+      bundleCode: "SHARE_EXPERIENCE",
+      key: "idem-share-experience-01",
     });
 
     expect(order.replayed).toBe(false);
     expect(order.pricingTierName).toBe("General");
-    expect(order.quantity).toBe(2);
-    expect(order.unitPriceInCents).toBe(17_000_000);
-    expect(order.subtotalInCents).toBe(34_000_000);
+    expect(order.quantity).toBe(3);
+    expect(order.unitPriceInCents).toBe(16_990_000);
+    expect(order.subtotalInCents).toBe(50_970_000);
     expect(order.quantityDiscountInCents).toBe(0);
     expect(order.discountCodeInCents).toBe(0);
-    expect(order.totalInCents).toBe(34_000_000);
+    expect(order.totalInCents).toBe(50_970_000);
 
     const stored = await db.query<{
       bundle_id: string | null;
@@ -546,29 +572,31 @@ describe("order creation", () => {
       [order.orderId],
     );
     expect(stored.rows[0]?.bundle_id).not.toBeNull();
-    expect(stored.rows[0]?.quantity).toBe(2);
-    expect(stored.rows[0]?.unit_price_cents).toBe(17_000_000);
-    expect(stored.rows[0]?.line_total_cents).toBe(34_000_000);
-    expect(stored.rows[0]?.subtotal_cents).toBe(34_000_000);
-    expect(stored.rows[0]?.total_cents).toBe(34_000_000);
-    expect(stored.rows[0]?.amount_cents).toBe(34_000_000);
+    expect(stored.rows[0]?.quantity).toBe(3);
+    expect(stored.rows[0]?.unit_price_cents).toBe(16_990_000);
+    expect(stored.rows[0]?.line_total_cents).toBe(50_970_000);
+    expect(stored.rows[0]?.subtotal_cents).toBe(50_970_000);
+    expect(stored.rows[0]?.total_cents).toBe(50_970_000);
+    // The charged amount is the package total, not 3 × the General unit price.
+    expect(stored.rows[0]?.amount_cents).toBe(50_970_000);
 
     const after = await db.query<{ quantity_reserved: number }>(
       `select quantity_reserved from public.pricing_tiers where sequence = 2`,
     );
-    expect(after.rows[0]?.quantity_reserved).toBe((before.rows[0]?.quantity_reserved ?? 0) + 2);
+    expect(after.rows[0]?.quantity_reserved).toBe((before.rows[0]?.quantity_reserved ?? 0) + 3);
 
     const replay = await createOrder(db, {
-      quantity: 2,
-      bundleCode: "DOUBLE_EXPERIENCE",
-      key: "idem-double-experience-01",
+      quantity: 3,
+      bundleCode: "SHARE_EXPERIENCE",
+      key: "idem-share-experience-01",
     });
     expect(replay.replayed).toBe(true);
-    expect(replay.totalInCents).toBe(34_000_000);
+    expect(replay.totalInCents).toBe(50_970_000);
     const afterReplay = await db.query<{ quantity_reserved: number }>(
       `select quantity_reserved from public.pricing_tiers where sequence = 2`,
     );
     expect(afterReplay.rows[0]?.quantity_reserved).toBe(after.rows[0]?.quantity_reserved);
+    await reopenFirstStage(db);
   });
 
   it("replays the same order for a repeated idempotency key and does not reserve twice", async () => {
@@ -631,11 +659,10 @@ describe("order creation", () => {
   it("replays an order that used a discount code with the amounts already applied", async () => {
     // FIJO is a fixed 1.000.000-centavo code with unlimited redemptions.
     const key = "idem-discount-replay-01";
-    await db.exec(
-      "update public.pricing_tiers set quantity_sold = quantity_limit - quantity_reserved where sequence = 1",
-    );
+    await closeFirstStage(db);
     const fresh = await createOrder(db, { quantity: 1, code: "FIJO", key });
     const replay = await createOrder(db, { quantity: 1, code: "FIJO", key });
+    await reopenFirstStage(db);
 
     expect(fresh.discountCodeInCents).toBe(1_000_000);
     expect(replay.replayed).toBe(true);
@@ -698,9 +725,7 @@ describe("order creation", () => {
 
   it("rolls everything back when the discount code is exhausted", async () => {
     // AMIGOS has max_redemptions = 1: the first order consumes it.
-    await db.exec(
-      "update public.pricing_tiers set quantity_sold = quantity_limit - quantity_reserved where sequence = 1",
-    );
+    await closeFirstStage(db);
     const first = await createOrder(db, { quantity: 1, code: "AMIGOS", key: "idem-code-00000001" });
     expect(first.discountCodeInCents).toBeGreaterThan(0);
 
@@ -735,6 +760,7 @@ describe("order creation", () => {
         where c.code = 'AMIGOS'`,
     );
     expect(redemptions.rows[0]?.count).toBe(1);
+    await reopenFirstStage(db);
   });
 
   it("records the applied discount split so the orders CHECK constraint holds", async () => {

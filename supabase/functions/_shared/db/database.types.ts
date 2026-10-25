@@ -495,7 +495,16 @@ isOneToOne: false
                 }
           }
           Functions: {
-            "attach_participant":
+            "abandon_checkout_session":
+{ Args: { "p_generation": number,"p_payment_reference": string }; Returns: Json
+                           },
+"begin_checkout_session":
+{ Args: { "p_lease_seconds"?: number,"p_now"?: string,"p_payment_reference": string }; Returns: Json
+                           },
+"complete_checkout_session":
+{ Args: { "p_generation": number,"p_now"?: string,"p_payment_reference": string,"p_session_id": string }; Returns: Json
+                           },
+"attach_participant":
 { Args: { "p_buyer_email": string,"p_now"?: string,"p_order_reference": string,"p_participant": Json,"p_policy_version"?: string }; Returns: Json
                            },
 "claim_email_deliveries":
@@ -519,6 +528,33 @@ isOneToOne: false
                           SetofOptions: {
         from: "*"
         to: "email_deliveries"
+        isOneToOne: false
+        isSetofReturn: true
+      } },
+"claim_order_email_deliveries":
+{ Args: { "p_lease_seconds"?: number,"p_limit"?: number,"p_max_attempts"?: number,"p_now"?: string }; Returns: {
+              "attempt_count": number,
+"claim_expires_at": string | null,
+"claim_token": string | null,
+"claimed_at": string | null,
+"created_at": string,
+"id": string,
+"idempotency_key": string,
+"last_error": string | null,
+"next_attempt_at": string | null,
+"order_id": string,
+"provider": string,
+"provider_message_id": string | null,
+"queued_at": string,
+"recipient_email": string,
+"sent_at": string | null,
+"status": Database["public"]['Enums']["email_delivery_status"],
+"template": string,
+"updated_at": string
+            }[]
+                          SetofOptions: {
+        from: "*"
+        to: "order_email_deliveries"
         isOneToOne: false
         isSetofReturn: true
       } },
@@ -591,6 +627,9 @@ isOneToOne: false
 "get_operator_ticket":
 { Args: { "p_ticket_token": string }; Returns: Json
                            },
+"get_post_purchase_email_context":
+{ Args: { "p_delivery_id": string }; Returns: Json
+                           },
 "get_order_status":
 { Args: { "p_buyer_email": string,"p_order_reference": string }; Returns: Json
                            },
@@ -645,6 +684,9 @@ isOneToOne: false
         isOneToOne: false
         isSetofReturn: true
       } },
+"finish_order_email_delivery":
+{ Args: { "p_claim_token": string,"p_delivery_id": string,"p_error"?: string,"p_next_attempt_at"?: string,"p_now"?: string,"p_provider_message_id"?: string,"p_status": Database["public"]['Enums']["email_delivery_status"] }; Returns: Json
+                           },
 "finish_participant_sheet_projections":
 { Args: { "p_error"?: string,"p_next_attempt_at"?: string,"p_now"?: string,"p_participant_ids": (string)[],"p_status": Database["public"]['Enums']["sheets_projection_status"] }; Returns: Json
                            },

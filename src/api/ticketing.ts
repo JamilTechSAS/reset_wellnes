@@ -26,6 +26,8 @@ import type {
   RetriedPayment,
 } from "./types.ts";
 
+import type { PackageCode } from "../purchase/package-availability.ts";
+
 export type ParticipantPayload = {
   readonly firstName: string;
   readonly lastName: string;
@@ -44,7 +46,7 @@ export type CreateOrderInput = {
   readonly eventCode: string;
   readonly ticketTypeCode: string;
   readonly quantity: number;
-  readonly bundleCode?: "DOUBLE_EXPERIENCE" | undefined;
+  readonly bundleCode?: PackageCode | undefined;
   readonly discountCode?: string | undefined;
   readonly buyer: { readonly email: string; readonly fullName: string; readonly phone: string };
   readonly participant: ParticipantPayload;
@@ -66,7 +68,7 @@ export type TicketingApi = {
       readonly eventCode: string;
       readonly ticketTypeCode: string;
       readonly quantity: number;
-      readonly bundleCode?: "DOUBLE_EXPERIENCE" | undefined;
+      readonly bundleCode?: PackageCode | undefined;
       readonly discountCode?: string | undefined;
     },
     signal?: AbortSignal,
@@ -115,7 +117,7 @@ export function createTicketingApi(client: ApiClient): TicketingApi {
         readonly eventCode: string;
         readonly ticketTypeCode: string;
         readonly quantity: number;
-        readonly bundleCode?: "DOUBLE_EXPERIENCE" | undefined;
+        readonly bundleCode?: PackageCode | undefined;
         readonly discountCode?: string | undefined;
       },
       signal?: AbortSignal,

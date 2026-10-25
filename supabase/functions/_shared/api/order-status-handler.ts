@@ -26,8 +26,8 @@ import { notFoundError, toAppError, validationError } from "../domain/errors.ts"
 import type { BackendConfig } from "../config/env.ts";
 import type { Logger } from "../logging/logger.ts";
 import type { OrderStatus, OrderStatusGateway, PaymentGateway } from "../db/payments.ts";
-import { buildWompiCheckout, type WompiCheckout } from "../integrations/wompi/checkout.ts";
 import type { EpaycoApifyClient } from "../integrations/epayco/apify.ts";
+import type { CheckoutSessionGateway } from "../db/checkout-sessions.ts";
 import type { EpaycoCheckout } from "../integrations/epayco/types.ts";
 import { createEpaycoCheckoutForAttempt } from "./orders-handler.ts";
 
@@ -185,16 +185,16 @@ export type PaymentRetryResponse = {
   readonly totalInCents: number;
   readonly currency: string;
   readonly reservationExpiresAt: string | null;
-  readonly checkout: WompiCheckout | EpaycoCheckout;
+  /** ePayco is the only provider a new attempt can be paid with. */
+  readonly checkout: EpaycoCheckout;
 };
 
 /**
  * `POST /orders/{reference}/retry`.
  *
  * Only a FAILED or EXPIRED order can be retried. The database performs the transition and
- * creates the new attempt; this handler only builds the checkout payload for the reference
- * the database returned, so the amount and the integrity signature can never disagree with
- * what is stored.
+ * creates the new attempt; this handler only builds the ePayco checkout payload for the
+ * reference the database returned, so the amount can never disagree with what is stored.
  */
 export async function handlePaymentRetry(options: {
   readonly reference: string;
@@ -203,6 +203,8 @@ export async function handlePaymentRetry(options: {
   readonly orderStatus: OrderStatusGateway;
   readonly config: BackendConfig;
   readonly logger: Logger;
+  /** Required: the new attempt's session is created through the pinned-session gate. */
+  readonly checkoutSessions: CheckoutSessionGateway;
   /** Buyer IP, required by ePayco session creation. */
   readonly clientIp?: string | undefined;
   readonly epaycoApify?: EpaycoApifyClient | undefined;
@@ -234,31 +236,23 @@ export async function handlePaymentRetry(options: {
       reservationMinutes: options.config.orderReservationMinutes,
     });
 
-    const checkout =
-      options.config.paymentProvider === "epayco"
-        ? await createEpaycoCheckoutForAttempt({
-            config: options.config,
-            paymentReference: retry.wompiReference,
-            amountInCents: retry.totalInCents,
-            currency: retry.currency,
-            buyerEmail: email,
-            clientIp: options.clientIp,
-            epaycoApify: options.epaycoApify,
-          })
-        : await buildWompiCheckout({
-            publicKey: options.config.wompi.publicKey,
-            integritySecret: options.config.wompi.integritySecret,
-            reference: retry.wompiReference,
-            amountInCents: retry.totalInCents,
-            currency: retry.currency,
-            redirectUrl: options.config.paymentReturnUrl,
-            customerData: {
-              email,
-              fullName: undefined,
-              phoneNumber: undefined,
-              phoneNumberPrefix: undefined,
-            },
-          });
+    // ePayco is the only provider a checkout can be opened with; a retry builds the same
+    // Smart Checkout session shape as the original attempt, under a NEW attempt reference.
+    const checkout = await createEpaycoCheckoutForAttempt({
+      config: options.config,
+      // The return URL names the ORDER, never the attempt: `EVT-…-2` is a reference the
+      // buyer cannot look up. The order part itself ends in six or more digits, so only
+      // a 1–3 digit suffix AFTER that is the attempt number.
+      orderReference: reference.replace(/^(EVT-[0-9]{4}-[0-9]{6,})-[0-9]{1,3}$/, "$1"),
+      paymentReference: retry.wompiReference,
+      amountInCents: retry.totalInCents,
+      currency: retry.currency,
+      buyerEmail: email,
+      clientIp: options.clientIp,
+      sessions: options.checkoutSessions,
+      logger: options.logger,
+      epaycoApify: options.epaycoApify,
+    });
 
     options.logger.info("payment retry created", {
       reference: retry.reference,

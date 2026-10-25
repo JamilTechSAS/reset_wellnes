@@ -23,9 +23,9 @@ describe("preventa discounted price", () => {
     expect(card).toContain('<span class="precio-ahora">$159.900</span>');
   });
 
-  it("shows the reference price ($200.000) crossed out", () => {
+  it("shows the reference price ($199.900) crossed out", () => {
     const card = preventaCard();
-    expect(card).toContain('<span class="precio-antes">$200.000</span>');
+    expect(card).toContain('<span class="precio-antes">$199.900</span>');
   });
 
   it("shows a visible 20% discount label", () => {
@@ -41,8 +41,12 @@ describe("preventa discounted price", () => {
     expect(HTML).toContain('<span id="comprar-precio">$159.900</span>');
   });
 
-  it("leaves the other ticket prices unchanged", () => {
-    expect(HTML).toContain('<span class="tipo-precio">$340.000</span>');
-    expect(HTML).toContain('<span class="tipo-precio">$200.000</span>');
+  it("keeps the General price and shows the package per person, never its total", () => {
+    expect(HTML).toContain('<span class="tipo-precio">$199.900</span>');
+    expect(HTML).toContain('<span class="precio-ahora">$169.900</span>');
+    expect(HTML).toContain("por persona");
+    expect(HTML).not.toContain("$509.700");
+    expect(HTML).not.toContain("$340.000");
+    expect(HTML).not.toContain("$170.000");
   });
 });

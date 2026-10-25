@@ -23,6 +23,7 @@ const SALES: PublicSales = {
   currency: "COP",
   salesOpen: true,
   availability: "LOW",
+  serverTime: "2026-10-24T15:00:00Z",
   ticketTypes: [
     {
       code: "GENERAL",
@@ -32,7 +33,8 @@ const SALES: PublicSales = {
       maxPerOrder: 4,
       salesOpen: true,
       availability: "LOW",
-      currentTier: { name: "Preventa 1", sequence: 1, priceInCents: 9_500_000 },
+      currentTier: { name: "Preventa 1", sequence: 1, priceInCents: 9_500_000, maxPerOrder: 1 },
+      salesWindow: { startsAt: "2026-10-25T15:00:00Z", endsAt: "2026-10-29T05:00:00Z" },
     },
   ],
 };

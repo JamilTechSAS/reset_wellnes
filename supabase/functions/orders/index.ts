@@ -42,12 +42,18 @@ import {
   type PaymentGateway,
 } from "../_shared/db/payments.ts";
 import { createOrderGateway, type OrderGateway } from "../_shared/db/orders.ts";
+import {
+  createCheckoutSessionGateway,
+  type CheckoutSessionGateway,
+} from "../_shared/db/checkout-sessions.ts";
 import { createParticipantGateway, type ParticipantGateway } from "../_shared/db/participants.ts";
 import { createRateLimitGateway, type RateLimitGateway } from "../_shared/db/rate-limits.ts";
 import {
+  checkoutConflictDetails,
   handleCreateOrder,
   handleQuote,
   parseIdempotencyKey,
+  purchaseRuleDetails,
 } from "../_shared/api/orders-handler.ts";
 import { handleOrderStatus, handlePaymentRetry } from "../_shared/api/order-status-handler.ts";
 import {
@@ -86,6 +92,7 @@ type HandlerContext = {
   readonly orders: OrderGateway;
   readonly payments: PaymentGateway;
   readonly orderStatus: OrderStatusGateway;
+  readonly checkoutSessions: CheckoutSessionGateway;
   readonly participants: ParticipantGateway;
   readonly rateLimits: RateLimitGateway;
   readonly logger: Logger;
@@ -174,6 +181,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
       orders: createOrderGateway(client, config.paymentProvider),
       payments: createPaymentGateway(client),
       orderStatus: createOrderStatusGateway(client),
+      checkoutSessions: createCheckoutSessionGateway(client),
       participants: createParticipantGateway(client),
       rateLimits: createRateLimitGateway(client),
       logger,
@@ -226,6 +234,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
         email,
         payments: context.payments,
         orderStatus: context.orderStatus,
+        checkoutSessions: context.checkoutSessions,
         config: context.config,
         logger: context.logger,
         clientIp: resolveClientIp(request),
@@ -326,6 +335,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
       ipAddress: resolveClientIp(request),
       userAgent: request.headers.get("user-agent") ?? undefined,
       gateway: context.orders,
+      checkoutSessions: context.checkoutSessions,
       config: context.config,
       logger: context.logger,
     });
@@ -361,10 +371,17 @@ Deno.serve(async (request: Request): Promise<Response> => {
     const isConfig = error instanceof ConfigError;
     const exposeDiagnostics = context.config.appEnv !== "production";
     const configIssues = isConfig && exposeDiagnostics ? { issues: error.issues } : undefined;
+    // A checkout-session conflict carries only its code-like reason (`CHECKOUT_LEASE_ACTIVE`,
+    // `ORDER_NOT_PENDING`, …): the buyer needs it to be told "wait a moment" instead of
+    // "sold out", and it is safe in every environment.
+    // The two vocabularies are disjoint by construction (see the allowlists' tests), so the
+    // order here cannot change an existing checkout-session answer.
     const details =
       participantErrorDetails(error) ??
       configIssues ??
-      (exposeDiagnostics ? providerDiagnostics : undefined);
+      (exposeDiagnostics ? providerDiagnostics : undefined) ??
+      checkoutConflictDetails(appError) ??
+      purchaseRuleDetails(appError);
     return errorResponse(appError, {
       ...(isConfig ? { message: "La configuración del backend está incompleta." } : {}),
       ...(details === undefined ? {} : { details }),

@@ -4,8 +4,8 @@
  * Only `VITE_*` variables exist here, and only values that are safe to ship in a browser
  * bundle. Nothing in this module can read a private key or a server credential: Vite exposes
  * an `import.meta.env` entry to the bundle only when it is prefixed `VITE_`, and the backend
- * secrets (`SUPABASE_SECRET_KEY`, `WOMPI_PRIVATE_KEY`, integrity/events secrets, Resend key,
- * Google Apps Script secret) are never configured on the frontend at all.
+ * secrets (`SUPABASE_SECRET_KEY`, `EPAYCO_PRIVATE_KEY`, `EPAYCO_P_KEY`, Resend key, Google
+ * Apps Script secret) are never configured on the frontend at all.
  *
  * Every variable has a development-safe default so the app runs with zero configuration
  * locally; the production defaults below point at the real hosted backend so a `vite build`
@@ -20,6 +20,16 @@ export type FrontendConfig = {
   readonly eventCode: string;
   /** Ticket type code inside that event. */
   readonly ticketTypeCode: string;
+  /**
+   * Whether this build may start a real checkout.
+   *
+   * Default `true`. A build that sets `VITE_CHECKOUT_ENABLED=false` is a **containment** build:
+   * it shows the real catalogue and prices, but every purchase entry point explains that buying
+   * is temporarily unavailable instead of starting an order. It exists so the public site can
+   * point at a backend whose payment provider is not configured yet without ever creating an
+   * order, a checkout session or a payment. QA and demo builds never set it.
+   */
+  readonly checkoutEnabled: boolean;
 };
 
 /** Local Supabase Edge Functions (the value `npm run functions:serve` serves). */
@@ -59,6 +69,8 @@ export type FrontendEnv = {
   readonly VITE_API_BASE_URL?: string | undefined;
   readonly VITE_EVENT_CODE?: string | undefined;
   readonly VITE_TICKET_TYPE_CODE?: string | undefined;
+  /** Containment switch; only an explicit falsy value disables checkout. See `FrontendConfig`. */
+  readonly VITE_CHECKOUT_ENABLED?: string | undefined;
   /**
    * Vite's own `import.meta.env.PROD`: true in a `vite build`, false in `vite dev` and in the
    * test runner. It selects the default backend: hosted for a real build, the local stack
@@ -77,6 +89,21 @@ function withoutTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
 }
 
+/**
+ * Reads the containment switch.
+ *
+ * Only an explicit falsy word disables checkout; an absent, empty or unrecognised value keeps the
+ * normal behaviour (`fallback`). A typo must never silently take sales offline — the containment
+ * build is always the one that sets the variable on purpose.
+ */
+export function parseCheckoutEnabled(value: string | undefined): boolean {
+  const normalized = clean(value)?.toLowerCase();
+  if (normalized === undefined) {
+    return true;
+  }
+  return !["false", "0", "no", "off"].includes(normalized);
+}
+
 export function loadFrontendConfig(env: FrontendEnv): FrontendConfig {
   const isProductionBuild = env.PROD === true;
   return {
@@ -86,6 +113,7 @@ export function loadFrontendConfig(env: FrontendEnv): FrontendConfig {
     ),
     eventCode: (clean(env.VITE_EVENT_CODE) ?? DEFAULT_EVENT_CODE).toUpperCase(),
     ticketTypeCode: (clean(env.VITE_TICKET_TYPE_CODE) ?? DEFAULT_TICKET_TYPE_CODE).toUpperCase(),
+    checkoutEnabled: parseCheckoutEnabled(env.VITE_CHECKOUT_ENABLED),
   };
 }
 
@@ -111,5 +139,6 @@ export const FRONTEND_CONFIG: FrontendConfig = loadFrontendConfig({
   VITE_API_BASE_URL: envString(import.meta.env.VITE_API_BASE_URL),
   VITE_EVENT_CODE: envString(import.meta.env.VITE_EVENT_CODE),
   VITE_TICKET_TYPE_CODE: envString(import.meta.env.VITE_TICKET_TYPE_CODE),
+  VITE_CHECKOUT_ENABLED: envString(import.meta.env.VITE_CHECKOUT_ENABLED),
   PROD: import.meta.env.PROD,
 });
