@@ -116,19 +116,20 @@ export const EVENT_CONTENT_CONFIG: EventLandingConfig = {
         iconName: "activity",
       },
       {
-        id: "exp-suero",
-        title: "Sueroterapia",
+        id: "exp-chocolaterapia",
+        title: "Chocolaterapia",
         description:
-          "Tratamiento intravenoso de hidratación y vitaminas, realizado por personal profesional durante el evento.",
+          "Un ritual de cuidado para la piel con los beneficios del cacao: nutrición, antioxidantes y un momento para consentirte.",
         tag: "Cuidado personal",
-        iconName: "droplet",
+        iconName: "catering",
       },
       {
-        id: "exp-bronceo",
-        title: "Bronceo",
-        description: "Un espacio de belleza para consentirte y salir con un glow natural.",
+        id: "exp-medicina-estetica",
+        title: "Medicina Estética",
+        description:
+          "Acompañamiento profesional con tratamientos de medicina estética para realzar tu bienestar y verte tan bien como te sientes.",
         tag: "Cuidado personal",
-        iconName: "sun",
+        iconName: "sparkle",
       },
     ],
   },
