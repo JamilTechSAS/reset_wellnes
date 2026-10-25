@@ -47,6 +47,34 @@ function generalCatalog(): Response {
   );
 }
 
+/** What the backend publishes while Preventa is the open stage, with the window it enforces. */
+function preventaCatalog(startsAt: string): Response {
+  return new Response(
+    JSON.stringify({
+      ok: true,
+      data: {
+        found: true,
+        sales: {
+          currency: "COP",
+          salesOpen: true,
+          serverTime: new Date().toISOString(),
+          ticketTypes: [
+            {
+              code: "GENERAL",
+              name: "Entrada general",
+              salesOpen: true,
+              availability: "AVAILABLE",
+              currentTier: { name: "Preventa", sequence: 1, priceInCents: 15_990_000 },
+              salesWindow: { startsAt, endsAt: "2026-10-29T05:00:00Z" },
+            },
+          ],
+        },
+      },
+    }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
+}
+
 function mountTicketSection(): void {
   document.body.innerHTML = `
     <fieldset class="tipos">
@@ -142,6 +170,49 @@ describe("presale time gate", () => {
       "ticket-section",
       expect.objectContaining({ tier: "preventa", quantity: 1, acceptedTerms: true }),
     );
+  });
+
+  it("sells an already-open Preventa before the published hour, on the backend's window", async () => {
+    // 08:30 Bogotá: the published schedule still says 10:00 a. m., but the database opened the
+    // stage at 06:01. The catalog is the authority, so the card sells now.
+    vi.setSystemTime(OPEN_UTC - 90 * 60_000);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => preventaCatalog("2026-10-25T11:01:48Z")),
+    );
+    cleanup = initClientInteractions({
+      openPurchase,
+      salesConfig: { apiBaseUrl: "http://api.test", eventCode: "RESET", ticketTypeCode: "GENERAL" },
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(preventaCard().classList.contains("is-off")).toBe(false);
+    expect(preventaRadio().disabled).toBe(false);
+    // The card that just became buyable is selected for the buyer, so the button works as-is.
+    expect(preventaRadio().checked).toBe(true);
+
+    clickBuy();
+    expect(openPurchase).toHaveBeenCalledWith(
+      "ticket-section",
+      expect.objectContaining({ tier: "preventa", quantity: 1, acceptedTerms: true }),
+    );
+  });
+
+  it("keeps Preventa locked when the backend window has not started yet", async () => {
+    vi.setSystemTime(OPEN_UTC - 90 * 60_000);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => preventaCatalog("2026-10-25T15:00:00Z")),
+    );
+    cleanup = initClientInteractions({
+      openPurchase,
+      salesConfig: { apiBaseUrl: "http://api.test", eventCode: "RESET", ticketTypeCode: "GENERAL" },
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(preventaRadio().disabled).toBe(true);
+    clickBuy();
+    expect(openPurchase).not.toHaveBeenCalled();
   });
 
   it("enables presale automatically at the scheduled time without a reload", () => {

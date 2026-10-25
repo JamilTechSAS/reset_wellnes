@@ -501,6 +501,16 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
     let clockSkew = 0;
     const nowMs = (): number => Date.now() + clockSkew;
 
+    // The backend's own opening instant for the stage it has on sale (`salesWindow.startsAt`).
+    // The published schedule in `presale-schedule.ts` is the fallback: the page must sell a stage
+    // the database has already opened, instead of waiting for a hardcoded hour to arrive.
+    let serverPreventaStartMs: number | null = null;
+    const preventaTimeOpen = (at: number): boolean => {
+      if (isPresaleClosed(at)) return false;
+      if (isPresaleOpen(at)) return true;
+      return serverPreventaStartMs !== null && at >= serverPreventaStartMs;
+    };
+
     const updateTicketState = (): void => {
       const selectedRadio = document.querySelector<HTMLInputElement>(".tipo input:checked");
       const tier = selectedRadio?.value ?? defaultTier;
@@ -542,7 +552,7 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
     const applyPreventaState = (): void => {
       const at = nowMs();
       const closed = isPresaleClosed(at);
-      const timeOpen = isPresaleOpen(at) && !closed;
+      const timeOpen = preventaTimeOpen(at);
       const enabled = timeOpen && backendPreventaAllowed;
       preventaCard?.classList.toggle("is-off", !enabled);
       if (preventaRadio) preventaRadio.disabled = !enabled;
@@ -769,11 +779,23 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
             ticketType.availability !== "SOLD_OUT";
 
           backendPreventaAllowed = preventaStageOpen;
+          // The database's window wins over the published hour: an opened Preventa sells now.
+          const tierWindowStart = ticketType.salesWindow?.startsAt;
+          if (
+            ticketType.currentTier?.name === "Preventa" &&
+            tierWindowStart !== null &&
+            tierWindowStart !== undefined
+          ) {
+            const parsedStart = Date.parse(tierWindowStart);
+            if (!Number.isNaN(parsedStart)) {
+              serverPreventaStartMs = parsedStart;
+            }
+          }
           const at = nowMs();
           // A stage is buyable only when the backend says it is on sale AND the server-derived
           // clock sits inside its half-open window. A selected-but-closed stage is never left
           // purchasable, and the one-minute gap between stages stays closed.
-          const preventaOpen = preventaStageOpen && isPresaleOpen(at) && !isPresaleClosed(at);
+          const preventaOpen = preventaStageOpen && preventaTimeOpen(at);
           const generalTimeOpen = isGeneralWindowOpen(at);
           backendGeneralAllowed = generalOpen && generalTimeOpen;
 
@@ -821,6 +843,15 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
               if (fallbackRadio !== null) {
                 fallbackRadio.checked = true;
               }
+            }
+          }
+          // A card that just became buyable claims the selection: the markup ships Preventa
+          // disabled, so the selection it carries is dropped before the catalog answers, and
+          // leaving nothing selected would make the buy button refuse a stage that is on sale.
+          if (document.querySelector<HTMLInputElement>(".tipo input:checked") === null) {
+            const firstEnabled = document.querySelector<HTMLInputElement>(".tipo input:not(:disabled)");
+            if (firstEnabled !== null) {
+              firstEnabled.checked = true;
             }
           }
           applyPreventaState();
