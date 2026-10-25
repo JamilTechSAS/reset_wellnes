@@ -849,7 +849,9 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
           // disabled, so the selection it carries is dropped before the catalog answers, and
           // leaving nothing selected would make the buy button refuse a stage that is on sale.
           if (document.querySelector<HTMLInputElement>(".tipo input:checked") === null) {
-            const firstEnabled = document.querySelector<HTMLInputElement>(".tipo input:not(:disabled)");
+            const firstEnabled = document.querySelector<HTMLInputElement>(
+              ".tipo input:not(:disabled)",
+            );
             if (firstEnabled !== null) {
               firstEnabled.checked = true;
             }
