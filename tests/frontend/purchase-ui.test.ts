@@ -22,6 +22,7 @@ import {
   draftEntry,
   makeCreatedOrder,
   makeEvent,
+  makeGeneralStageEvent,
   makePaidOrderStatus,
   makeQuote,
 } from "./support/ticketing-fixtures.ts";
@@ -694,7 +695,22 @@ describe("purchase dialog", () => {
     expect(container.querySelector<HTMLElement>(".purchase-overlay")?.hidden).toBe(true);
   });
 
+  it("offers a single admission during Preventa and explains why", async () => {
+    store.setItem("ticket:purchase-draft:v1", Object.values(draftEntry(1))[0] ?? "");
+    const { controller, dialog } = openDialog();
+    dialog.open();
+    await flush();
+
+    expect(controller.getState().quantity).toBe(1);
+    expect(container.querySelector(".qty-value-number")?.textContent).toBe("1");
+    expect(container.querySelector<HTMLButtonElement>('[data-action="qty-inc"]')?.disabled).toBe(
+      true,
+    );
+    expect(container.textContent).toContain("Máximo 1 entrada por compra");
+  });
+
   it("drives the controller from the form controls", async () => {
+    api.getEvent.mockResolvedValue(makeGeneralStageEvent());
     store.setItem("ticket:purchase-draft:v1", Object.values(draftEntry(1))[0] ?? "");
     const { controller, dialog } = openDialog();
     dialog.open();
@@ -1109,6 +1125,8 @@ describe("purchase dialog", () => {
   });
 
   it("preserves quantity and terms acceptance passed into open() across operations and errors", async () => {
+    // Two admissions are legal in General; the quantity must survive a failed quote.
+    api.getEvent.mockResolvedValue(makeGeneralStageEvent());
     api.quote.mockRejectedValue(new NetworkError("Timeout"));
     const { controller, dialog } = openDialog();
     dialog.open({ quantity: 2, acceptedTerms: true });

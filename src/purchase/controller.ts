@@ -40,7 +40,7 @@ export type OrderParticipant = OrderStatus["participants"][number];
 import type { FrontendConfig } from "../config/env.ts";
 import { PACKAGE_ADMISSIONS, type PackageCode } from "./package-availability.ts";
 import { normalizeReturnedReference } from "./return-route.ts";
-import { selectTicketType } from "./ticket-selection.ts";
+import { effectiveMaxQuantity, selectTicketType } from "./ticket-selection.ts";
 import {
   availabilityIsPurchasable,
   isDeclinedPaymentStatus,
@@ -431,12 +431,10 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
   }
 
   function maxQuantity(): number {
-    const ticketType = selectTicketType(state.event, config.ticketTypeCode);
-    if (ticketType === undefined) {
-      return MAX_QUANTITY_FALLBACK;
-    }
-    const limit = ticketType.maxPerOrder ?? MAX_QUANTITY_FALLBACK;
-    return Math.max(1, Math.min(limit, 10));
+    return effectiveMaxQuantity(
+      selectTicketType(state.event, config.ticketTypeCode),
+      MAX_QUANTITY_FALLBACK,
+    );
   }
 
   function minQuantity(): number {
@@ -496,8 +494,16 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
       const event = await api.getEvent(config.eventCode, signal);
       const ticketType = selectTicketType(event, config.ticketTypeCode);
       const availability = ticketType?.availability ?? event.sales.availability;
+      // A draft saved during another stage (or before the stage cap existed) must not survive
+      // into this one: Preventa sells one admission per payment, and anything larger would be
+      // refused by the quote with QUANTITY_LIMIT.
+      const max = effectiveMaxQuantity(ticketType, MAX_QUANTITY_FALLBACK);
+      const min = Math.max(1, ticketType?.minPerOrder ?? 1);
+      const restoredQuantity = state.bundleCode === null ? clamp(quantity, min, max) : quantity;
       const discountCode =
-        quantity === 1 && ticketType?.currentTier?.name === "General" ? savedDiscountCode : "";
+        restoredQuantity === 1 && ticketType?.currentTier?.name === "General"
+          ? savedDiscountCode
+          : "";
       const purchasable =
         event.sales.salesOpen &&
         ticketType !== undefined &&
@@ -507,7 +513,7 @@ export function createPurchaseController(options: PurchaseControllerOptions): Pu
       emit({
         event,
         availability,
-        quantity,
+        quantity: restoredQuantity,
         discountCode,
         participant,
         busy: false,

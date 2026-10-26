@@ -65,6 +65,39 @@ export function makeEvent(overrides: Partial<PublicEvent["event"]> = {}): Public
   };
 }
 
+/**
+ * The same event in the General stage.
+ *
+ * General has no per-stage cap, so a multi-admission order is legal there — unlike Preventa,
+ * which the database seeds with `max_per_order = 1` (one admission per payment). Tests that
+ * deliberately buy two or more tickets must use this fixture; otherwise they model a basket
+ * the backend would refuse with `QUANTITY_LIMIT`.
+ */
+export function makeGeneralStageEvent(overrides: Partial<PublicEvent["event"]> = {}): PublicEvent {
+  const event = makeEvent(overrides);
+  const ticketType = event.sales.ticketTypes[0];
+  if (ticketType === undefined) {
+    return event;
+  }
+  return {
+    ...event,
+    sales: {
+      ...event.sales,
+      ticketTypes: [
+        {
+          ...ticketType,
+          currentTier: {
+            name: "General",
+            sequence: 2,
+            priceInCents: 19_990_000,
+            maxPerOrder: null,
+          },
+        },
+      ],
+    },
+  };
+}
+
 export function makeQuote(overrides: Partial<Quote> = {}): Quote {
   return {
     event: { code: TEST_EVENT_CODE, name: "Re set Sunset — Vol. 1" },

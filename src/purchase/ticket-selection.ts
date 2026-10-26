@@ -23,3 +23,29 @@ export function selectTicketType(
   const types = event.sales.ticketTypes;
   return types.find((type) => type.code === ticketTypeCode) ?? types[0];
 }
+
+/** Hard ceiling of the stepper, whatever the backend says: a UI sanity bound, not a rule. */
+export const MAX_ORDER_QUANTITY = 10;
+
+/**
+ * How many admissions one order may buy RIGHT NOW.
+ *
+ * Two different caps apply and the smaller one wins:
+ *   - `ticket_types.max_per_order` is the product-wide limit;
+ *   - `currentTier.maxPerOrder` is the ACTIVE stage's limit — the database seeds Preventa with
+ *     1, because the stage sells one admission per payment.
+ *
+ * Reading only the ticket type (as the stepper used to) offered quantities the quote answers
+ * with `QUANTITY_LIMIT`, so the buyer could select 4 tickets in Preventa and only learn about
+ * the cap when paying. This helper is the single place the storefront derives the cap.
+ */
+export function effectiveMaxQuantity(
+  ticketType: PublicTicketType | undefined,
+  fallback: number,
+): number {
+  const caps = [ticketType?.maxPerOrder, ticketType?.currentTier?.maxPerOrder].filter(
+    (cap): cap is number => typeof cap === "number" && Number.isFinite(cap) && cap >= 1,
+  );
+  const limit = caps.length === 0 ? fallback : Math.min(...caps);
+  return Math.max(1, Math.min(limit, MAX_ORDER_QUANTITY));
+}

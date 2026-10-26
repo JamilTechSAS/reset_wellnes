@@ -27,6 +27,7 @@ import {
   makeCreatedOrder,
   makeEpaycoCheckout,
   makeEvent,
+  makeGeneralStageEvent,
   makeFullyAssignedOrderStatus,
   makeOrderStatus,
   makePaidOrderStatus,
@@ -120,7 +121,10 @@ describe("loading the event", () => {
   });
 
   it("restores what the buyer had typed, but never a consent", async () => {
-    const env = setup({ seed: draftEntry(2) });
+    const api = createFakeApi();
+    // General allows more than one admission, so a two-ticket draft is restorable there.
+    api.getEvent.mockResolvedValue(makeGeneralStageEvent());
+    const env = setup({ api, seed: draftEntry(2) });
     await env.controller.start();
 
     const state = env.controller.getState();
@@ -210,8 +214,33 @@ describe("loading the event", () => {
 });
 
 describe("quantity", () => {
-  it("keeps the quantity inside the ticket type's limits", async () => {
+  it("sells one admission per order during Preventa, whatever the buyer asks for", async () => {
     const env = setup();
+    await env.controller.start();
+    expect(env.controller.getState().event?.sales.ticketTypes[0]?.currentTier?.name).toBe(
+      "Preventa",
+    );
+
+    env.controller.setQuantity(99);
+    expect(env.controller.getState().quantity).toBe(1);
+    env.controller.setQuantity(0);
+    expect(env.controller.getState().quantity).toBe(1);
+    env.controller.setQuantity(2.7);
+    expect(env.controller.getState().quantity).toBe(1);
+  });
+
+  it("reduces a draft saved during another stage to the Preventa cap", async () => {
+    const env = setup({ seed: draftEntry(3) });
+    await env.controller.start();
+
+    // Three admissions were legal in General; Preventa sells one per payment.
+    expect(env.controller.getState().quantity).toBe(1);
+  });
+
+  it("keeps the quantity inside the ticket type's limits once the stage allows it", async () => {
+    const api = createFakeApi();
+    api.getEvent.mockResolvedValue(makeGeneralStageEvent());
+    const env = setup({ api });
     await env.controller.start();
 
     env.controller.setQuantity(99);
@@ -256,6 +285,7 @@ describe("server-side quote", () => {
         totalInCents: 18_050_000,
       }),
     );
+    api.getEvent.mockResolvedValue(makeGeneralStageEvent());
     const env = setup({ api, seed: draftEntry(2) });
     await reachReview(env);
 

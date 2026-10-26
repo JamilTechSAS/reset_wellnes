@@ -35,7 +35,7 @@ import {
   PACKAGE_TOTAL_CENTS,
 } from "../purchase/package-availability.ts";
 import { issuesForField, type ParticipantField } from "../purchase/validation.ts";
-import { selectTicketType } from "../purchase/ticket-selection.ts";
+import { effectiveMaxQuantity, selectTicketType } from "../purchase/ticket-selection.ts";
 import { escapeHtml, renderIcon } from "../utils/dom.ts";
 import { dispatchOpenLegal } from "../utils/events.ts";
 
@@ -282,7 +282,9 @@ function renderForm(state: PurchaseState, ctx: PurchaseDialogContext, showProble
   const currentTierName = ticketType?.currentTier?.name;
   const isGeneralStage = currentTierName === "General";
   const showDiscountCode = isGeneralStage && state.quantity === 1;
-  const max = Math.max(1, Math.min(ticketType?.maxPerOrder ?? 4, 10));
+  // The stage's own cap applies too: Preventa sells one admission per payment.
+  const max = effectiveMaxQuantity(ticketType, 4);
+  const quantityCapped = max === 1 && !isBundle;
   const p = state.participant;
 
   return `
@@ -317,6 +319,11 @@ function renderForm(state: PurchaseState, ctx: PurchaseDialogContext, showProble
           isBundle || state.quantity >= max ? "disabled" : ""
         } aria-label="Agregar una entrada">${renderIcon("plus")}</button>
       </div>
+      ${
+        quantityCapped
+          ? `<p class="purchase-section-note" role="note">Máximo 1 entrada por compra en esta etapa.</p>`
+          : ""
+      }
       ${
         isBundle
           ? `<p class="qty-unit">Comparte tu experiencia</p>`
