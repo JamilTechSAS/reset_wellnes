@@ -33,18 +33,22 @@ export class ApiError extends Error {
   readonly code: ApiErrorCode;
   readonly status: number;
   readonly issues: readonly ApiFieldIssue[];
+  /** Code-like machine reason from `details.reason`, when the backend publishes one. */
+  readonly reason: string | null;
 
   constructor(args: {
     readonly code: ApiErrorCode;
     readonly status: number;
     readonly message: string;
     readonly issues?: readonly ApiFieldIssue[];
+    readonly reason?: string | null;
   }) {
     super(args.message);
     this.name = "ApiError";
     this.code = args.code;
     this.status = args.status;
     this.issues = args.issues ?? [];
+    this.reason = args.reason ?? null;
   }
 
   /** True when retrying the same request could plausibly succeed. */
@@ -164,6 +168,15 @@ function extractIssues(details: unknown): readonly ApiFieldIssue[] {
   });
 }
 
+/**
+ * The machine reason a checkout-session refusal carries (`docs/api.md`). It is an allowlisted
+ * code-like identifier, never provider text or buyer data.
+ */
+function extractReason(details: unknown): string | null {
+  const reason = asRecord(details)?.reason;
+  return typeof reason === "string" && reason.length > 0 && reason.length <= 64 ? reason : null;
+}
+
 export function createApiClient(options: {
   readonly baseUrl: string;
   readonly fetchImpl?: typeof globalThis.fetch;
@@ -252,6 +265,7 @@ export function createApiClient(options: {
         status: response.status,
         message: readErrorMessage(envelope.error),
         issues: extractIssues(error?.details),
+        reason: extractReason(error?.details),
       }),
     );
   }

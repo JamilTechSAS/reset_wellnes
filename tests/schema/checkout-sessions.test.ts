@@ -11,6 +11,8 @@
  *   - a stale generation can never overwrite a newer session;
  *   - an elapsed session is superseded explicitly, and a new attempt supersedes its sibling's;
  *   - an attempt that can no longer be paid answers RETRY_REQUIRED instead of a new session;
+ *   - one invoice reaches the provider at most once: an unresolved call (a lease outlived by
+ *     the provider call, or a timeout/5xx) blocks a second session until a new attempt;
  *   - nothing touches the order, the payment status or inventory.
  */
 
@@ -106,11 +108,13 @@ type Plan = {
   reason?: string;
 };
 
-async function begin(reference: string, leaseSeconds = 30): Promise<Plan> {
-  const result = await db.query<{ p: Plan }>("select public.begin_checkout_session($1, $2) as p", [
-    reference,
-    leaseSeconds,
-  ]);
+async function begin(reference: string, leaseSeconds = 30, now?: string): Promise<Plan> {
+  const result = await db.query<{ p: Plan }>(
+    now === undefined
+      ? "select public.begin_checkout_session($1, $2) as p"
+      : "select public.begin_checkout_session($1, $2, $3::timestamptz) as p",
+    now === undefined ? [reference, leaseSeconds] : [reference, leaseSeconds, now],
+  );
   const plan = result.rows[0]?.p;
   if (plan === undefined) {
     throw new Error("begin_checkout_session returned no row");
@@ -124,10 +128,15 @@ async function complete(
   reference: string,
   generation: number,
   sessionId = "sess_abc123",
+  now?: string,
 ): Promise<Completed> {
   const result = await db.query<{ p: Completed }>(
-    "select public.complete_checkout_session($1, $2, $3) as p",
-    [reference, generation, sessionId],
+    now === undefined
+      ? "select public.complete_checkout_session($1, $2, $3) as p"
+      : "select public.complete_checkout_session($1, $2, $3, $4::timestamptz) as p",
+    now === undefined
+      ? [reference, generation, sessionId]
+      : [reference, generation, sessionId, now],
   );
   const completed = result.rows[0]?.p;
   if (completed === undefined) {
@@ -136,12 +145,26 @@ async function complete(
   return completed;
 }
 
-async function abandon(reference: string, generation: number): Promise<boolean> {
+/** Defaults to UNKNOWN, the safe answer: the invoice must not be sent to ePayco again. */
+async function abandon(
+  reference: string,
+  generation: number,
+  providerOutcome: "NOT_CREATED" | "UNKNOWN" = "UNKNOWN",
+): Promise<boolean> {
   const result = await db.query<{ released: boolean }>(
-    "select (public.abandon_checkout_session($1, $2) ->> 'released')::boolean as released",
-    [reference, generation],
+    "select (public.abandon_checkout_session($1, $2, $3) ->> 'released')::boolean as released",
+    [reference, generation, providerOutcome],
   );
   return result.rows[0]?.released === true;
+}
+
+/** The unresolved-call marker of an attempt, as stored. */
+async function unresolved(paymentId: string): Promise<boolean | undefined> {
+  const result = await db.query<{ flag: boolean }>(
+    "select checkout_call_unresolved as flag from public.payments where id = $1",
+    [paymentId],
+  );
+  return result.rows[0]?.flag;
 }
 
 async function scalar<T>(sql: string): Promise<T | undefined> {
@@ -180,11 +203,15 @@ describe("begin_checkout_session", () => {
     expect(await begin(attempt.reference)).toMatchObject({ state: "LEASED" });
   });
 
-  it("releases the lease when the provider call failed, so the buyer can retry at once", async () => {
+  it("re-issues a session only after the provider proved it created nothing", async () => {
     const attempt = await pendingAttempt();
     const first = await begin(attempt.reference);
+    expect(await unresolved(attempt.paymentId)).toBe(true);
 
-    expect(await abandon(attempt.reference, first.generation ?? -1)).toBe(true);
+    // 4xx validation/auth: ePayco rejected the request before transaction creation.
+    expect(await abandon(attempt.reference, first.generation ?? -1, "NOT_CREATED")).toBe(true);
+    expect(await unresolved(attempt.paymentId)).toBe(false);
+
     const second = await begin(attempt.reference);
     expect(second.state).toBe("CREATE");
     // A fresh claim bumps the generation, so the abandoned attempt cannot complete later.
@@ -192,6 +219,74 @@ describe("begin_checkout_session", () => {
     expect(await complete(attempt.reference, first.generation ?? -1)).toMatchObject({
       created: false,
       reason: "LEASE_LOST",
+    });
+  });
+
+  it("never authorizes a second call when the provider call outlived its lease", async () => {
+    const attempt = await pendingAttempt();
+    // A long reservation, so the only thing that elapses in this test is the lease.
+    await db.query(
+      "update public.orders set reservation_expires_at = now() + interval '10 years' where id = $1",
+      [attempt.orderId],
+    );
+    const t0 = await scalar<string>("select (now() + interval '1 hour')::text");
+    const t1 = await scalar<string>("select (now() + interval '2 hours')::text");
+
+    const first = await begin(attempt.reference, 30, t0);
+    expect(first.state).toBe("CREATE");
+
+    // 30 s later the lease is gone and no session was recorded: the provider may still have
+    // registered this invoice, so the answer is a refusal, never a second CREATE.
+    expect(await begin(attempt.reference, 30, t1)).toMatchObject({
+      state: "RETRY_REQUIRED",
+      reason: "SESSION_CALL_UNRESOLVED",
+    });
+    expect(await scalar<number>("select count(*)::int from public.checkout_sessions")).toBe(0);
+  });
+
+  it("keeps the attempt blocked when the provider outcome is unknown", async () => {
+    const attempt = await pendingAttempt();
+    const first = await begin(attempt.reference);
+
+    // Timeout or 5xx: nothing proves the provider created nothing.
+    expect(await abandon(attempt.reference, first.generation ?? -1, "UNKNOWN")).toBe(true);
+    expect(await unresolved(attempt.paymentId)).toBe(true);
+    expect(await begin(attempt.reference)).toMatchObject({
+      state: "RETRY_REQUIRED",
+      reason: "SESSION_CALL_UNRESOLVED",
+    });
+
+    // A stale abandon (older generation) cannot void the newer attempt's authorization.
+    expect(await abandon(attempt.reference, (first.generation ?? 0) - 1, "NOT_CREATED")).toBe(
+      false,
+    );
+    expect(await unresolved(attempt.paymentId)).toBe(true);
+  });
+
+  it("records the session of a provider call that answered after its lease", async () => {
+    const attempt = await pendingAttempt();
+    await db.query(
+      "update public.orders set reservation_expires_at = now() + interval '10 years' where id = $1",
+      [attempt.orderId],
+    );
+    const t0 = await scalar<string>("select (now() + interval '1 hour')::text");
+    const t1 = await scalar<string>("select (now() + interval '2 hours')::text");
+
+    const plan = await begin(attempt.reference, 30, t0);
+    expect(plan.state).toBe("CREATE");
+
+    // The generation is the ownership proof: no other request can claim a newer one while the
+    // call is unresolved, so the late answer still pins its own session instead of being lost.
+    expect(await complete(attempt.reference, plan.generation ?? -1, "sess_late", t1)).toMatchObject(
+      {
+        created: true,
+        sessionId: "sess_late",
+      },
+    );
+    expect(await unresolved(attempt.paymentId)).toBe(false);
+    expect(await begin(attempt.reference, 30, t1)).toMatchObject({
+      state: "REUSE",
+      sessionId: "sess_late",
     });
   });
 
@@ -351,7 +446,7 @@ describe("state is untouched by session bookkeeping", () => {
 
     const plan = await begin(attempt.reference);
     await complete(attempt.reference, plan.generation ?? -1);
-    await abandon(attempt.reference, plan.generation ?? -1);
+    await abandon(attempt.reference, plan.generation ?? -1, "NOT_CREATED");
 
     // Session bookkeeping wrote only to `checkout_sessions` and the lease columns.
     expect(await snapshot()).toEqual(before);

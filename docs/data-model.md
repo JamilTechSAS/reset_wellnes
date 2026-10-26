@@ -320,10 +320,17 @@ refused (`LEASE_LOST`) instead of overwriting a newer session.
   attempt _N_ is therefore the audit point for superseding; no caller has to remember it.
 - Functions: `begin_checkout_session(reference, lease_seconds)` answers `REUSE` (with the stored
   session), `CREATE` (with a leased generation), `LEASED`, or `RETRY_REQUIRED` (order not
-  `PENDING`, reservation elapsed, or a transaction already recorded);
+  `PENDING`, reservation elapsed, a transaction already recorded, or a provider call for this
+  invoice whose outcome is unknown);
   `complete_checkout_session(reference, generation, session_id)` records the session under the
-  lease and returns `LEASE_LOST` / `RESERVATION_EXPIRED` instead of writing;
-  `abandon_checkout_session(reference, generation)` frees the lease after a failed provider call.
+  generation and returns `LEASE_LOST` / `RESERVATION_EXPIRED` instead of writing;
+  `abandon_checkout_session(reference, generation, provider_outcome)` frees the lease after a
+  failed provider call and clears the unresolved-call marker only when `provider_outcome` is
+  `NOT_CREATED`.
+- `payments.checkout_call_unresolved` (migration `20261025120000`) records that a
+  `payment/session/create` was authorized and its outcome is unknown. While it is set, no second
+  call is authorized for that invoice — ePayco would reject it as an already-registered
+  transaction — and the buyer can only pay through a new attempt with a new reference.
 - The table is RLS-on with no policies, and the browser-facing roles have no privileges, like
   every other domain table. It holds no buyer data: an attempt id, a reference and a provider
   session id.

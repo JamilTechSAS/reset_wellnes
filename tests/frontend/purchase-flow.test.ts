@@ -594,6 +594,31 @@ describe("order creation", () => {
     expect(env.checkouts).toHaveLength(0);
   });
 
+  it("never claims the tickets sold out when the provider session could not be opened", async () => {
+    const api = createFakeApi();
+    // ePayco may already hold this invoice: the reservation is intact, only the session failed.
+    api.createOrder.mockRejectedValue(
+      new ApiError({
+        code: "CONFLICT",
+        status: 409,
+        message: "conflict",
+        reason: "SESSION_CALL_UNRESOLVED",
+      }),
+    );
+    const env = setup({ api, seed: draftEntry(1) });
+    await reachReview(env);
+    await env.controller.submit();
+
+    const state = env.controller.getState();
+    expect(state.step).toBe("problem");
+    expect(state.problem?.kind).toBe("upstream");
+    expect(state.problem?.title).toBe("No pudimos abrir el pago");
+    expect(state.problem?.message).toContain("Tu reserva sigue activa");
+    expect(state.problem?.message).toContain("No se realizó ningún cobro");
+    expect(state.problem?.canRetryPayment).toBe(false);
+    expect(env.checkouts).toHaveLength(0);
+  });
+
   it("adopts a replayed order as the same purchase, with no second handoff", async () => {
     const api = createFakeApi();
     const order = makeCreatedOrder({ replayed: true });

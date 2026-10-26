@@ -304,9 +304,18 @@ POST /orders (or /retry) ──► begin_checkout_session(reference)
    ├── CREATE         → lease claimed → ePayco → complete_checkout_session
    │                     └── LEASE_LOST / RESERVATION_EXPIRED → resume the winner's session or 409
    ├── LEASED         → 409 CONFLICT (another request is creating it)
-   └── RETRY_REQUIRED → 409 CONFLICT: order not PENDING, reservation elapsed, or a transaction
-                        already recorded → the buyer starts attempt N via /retry
+   └── RETRY_REQUIRED → 409 CONFLICT: order not PENDING, reservation elapsed, a transaction
+                        already recorded, or a provider call for this invoice whose outcome is
+                        unknown → the buyer starts attempt N via /retry
 ```
+
+`payments.checkout_call_unresolved` (migration `20261025120000`) is what makes "ePayco was
+called" different from "no session row exists". It is set when a `CREATE` authorization is
+granted and cleared only by a recorded session, a lapsed reservation, or an `abandon` that
+proves the provider created nothing (`NOT_CREATED`: 4xx validation/auth). A timeout, a 5xx or
+an unreadable body leaves it set, so a call that outlived its lease can never be repeated for
+the same invoice; a matching generation may still record its session (the lease is no longer
+the only ownership proof, the generation is).
 
 A legitimate retry is unchanged: `/retry` creates attempt _N_ with its own reference, and the
 insert of that attempt closes the previous attempt's live session with reason `NEW_ATTEMPT`.

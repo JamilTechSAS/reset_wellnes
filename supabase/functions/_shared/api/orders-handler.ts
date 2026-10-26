@@ -27,6 +27,7 @@ import {
   RETRY_REQUIRED_REASONS,
   type CheckoutSessionGateway,
   type CheckoutSessionOutcome,
+  type ProviderCallOutcome,
 } from "../db/checkout-sessions.ts";
 import {
   createEpaycoApifyClient,
@@ -182,6 +183,27 @@ export const EPAYCO_MIN_AMOUNT_PESOS = 5_000;
 export const EPAYCO_MAX_AMOUNT_PESOS = 5_000_000;
 
 /**
+ * Whether a failed `payment/session/create` PROVES that ePayco created nothing.
+ *
+ * Only a request the provider rejected outright is proof: a 400/422 validation rejection, a
+ * 401/403 auth rejection, a 404 (wrong endpoint) or a 429 never reach transaction creation, so
+ * the same invoice can be sent again. Every other failure — a timeout or aborted fetch with no
+ * status, a 5xx, 408/409, or a 2xx whose body carried no usable `sessionId` — may have left a
+ * registered transaction behind; sending the invoice again is what produced ePayco's
+ * "ya cuenta con un registro previo" refusal, so those keep the attempt unresolved.
+ */
+export function providerCallOutcome(error: unknown): ProviderCallOutcome {
+  if (!(error instanceof EpaycoApifyError)) {
+    return "UNKNOWN";
+  }
+  const status = error.httpStatus;
+  if (status === undefined) {
+    return "UNKNOWN";
+  }
+  return [400, 401, 403, 404, 422, 429].includes(status) ? "NOT_CREATED" : "UNKNOWN";
+}
+
+/**
  * Creates (or resumes) the ePayco Smart Checkout session for ONE payment attempt and returns
  * the secret-free checkout payload. Shared by order creation and payment retry so both paths
  * send the same invoice (the attempt reference: `EVT-…` for attempt 1, `EVT-…-N` after a
@@ -196,9 +218,15 @@ export const EPAYCO_MAX_AMOUNT_PESOS = 5_000_000;
  *   REUSE          → hand the buyer the session that already exists; call ePayco not at all.
  *   CREATE         → this request holds a short lease; create one and record it.
  *   LEASED         → another request is doing it; refuse instead of racing it.
- *   RETRY_REQUIRED → the attempt can no longer be paid (not PENDING, reservation elapsed, or
- *                    a transaction is already recorded). Only a new attempt can be paid, so
+ *   RETRY_REQUIRED → the attempt can no longer be paid (not PENDING, reservation elapsed, a
+ *                    transaction already recorded, or a provider call whose outcome is
+ *                    unknown — migration 20261025120000). Only a new attempt can be paid, so
  *                    the buyer is sent to `POST /orders/{reference}/retry`.
+ *
+ * THE INVARIANT: ePayco is asked for a session under one invoice at most once. A failed call
+ * is only re-authorized when the provider rejected the request outright; a timeout or a 5xx
+ * may have created a transaction, and a second call would come back as the duplicate-invoice
+ * refusal the buyer used to see. `providerCallOutcome` draws that line.
  */
 export async function createEpaycoCheckoutForAttempt(input: {
   readonly config: BackendConfig;
@@ -314,10 +342,16 @@ export async function createEpaycoCheckoutForAttempt(input: {
     });
     sessionId = session.sessionId;
   } catch (error) {
-    // Free the lease so the buyer can retry at once. Best effort: if this fails the lease
-    // expires on its own, which only costs a short wait.
+    // Free the lease. `providerCallOutcome` decides whether this invoice may be sent to ePayco
+    // again: only a definite rejection (4xx) clears the unresolved-call marker; a timeout, a
+    // 5xx or an unreadable body keeps it, so the retry cannot provoke the duplicate invoice.
+    // Best effort: if this write fails the lease expires on its own and the marker stays set.
     await input.sessions
-      .abandon({ paymentReference: input.paymentReference, generation: plan.generation })
+      .abandon({
+        paymentReference: input.paymentReference,
+        generation: plan.generation,
+        providerOutcome: providerCallOutcome(error),
+      })
       .catch(() => undefined);
     throw error;
   }
@@ -348,11 +382,29 @@ export async function createEpaycoCheckoutForAttempt(input: {
   }
   if (after.state === "CREATE") {
     // The recovery begin claimed a lease of its own. Release it, or the buyer's immediate
-    // retry would be answered LEASED for a session nobody is creating. Best effort: if this
-    // fails the lease expires on its own.
+    // retry would be answered LEASED for a session nobody is creating. `NOT_CREATED` is
+    // truthful here: this lease was never used for a provider call. (The database only
+    // grants CREATE when no earlier call is unresolved, so nothing is lost.) Best effort: if
+    // this fails the lease expires on its own.
     await input.sessions
-      .abandon({ paymentReference: input.paymentReference, generation: after.generation })
+      .abandon({
+        paymentReference: input.paymentReference,
+        generation: after.generation,
+        providerOutcome: "NOT_CREATED",
+      })
       .catch(() => undefined);
+  }
+  if (after.state === "RETRY_REQUIRED") {
+    // The database has a reason this request does not: the attempt cannot be paid again until
+    // a new one is issued, so say exactly that instead of the generic "replaced" conflict.
+    input.logger.warn("checkout session recovery was refused", {
+      reference: input.paymentReference,
+      attempt: plan.paymentAttempt,
+      reason: after.reason,
+    });
+    throw conflictError("This payment attempt cannot open a checkout session", {
+      context: { surface: "checkout-session", detail: after.reason },
+    });
   }
   throw conflictError("The checkout session was replaced while it was being created", {
     context: { surface: "checkout-session", detail: "CHECKOUT_SESSION_NOT_RECORDED" },
@@ -429,7 +481,7 @@ async function buildCheckout(
  *   CONFLICT also covers the checkout-session outcomes: another request is creating the
  *   session (`CHECKOUT_LEASE_ACTIVE`) or the attempt can only be paid again through
  *   `POST /orders/{reference}/retry` (`ORDER_NOT_PENDING` / `RESERVATION_EXPIRED` /
- *   `TRANSACTION_RECORDED`).
+ *   `TRANSACTION_RECORDED` / `SESSION_CALL_UNRESOLVED`).
  */
 export async function handleCreateOrder(options: {
   readonly rawBody: unknown;

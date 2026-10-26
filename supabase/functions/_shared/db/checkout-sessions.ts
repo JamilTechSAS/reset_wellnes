@@ -58,14 +58,31 @@ export type CheckoutSessionOutcome =
   /** The order reservation lapsed while the provider call was in flight. */
   | "RESERVATION_EXPIRED";
 
-/** The reasons the SQL function may report for RETRY_REQUIRED (closed vocabulary). */
+/**
+ * The reasons the SQL function may report for RETRY_REQUIRED (closed vocabulary).
+ *
+ * `SESSION_CALL_UNRESOLVED` is the anti-duplicate guard (migration 20261025120000): a provider
+ * call was already authorized for this invoice and its outcome is unknown, so a second call
+ * would be refused by ePayco as an already-registered transaction.
+ */
 export const RETRY_REQUIRED_REASONS = [
   "ORDER_NOT_PENDING",
   "RESERVATION_EXPIRED",
   "TRANSACTION_RECORDED",
+  "SESSION_CALL_UNRESOLVED",
 ] as const;
 
 export type RetryRequiredReason = (typeof RETRY_REQUIRED_REASONS)[number];
+
+/**
+ * What a failed `payment/session/create` proves about the provider state.
+ *
+ * `NOT_CREATED` — ePayco rejected the request outright (4xx validation/auth), so no transaction
+ *                 exists for the invoice and the same invoice may be sent again.
+ * `UNKNOWN`     — timeout, aborted fetch, 5xx, 408/409, or an unreadable 2xx body: the provider
+ *                 may hold a transaction, so the attempt must never be sent again.
+ */
+export type ProviderCallOutcome = "NOT_CREATED" | "UNKNOWN";
 
 export type CheckoutSessionGateway = {
   begin(input: {
@@ -80,6 +97,8 @@ export type CheckoutSessionGateway = {
   abandon(input: {
     readonly paymentReference: string;
     readonly generation: number;
+    /** Defaults to `UNKNOWN`: never re-authorize an invoice unless the failure proved it safe. */
+    readonly providerOutcome?: ProviderCallOutcome;
   }): Promise<boolean>;
 };
 
@@ -186,6 +205,7 @@ export function createCheckoutSessionGateway(client: DbClient): CheckoutSessionG
       const { data, error } = await client.rpc("abandon_checkout_session", {
         p_payment_reference: input.paymentReference,
         p_generation: input.generation,
+        p_provider_outcome: input.providerOutcome ?? "UNKNOWN",
       });
       if (error !== null) {
         throw mapSqlErrorToAppError(error);

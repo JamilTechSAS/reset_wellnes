@@ -290,21 +290,30 @@ approval the database could not apply. The handler now asks the database first:
 - a second request for the same attempt while that lease is held answers `CONFLICT`
   (server detail `CHECKOUT_LEASE_ACTIVE`) instead of racing;
 - an attempt that can no longer be paid — the order is not `PENDING`, its reservation elapsed,
-  or the provider already recorded a transaction for it — answers `CONFLICT` with the machine
-  detail `ORDER_NOT_PENDING`, `RESERVATION_EXPIRED` or `TRANSACTION_RECORDED`. The buyer's next
-  step is `POST /orders/{reference}/retry`, which creates attempt _N_ with its own reference and
-  therefore its own session.
+  the provider already recorded a transaction for it, or a `payment/session/create` for this
+  invoice was authorized and its outcome is unknown — answers `CONFLICT` with the machine
+  detail `ORDER_NOT_PENDING`, `RESERVATION_EXPIRED`, `TRANSACTION_RECORDED` or
+  `SESSION_CALL_UNRESOLVED`. The buyer's next step is `POST /orders/{reference}/retry`, which
+  creates attempt _N_ with its own reference and therefore its own session.
+
+**One provider call per invoice (migration `20261025120000`).** A session create that outlives
+its 30 s lease, or that fails with a timeout/5xx after ePayco may have accepted it, leaves
+`payments.checkout_call_unresolved` set. ePayco registers the invoice on the transaction it
+creates, so a second call would return "ya cuenta con un registro previo"; the attempt is
+refused with `SESSION_CALL_UNRESOLVED` instead. The marker clears only when a session is
+recorded or when the provider rejected the request outright (4xx validation/auth), and a new
+attempt is always a new invoice.
 
 `checkout.sessionId` is either the stored session or the one this request just created, and a
 session the database refused to record is never handed to the browser.
 
 These refusals also carry the code-like reason in `details.reason`, so the storefront can tell
 "wait a moment" (`CHECKOUT_LEASE_ACTIVE`, `CHECKOUT_SESSION_NOT_RECORDED`) from "choose your
-tickets again" (`ORDER_NOT_PENDING`, `RESERVATION_EXPIRED`, `TRANSACTION_RECORDED`) instead of
-showing a sold-out notice. The `message` stays generic in Spanish and no SQLSTATE, provider text
-or buyer data is disclosed; a `CONFLICT` outside that allowlist has no `details`, and the
-storefront falls back to its sold-out copy. Anything else stays in the server log
-(`context.detail`).
+tickets again" (`ORDER_NOT_PENDING`, `RESERVATION_EXPIRED`, `TRANSACTION_RECORDED`,
+`SESSION_CALL_UNRESOLVED`) instead of showing a sold-out notice. The `message` stays generic in
+Spanish and no SQLSTATE, provider text or buyer data is disclosed; a `CONFLICT` outside that
+allowlist has no `details`, and the storefront falls back to its sold-out copy. Anything else
+stays in the server log (`context.detail`).
 
 The checkout payload is secret-free: the ePayco session id plus the public flags and the amount
 the database wrote. No private key ever reaches the browser. A supplied code that cannot be

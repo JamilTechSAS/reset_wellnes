@@ -254,8 +254,22 @@ function describeError(error: unknown, context: ErrorContext = "order"): Purchas
           canEditForm: false,
         };
       case "CONFLICT":
-        // The envelope deliberately does not expose the raw reason (the SQLSTATE detail is
-        // never surfaced), so the sentence depends on what was being attempted.
+        // A checkout-session refusal names its cause in `details.reason`. "No pudimos abrir el
+        // pago" is the honest answer for an invoice ePayco may already hold: the reservation is
+        // still valid and the fix is a new attempt, not a new ticket selection.
+        if (error.reason === "SESSION_CALL_UNRESOLVED") {
+          return {
+            kind: "upstream",
+            title: "No pudimos abrir el pago",
+            message:
+              "Tu reserva sigue activa, pero no logramos abrir una sesión de pago para este intento. No se realizó ningún cobro. Escríbenos y lo revisamos contigo.",
+            canRetry: false,
+            canRetryPayment: false,
+            canEditForm: false,
+          };
+        }
+        // The envelope does not expose any other raw reason (the SQLSTATE detail is never
+        // surfaced), so the sentence depends on what was being attempted.
         if (context === "payment") {
           return {
             kind: "expired",

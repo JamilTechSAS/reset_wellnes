@@ -60,7 +60,10 @@ async function objectCounts(): Promise<ObjectCounts> {
                                       'checkout_sessions_payment_id_idx')),
        'triggers', (select count(*)::int from pg_trigger
                      where tgname = 'payments_supersede_checkout_sessions' and not tgisinternal),
-       'functions', (select count(*)::int from pg_proc p
+       -- Distinct names: a later migration (20261025120000) adds a provider-outcome
+       -- parameter to abandon_checkout_session, and re-running this historical file puts its
+       -- own signature back next to it. That overload is not a duplicate of the decision.
+       'functions', (select count(distinct p.proname)::int from pg_proc p
                       join pg_namespace n on n.oid = p.pronamespace
                      where n.nspname = 'public'
                        and p.proname in ('begin_checkout_session',

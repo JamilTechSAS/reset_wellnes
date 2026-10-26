@@ -116,6 +116,38 @@ describe("createApiClient envelope handling", () => {
     ]);
   });
 
+  it("exposes the allowlisted checkout-session reason without inventing one", async () => {
+    const withReason = recordingFetch(
+      {
+        ok: false,
+        error: {
+          code: "CONFLICT",
+          message: "No pudimos completar la solicitud.",
+          details: { reason: "SESSION_CALL_UNRESOLVED" },
+        },
+      },
+      409,
+    );
+    const client = createApiClient({ baseUrl: BASE_URL, fetchImpl: withReason.fetchImpl });
+    await expect(client.request({ method: "POST", path: "/orders" })).rejects.toMatchObject({
+      code: "CONFLICT",
+      reason: "SESSION_CALL_UNRESOLVED",
+    });
+
+    // A conflict without the allowlisted field stays null: nothing is guessed from the status.
+    const withoutReason = recordingFetch(
+      { ok: false, error: { code: "CONFLICT", message: "No pudimos completar la solicitud." } },
+      409,
+    );
+    const plain = createApiClient({ baseUrl: BASE_URL, fetchImpl: withoutReason.fetchImpl });
+    await expect(client.request({ method: "POST", path: "/orders" })).rejects.toBeInstanceOf(
+      ApiError,
+    );
+    await expect(plain.request({ method: "POST", path: "/orders" })).rejects.toMatchObject({
+      reason: null,
+    });
+  });
+
   it("falls back to the HTTP status for an unrecognized error code", async () => {
     const { fetchImpl } = recordingFetch(
       { ok: false, error: { code: "TEAPOT_LEAK", message: "?" } },

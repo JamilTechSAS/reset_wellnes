@@ -5,12 +5,20 @@
  * handler honours that decision: a replay never calls ePayco again, a refused attempt never
  * mints a session, a provider failure frees the lease, and a session the database refused to
  * record is never handed to the browser.
+ *
+ * They also prove the anti-duplicate invariant (migration 20261025120000): the invoice is only
+ * sent to ePayco again when the failure PROVES the provider created nothing, so one invoice can
+ * never be registered twice.
  */
 
 import { describe, expect, it, vi, type MockedFunction } from "vitest";
 
 import { loadConfig, type BackendConfig } from "@shared/config/env.ts";
-import { createEpaycoCheckoutForAttempt, handleCreateOrder } from "@shared/api/orders-handler.ts";
+import {
+  createEpaycoCheckoutForAttempt,
+  handleCreateOrder,
+  providerCallOutcome,
+} from "@shared/api/orders-handler.ts";
 import { handlePaymentRetry } from "@shared/api/order-status-handler.ts";
 import type { OrderGateway } from "@shared/db/orders.ts";
 import type { OrderStatusGateway, PaymentGateway } from "@shared/db/payments.ts";
@@ -228,6 +236,7 @@ describe("POST /orders with ePayco", () => {
     "ORDER_NOT_PENDING",
     "RESERVATION_EXPIRED",
     "TRANSACTION_RECORDED",
+    "SESSION_CALL_UNRESOLVED",
   ];
 
   it.each(retryReasons)(
@@ -260,14 +269,101 @@ describe("POST /orders with ePayco", () => {
     },
   );
 
-  it("frees the lease when ePayco fails, so the buyer can retry immediately", async () => {
-    const sessions = sessionSpies();
-    const failure = new EpaycoApifyError("ePayco session creation failed", {
-      httpStatus: 500,
-      context: { invoice: REFERENCE },
-    });
-    const apify = apifyWith(vi.fn().mockRejectedValue(failure));
+  /**
+   * Only a definite provider rejection re-authorizes the invoice. A timeout, a 5xx or an
+   * unreadable 2xx body may have left a registered transaction at ePayco, and asking again with
+   * the same invoice is exactly what produced "ya cuenta con un registro previo".
+   */
+  it.each([
+    ["500", new EpaycoApifyError("ePayco session creation failed", { httpStatus: 500 }), "UNKNOWN"],
+    ["408", new EpaycoApifyError("ePayco session creation failed", { httpStatus: 408 }), "UNKNOWN"],
+    ["409", new EpaycoApifyError("ePayco session creation failed", { httpStatus: 409 }), "UNKNOWN"],
+    [
+      "200 without a sessionId",
+      new EpaycoApifyError("ePayco session creation response missing sessionId", {
+        httpStatus: 200,
+      }),
+      "UNKNOWN",
+    ],
+    [
+      "dropped connection",
+      new EpaycoApifyError("Failed to connect to ePayco session creation"),
+      "UNKNOWN",
+    ],
+    ["non-provider error", new Error("boom"), "UNKNOWN"],
+    [
+      "400",
+      new EpaycoApifyError("ePayco session creation failed", { httpStatus: 400 }),
+      "NOT_CREATED",
+    ],
+    [
+      "401",
+      new EpaycoApifyError("ePayco session creation failed", { httpStatus: 401 }),
+      "NOT_CREATED",
+    ],
+    [
+      "403",
+      new EpaycoApifyError("ePayco session creation failed", { httpStatus: 403 }),
+      "NOT_CREATED",
+    ],
+    [
+      "422",
+      new EpaycoApifyError("ePayco session creation failed", { httpStatus: 422 }),
+      "NOT_CREATED",
+    ],
+    [
+      "429",
+      new EpaycoApifyError("ePayco session creation failed", { httpStatus: 429 }),
+      "NOT_CREATED",
+    ],
+  ] as const)(
+    "classifies a %s provider failure and releases the lease as %s",
+    async (_label, failure, expected) => {
+      const sessions = sessionSpies();
+      const apify = apifyWith(vi.fn().mockRejectedValue(failure));
 
+      await expect(
+        createEpaycoCheckoutForAttempt({
+          config: epaycoConfig(),
+          orderReference: REFERENCE,
+          paymentReference: REFERENCE,
+          amountInCents: ORDER.totalInCents,
+          currency: "COP",
+          buyerEmail: "buyer@example.com",
+          clientIp: "203.0.113.10",
+          sessions: sessions.gateway,
+          logger,
+          epaycoApify: apify,
+        }),
+      ).rejects.toBe(failure);
+
+      expect(providerCallOutcome(failure)).toBe(expected);
+      expect(sessions.abandon).toHaveBeenCalledWith({
+        paymentReference: REFERENCE,
+        generation: 4,
+        providerOutcome: expected,
+      });
+      expect(sessions.complete).not.toHaveBeenCalled();
+    },
+  );
+
+  it("refuses when the unresolved provider call forbids another session", async () => {
+    const sessions: CheckoutSessionGateway = {
+      begin: vi
+        .fn<CheckoutSessionGateway["begin"]>()
+        .mockResolvedValueOnce(CREATE_PLAN)
+        .mockResolvedValueOnce({
+          state: "RETRY_REQUIRED",
+          paymentId: CREATE_PLAN.paymentId,
+          paymentReference: REFERENCE,
+          paymentAttempt: 1,
+          reason: "SESSION_CALL_UNRESOLVED",
+        }),
+      complete: vi.fn<CheckoutSessionGateway["complete"]>().mockResolvedValue("LEASE_LOST"),
+      abandon: vi.fn<CheckoutSessionGateway["abandon"]>().mockResolvedValue(true),
+    };
+
+    // The call outlived its lease: something may exist at ePayco, so the recovery begin refuses.
     await expect(
       createEpaycoCheckoutForAttempt({
         config: epaycoConfig(),
@@ -277,17 +373,16 @@ describe("POST /orders with ePayco", () => {
         currency: "COP",
         buyerEmail: "buyer@example.com",
         clientIp: "203.0.113.10",
-        sessions: sessions.gateway,
+        sessions,
         logger,
-        epaycoApify: apify,
+        epaycoApify: apifyReturning("sess_orphan"),
       }),
-    ).rejects.toBe(failure);
-
-    expect(sessions.abandon).toHaveBeenCalledWith({
-      paymentReference: REFERENCE,
-      generation: 4,
+    ).rejects.toMatchObject({
+      code: "CONFLICT",
+      context: { detail: "SESSION_CALL_UNRESOLVED" },
     });
-    expect(sessions.complete).not.toHaveBeenCalled();
+    // No lease was claimed by the recovery, so nothing may release it either.
+    expect(sessions.abandon).not.toHaveBeenCalled();
   });
 
   it("hands the winner's session to the browser when its own could not be recorded", async () => {
@@ -388,7 +483,12 @@ describe("POST /orders with ePayco", () => {
     // The recovery `begin` claimed a lease of its own; leaving it behind would answer the
     // buyer's next click with CHECKOUT_LEASE_ACTIVE for a session nobody is creating.
     expect(abandon).toHaveBeenCalledTimes(1);
-    expect(abandon).toHaveBeenCalledWith({ paymentReference: REFERENCE, generation: 5 });
+    expect(abandon).toHaveBeenCalledWith({
+      paymentReference: REFERENCE,
+      generation: 5,
+      // This lease never covered a provider call, so releasing it cannot hide an invoice.
+      providerOutcome: "NOT_CREATED",
+    });
   });
 
   it("keeps the original refusal when releasing the recovery lease fails", async () => {
