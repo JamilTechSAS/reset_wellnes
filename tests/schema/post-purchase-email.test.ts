@@ -108,7 +108,7 @@ async function seed(): Promise<void> {
 
     insert into public.ticket_bundles
       (event_id, ticket_type_id, pricing_tier_id, code, name, included_admissions, price_cents)
-    select tt.event_id, tt.id, t.id, 'SHARE_EXPERIENCE', 'Comparte tu experiencia', 3, 50970000
+    select tt.event_id, tt.id, t.id, 'SHARE_EXPERIENCE', 'Comparte tu experiencia', 3, 53970000
       from public.ticket_types tt
       join public.pricing_tiers t on t.ticket_type_id = tt.id and t.sequence = 2
      where tt.code = 'GENERAL';
@@ -518,7 +518,7 @@ describe("read model", () => {
     expect(bundle?.packageName).toBe("Comparte tu experiencia");
     expect(bundle?.quantity).toBe(3);
     expect(bundle?.registeredParticipants).toBe(1);
-    expect(bundle?.unitPriceInCents).toBe(16_990_000);
-    expect(bundle?.totalInCents).toBe(50_970_000);
+    expect(bundle?.unitPriceInCents).toBe(17_990_000);
+    expect(bundle?.totalInCents).toBe(53_970_000);
   });
 });

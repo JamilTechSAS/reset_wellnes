@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 /**
- * "Comparte tu experiencia" — the commercial package (3 admissions, $509.700).
+ * "Comparte tu experiencia" — the commercial package (3 admissions, $539.700).
  *
  * The backend now prices and reserves it (`SHARE_EXPERIENCE`, migration 20261024230000), so the
  * card can start a checkout, but only while the General stage is the one on sale. The retired
@@ -15,7 +15,9 @@ import {
   PACKAGE_ADMISSIONS,
   PACKAGE_CHECKOUT_ENABLED,
   PACKAGE_NAME,
+  PACKAGE_TOTAL_CENTS,
   PACKAGE_TOTAL_PRICE_LABEL,
+  PACKAGE_UNIT_CENTS,
   PACKAGE_UNIT_PRICE_LABEL,
   PACKAGE_UNAVAILABLE_NOTE,
   packageCheckoutAvailable,
@@ -40,13 +42,17 @@ function packageCardText(): string {
 }
 
 describe("package commercial terms", () => {
-  it("is a three-admission package at $169.900 per admission", () => {
+  it("is a three-admission package at $179.900 per admission", () => {
     expect(PACKAGE_NAME).toBe("Comparte tu experiencia");
     expect(PACKAGE_ADMISSIONS).toBe(3);
-    expect(PACKAGE_UNIT_PRICE_LABEL).toBe("$169.900");
-    expect(PACKAGE_TOTAL_PRICE_LABEL).toBe("$509.700");
-    // 3 × 169.900 = 509.700, checked as numbers rather than as formatted text.
-    expect(3 * 169_900).toBe(509_700);
+    expect(PACKAGE_UNIT_PRICE_LABEL).toBe("$179.900");
+    expect(PACKAGE_TOTAL_PRICE_LABEL).toBe("$539.700");
+    // 3 × 179.900 = 539.700, checked as numbers rather than as formatted text.
+    expect(3 * 179_900).toBe(539_700);
+    // The charge the API and the database use: hundredths of a peso, charged once per package.
+    expect(PACKAGE_UNIT_CENTS).toBe(17_990_000);
+    expect(PACKAGE_TOTAL_CENTS).toBe(53_970_000);
+    expect(PACKAGE_TOTAL_CENTS).toBe(PACKAGE_UNIT_CENTS * 3);
   });
 
   it("is purchasable now that the backend prices the three-admission package", () => {
@@ -58,7 +64,9 @@ describe("package commercial terms", () => {
     const card = packageCardHtml();
     const text = packageCardText();
     expect(text).toContain("Comparte tu experiencia (3 entradas)");
-    expect(text).toContain("$169.900 por persona");
+    expect(text).toContain("$179.900 por persona");
+    expect(text).not.toContain("$169.900");
+    expect(text).not.toContain("$509.700");
     // The package total is no longer printed on the card.
     expect(text).not.toContain(PACKAGE_TOTAL_PRICE_LABEL);
     expect(card).not.toContain("$340.000");

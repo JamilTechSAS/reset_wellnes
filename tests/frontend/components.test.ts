@@ -248,7 +248,7 @@ describe("Component Rendering", () => {
     expect(text).toContain("Preventa");
     expect(text).toContain("$159.900");
     expect(text).toContain("Comparte tu experiencia");
-    expect(text).toContain("$509.700");
+    expect(text).toContain("$539.700");
     expect(text).toContain("General");
     expect(text).toContain("$199.900");
 

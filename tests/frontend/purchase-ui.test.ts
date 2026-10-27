@@ -208,16 +208,16 @@ describe("purchase step rendering", () => {
         })),
       },
     };
-    // A three-admission package: 3 × $169.900 = $509.700, always as quoted by the backend.
+    // A three-admission package: 3 × $179.900 = $539.700, always as quoted by the backend.
     const quote = makeQuote({
       quantity: 3,
       ticketType: { code: "GENERAL", name: "Entrada general" },
-      pricingTier: { name: "General", sequence: 2, unitPriceInCents: 16_990_000 },
-      subtotalInCents: 50_970_000,
+      pricingTier: { name: "General", sequence: 2, unitPriceInCents: 17_990_000 },
+      subtotalInCents: 53_970_000,
       quantityDiscount: { applies: false, percentBps: 0, amountInCents: 0 },
       quantityDiscountInCents: 0,
       totalDiscountInCents: 0,
-      totalInCents: 50_970_000,
+      totalInCents: 53_970_000,
     });
     const step = renderPurchaseStep(
       makeState({
@@ -231,7 +231,7 @@ describe("purchase step rendering", () => {
     );
 
     expect(step.body).toContain("Comparte tu experiencia");
-    expect(step.body).toContain("$509.700");
+    expect(step.body).toContain("$539.700");
     // The old $340.000 two-admission total is gone; the price always comes from the backend quote.
     expect(step.body).not.toContain("$340.000");
     expect(step.body).not.toContain("Descuento por cantidad");
@@ -367,8 +367,8 @@ describe("purchase step rendering", () => {
   });
 
   it("names the companion form after Comparte esta experiencia in the bundle", () => {
-    // Three admissions: the holder plus two companions, for one package total of $509.700.
-    const status = makePaidOrderStatus({ quantity: 3, totalInCents: 50_970_000 });
+    // Three admissions: the holder plus two companions, for one package total of $539.700.
+    const status = makePaidOrderStatus({ quantity: 3, totalInCents: 53_970_000 });
     const step = renderPurchaseStep(
       makeState({
         step: "confirmed",
@@ -380,7 +380,7 @@ describe("purchase step rendering", () => {
     );
 
     expect(step.body).toContain("Registra a tus acompañantes");
-    expect(step.body).toContain("$509.700");
+    expect(step.body).toContain("$539.700");
     expect(step.body).not.toContain("$340.000");
   });
 

@@ -11,9 +11,9 @@
  *
  *   Preventa  15_990_000 × 1  = 15_990_000  ($159.900)   cap of one per order, as in production
  *   General   19_990_000 × n  = 59_970_000  ($599.700)   for three, with no quantity discount
- *   Paquete   50_970_000 × 1  = 50_970_000  ($509.700)   ONE charge for three admissions
+ *   Paquete   53_970_000 × 1  = 53_970_000  ($539.700)   ONE charge for three admissions
  *
- * The package's per-person price ($169.900) is a display caption: `unitCents` is what a buyer is
+ * The package's per-person price ($179.900) is a display caption: `unitCents` is what a buyer is
  * charged, so the total is never multiplied by three a second time.
  */
 
@@ -92,7 +92,7 @@ export const DEMO_TIERS: readonly DemoTier[] = [
   {
     code: "paquete",
     name: "Comparte tu experiencia (3 entradas)",
-    // Charged once per package: three admissions for $509.700, never $509.700 × 3.
+    // Charged once per package: three admissions for $539.700, never $539.700 × 3.
     unitCents: PACKAGE_TOTAL_CENTS,
     referenceCents: null,
     badge: null,

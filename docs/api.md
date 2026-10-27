@@ -194,7 +194,7 @@ the API uses. The seeded Preventa stage carries `1`: a single admission per paym
 `/orders` — the UI cannot be bypassed. General has no stage cap (`maxPerOrder: null`), so two or
 three individual admissions stay valid while inventory permits; the ticket type's
 `max_per_order` still applies on top. `SHARE_EXPERIENCE` is one package of exactly three
-admissions for a fixed COP 509,700 total (COP 169,900 each): any other quantity is refused with
+admissions for a fixed COP 539,700 total (COP 179,900 each): any other quantity is refused with
 `BUNDLE_QUANTITY_INVALID`, and the package is refused with `BUNDLE_NOT_AVAILABLE` while its
 General stage is not the active one. The retired `DOUBLE_EXPERIENCE` (two admissions, COP
 340,000) is no longer accepted in a request: historical orders keep reading it from their own
@@ -228,7 +228,7 @@ as `context.detail`). A `CONFLICT` outside the allowlists has no `details` at al
 
 Named product: **Comparte tu experiencia** is selected only by sending
 `"bundleCode": "SHARE_EXPERIENCE"` with quantity `3`. The database prices that product at
-`50970000` centavos ($509,700 COP), reserves **three** admissions from the shared event pool
+`53970000` centavos ($539,700 COP), reserves **three** admissions from the shared event pool
 during the General stage, rejects promo codes with the bundle, and refuses it with `SOLD_OUT`
 when fewer than three admissions remain. Without `bundleCode`, a quantity of three represents
 three individual General admissions at $600,000 COP; it never receives the package price

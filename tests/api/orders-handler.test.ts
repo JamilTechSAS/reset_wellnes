@@ -410,7 +410,7 @@ describe("handleQuote", () => {
 });
 
 /**
- * "Comparte tu experiencia": three General admissions for COP 509.700.
+ * "Comparte tu experiencia": three General admissions for COP 539.700.
  *
  * The quote below is a fixture, not a schedule read: these tests are about the request contract
  * and the routing that follows it, so they must not depend on whether the sale window happens
@@ -422,11 +422,11 @@ const BUNDLE_QUOTE = {
   pricingTier: {
     name: "General",
     sequence: 2,
-    unitPriceInCents: 16_990_000,
+    unitPriceInCents: 17_990_000,
     maxPerOrder: null,
   },
-  subtotalInCents: 50_970_000,
-  totalInCents: 50_970_000,
+  subtotalInCents: 53_970_000,
+  totalInCents: 53_970_000,
 };
 
 describe("bundle purchase contract", () => {
@@ -459,8 +459,8 @@ describe("bundle purchase contract", () => {
       reservationMinutes: 15,
     });
     expect(result.quantity).toBe(3);
-    expect(result.pricingTier.unitPriceInCents).toBe(16_990_000);
-    expect(result.totalInCents).toBe(50_970_000);
+    expect(result.pricingTier.unitPriceInCents).toBe(17_990_000);
+    expect(result.totalInCents).toBe(53_970_000);
   });
 
   it("rejects the retired two-admission package at the API boundary with 400 VALIDATION_ERROR", async () => {

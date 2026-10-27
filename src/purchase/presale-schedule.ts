@@ -10,7 +10,7 @@
  * There is exactly ONE minute with no sales in between (00:00 a. m. to 00:01 a. m. on 29 oct),
  * which the labels keep explicit on purpose.
  *
- * The package ("Comparte tu experiencia", 3 admissions at $169.900 per person) opens with the
+ * The package ("Comparte tu experiencia", 3 admissions at $179.900 per person) opens with the
  * General stage, and the backend cannot sell it yet — see `src/purchase/package-availability.ts`.
  *
  * These constants only decide *when* an option becomes selectable and what the page says. Whether

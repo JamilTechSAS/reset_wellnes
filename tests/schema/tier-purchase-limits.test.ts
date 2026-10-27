@@ -5,7 +5,7 @@
  *   * Preventa  — exactly one admission per payment/order, even for a client that skips the UI.
  *   * General   — multiple admissions per order, bounded only by the SHARED event pool.
  *   * Comparte tu experiencia (SHARE_EXPERIENCE) — one package of THREE General admissions for
- *     COP 509,700; two packages in one payment must be impossible at every layer.
+ *     COP 539,700; two packages in one payment must be impossible at every layer.
  *
  * Stage selection is time-based (`sales_starts_at <= at < sales_ends_at`) and inventory is one
  * pool for the whole event, so these tests move the windows and the capacity — never a per-stage
@@ -97,7 +97,7 @@ async function seed(): Promise<void> {
 
     insert into public.ticket_bundles
       (event_id, ticket_type_id, pricing_tier_id, code, name, included_admissions, price_cents)
-    select tt.event_id, tt.id, t.id, 'SHARE_EXPERIENCE', 'Comparte tu experiencia', 3, 50970000
+    select tt.event_id, tt.id, t.id, 'SHARE_EXPERIENCE', 'Comparte tu experiencia', 3, 53970000
       from public.ticket_types tt
       join public.pricing_tiers t on t.ticket_type_id = tt.id and t.sequence = 2
      where tt.code = 'GENERAL';
@@ -280,17 +280,17 @@ describe("Comparte tu experiencia package", () => {
     await openGeneralStage();
   });
 
-  it("prices one package of three General admissions at the fixed COP 509,700", async () => {
+  it("prices one package of three General admissions at the fixed COP 539,700", async () => {
     const q = await quote(3, "SHARE_EXPERIENCE");
     expect(q.pricingTier.name).toBe("General");
     expect(q.quantity).toBe(3);
-    expect(q.subtotalInCents).toBe(50_970_000);
-    expect(q.totalInCents).toBe(50_970_000);
+    expect(q.subtotalInCents).toBe(53_970_000);
+    expect(q.totalInCents).toBe(53_970_000);
     expect(q.bundleCode).toBe("SHARE_EXPERIENCE");
 
     const order = await createOrder(3, "SHARE_EXPERIENCE");
     expect(order.quantity).toBe(3);
-    expect(order.totalInCents).toBe(50_970_000);
+    expect(order.totalInCents).toBe(53_970_000);
     expect(await count("select quantity as n from public.order_items order by created_at")).toBe(3);
     // One package reserves exactly the three admissions it includes.
     expect(
@@ -310,7 +310,7 @@ describe("Comparte tu experiencia package", () => {
     const replay = await createOrder(3, "SHARE_EXPERIENCE", { idempotencyKey: key });
     expect(replay.replayed).toBe(true);
     expect(replay.reference).toBe(order.reference);
-    expect(replay.totalInCents).toBe(50_970_000);
+    expect(replay.totalInCents).toBe(53_970_000);
     expect(await count("select count(*) as n from public.orders")).toBe(1);
     expect(await count("select count(*) as n from public.payments")).toBe(1);
     expect(await count("select count(*) as n from public.participants")).toBe(1);

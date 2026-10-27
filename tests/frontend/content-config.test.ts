@@ -231,15 +231,18 @@ describe("EVENT_CONTENT_CONFIG", () => {
 
     expect(finalCta.ticketOptions.map((option) => [option.name, option.priceLabel])).toEqual([
       ["Preventa", "$159.900"],
-      ["Comparte tu experiencia", "$509.700"],
+      ["Comparte tu experiencia", "$539.700"],
       ["General", "$199.900"],
     ]);
 
     const current = finalCta.ticketOptions.filter((option) => option.status === "current");
     expect(current).toHaveLength(1);
     expect(current[0]?.name).toBe("Preventa");
-    // The 2-ticket bundle is $169.900 per person; that arithmetic is the client's, not ours.
-    expect(finalCta.ticketOptions[1]?.detail).toContain("$169.900");
+    // The 3-ticket bundle is $179.900 per person; that arithmetic is the client's, not ours.
+    expect(finalCta.ticketOptions[1]?.detail).toContain("$179.900");
+    // The other two products keep their published prices.
+    expect(finalCta.ticketOptions[0]?.priceLabel).toBe("$159.900");
+    expect(finalCta.ticketOptions[2]?.priceLabel).toBe("$199.900");
   });
 
   it("never carries a discount code or a percentage claim", () => {

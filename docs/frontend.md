@@ -91,14 +91,14 @@ retry.
 | ------------------------------------------------------------ | --------------------------------------------------- | ------------------------------ |
 | Preventa (one admission per order)                           | `quantity: 1`, `ticketTypeCode: GENERAL`            | $159.900                       |
 | General (multi-admission inside the backend limits)          | `quantity: n`, `ticketTypeCode: GENERAL`, no bundle | $199.900 each                  |
-| "Comparte tu experiencia" (3 admissions, General stage only) | `quantity: 3`, `bundleCode: SHARE_EXPERIENCE`       | $169.900 per person ($509.700) |
+| "Comparte tu experiencia" (3 admissions, General stage only) | `quantity: 3`, `bundleCode: SHARE_EXPERIENCE`       | $179.900 per person ($539.700) |
 
 The package card is presented with its real commercial terms — title "Comparte tu experiencia (3
-entradas)", `$169.900 por persona` and "Disponible al iniciar la etapa general" — and it starts a
+entradas)", `$179.900 por persona` and "Disponible al iniciar la etapa general" — and it starts a
 checkout through the same dialog as the other tiers (`tier: "duo"` → `quantity: 3` and
 `bundleCode: SHARE_EXPERIENCE`). It is purchasable **only** while the catalog says General is the
 open stage _and_ the server-derived clock is inside the General window; the backend then re-prices
-(COP 509.700) and reserves three admissions from the shared pool, or refuses with `SOLD_OUT` when
+(COP 539.700) and reserves three admissions from the shared pool, or refuses with `SOLD_OUT` when
 fewer than three remain. The retired `DOUBLE_EXPERIENCE` code is never sent by the UI.
 
 The ticket cards keep a deliberately terse caption line (`.tipo-nota`, 12 px): the Preventa card
@@ -380,11 +380,11 @@ npm run dev                        # Vite on http://localhost:3000
 | `legal-content.test.ts`                     | The client's legal documents (token/pending-field invariant, verbatim clauses, review notes), `renderLegalText` escaping, and the tabbed dialog's behaviour                                                                                                                                                                              |
 | `cta-hook.test.ts`, `faq-accordion.test.ts` | CTA routing into the purchase flow, and the FAQ's collapse/arrow-key behaviour                                                                                                                                                                                                                                                           |
 | `sales-schedule.test.ts`                    | The two sales windows, the single minute with no sales between them, the one event-wide capacity of 100, and the copy on `entradas.html` matching those constants                                                                                                                                                                        |
-| `package-availability.test.ts`              | The package's commercial terms (3 admissions, $169.900 each, $509.700 total), that one package opens exactly one checkout for three admissions, and that it stays locked until the catalog confirms General                                                                                                                              |
+| `package-availability.test.ts`              | The package's commercial terms (3 admissions, $179.900 each, $539.700 total), that one package opens exactly one checkout for three admissions, and that it stays locked until the catalog confirms General                                                                                                                              |
 | `gracias-page.test.ts`                      | `/gracias`: noindex/canonical metadata, four exclusive state blocks, PAID-only confirmation, and reference recovery (URL reference without a stored session, missing email, wrong email, non-PAID, failed lookup)                                                                                                                        |
 | `presale-gate.test.ts`                      | The stage gate: locked before the opening instant, enabled at it, Preventa closed and deselected at 00:00 on 29 Oct, the gap kept shut even against a stale General catalog, and General + the package unlocked at 00:01 without a reload                                                                                                |
 | `tests/tooling/email-assets.test.ts`        | The post-purchase email images ship from `public/correo/img/` with real JPEG/PNG contents at the URLs the email uses                                                                                                                                                                                                                     |     | `tests/tooling/build-target.test.ts` | The QA/production split: unset means production, unknown values fail, the two QA-only pages are excluded from production, the smoke page is out of `public/`, every public page ships in both, and no public page, module or `vercel.json` rule points at a QA-only route |
-| `demo-entradas.test.ts`                     | The demo page: every option still selectable before and long after the real windows, `$599.700` / `$509.700` / `$159.900` arithmetic and caps, the review panel's close paths, and that it imports no purchase module and never calls `fetch`                                                                                            |
+| `demo-entradas.test.ts`                     | The demo page: every option still selectable before and long after the real windows, `$599.700` / `$539.700` / `$159.900` arithmetic and caps, the review panel's close paths, and that it imports no purchase module and never calls `fetch`                                                                                            |
 
 Nothing mocks away the thing under test: the API doubles return real documented response shapes,
 and the flow tests assert on observable behaviour (which endpoint was called with what, which step
@@ -404,7 +404,7 @@ looks like the product and cannot sell anything.
 | Calls the API | yes                                             | never                                         |
 
 - `src/demo/catalog.ts` holds the commercial facts — Preventa $159.900, General $199.900, the
-  package $509.700 for three admissions ($169.900 each) — and the exact integer arithmetic. Three
+  package $539.700 for three admissions ($179.900 each) — and the exact integer arithmetic. Three
   General admissions are $599.700 with no quantity discount, and the package is one charge, never
   multiplied by three a second time.
 - `src/demo/view.ts` renders the cards, the live summary and the review panel; `src/demo/page.ts`

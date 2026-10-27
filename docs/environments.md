@@ -293,7 +293,7 @@ catalogue was created for the first time:
 2. **Catalogue.** [../supabase/ops/production/seed_reset_sunset_event.sql](../supabase/ops/production/seed_reset_sunset_event.sql)
    creates `RESET-SUNSET-2026` (capacity 100, venue Terraza del hotel GHL, Montería), the `GENERAL`
    ticket type with its Preventa and General tiers, the retired `DOUBLE_EXPERIENCE` bundle kept
-   inactive, and the active `SHARE_EXPERIENCE` bundle (3 admissions, COP 509.700). It is idempotent
+   inactive, and the active `SHARE_EXPERIENCE` bundle (3 admissions, COP 539.700). It is idempotent
    and never writes `quantity_sold` / `quantity_reserved`, so it is safe to re-run.
 3. **Functions.** `health`, `events`, `webhooks-epayco`, `orders`, `orders-maintenance`, `checkin`
    and `tickets` were deployed against that ref. `webhooks-wompi` is deliberately left on its

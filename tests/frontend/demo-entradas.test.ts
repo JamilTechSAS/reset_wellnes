@@ -7,7 +7,7 @@
  *  1. every option and control is usable whatever the real calendar says (the live Preventa window
  *     opens on 25 Oct 2026 and General on 29 Oct 2026, yet the demo never reads a clock);
  *  2. the arithmetic is exactly the published prices — three General admissions are $599.700 and
- *     the package is ONE charge of $509.700 for three admissions;
+ *     the package is ONE charge of $539.700 for three admissions;
  *  3. the page cannot reach a purchase endpoint, ask for personal data or open a provider checkout.
  */
 
@@ -95,7 +95,7 @@ describe("demo catalogue arithmetic", () => {
   it("uses the published prices in hundredths of a peso", () => {
     expect(demoTierByCode("preventa").unitCents).toBe(15_990_000);
     expect(demoTierByCode("general").unitCents).toBe(19_990_000);
-    expect(demoTierByCode("paquete").unitCents).toBe(50_970_000);
+    expect(demoTierByCode("paquete").unitCents).toBe(53_970_000);
     // The per-person figure is a caption, never a multiplier applied on top of the total.
     expect(demoTierByCode("paquete").admissionsPerUnit).toBe(3);
   });
@@ -109,7 +109,7 @@ describe("demo catalogue arithmetic", () => {
 
   it("charges the package once for three admissions", () => {
     const totals = demoTotals(setDemoQuantity(EMPTY_DEMO_CART, "paquete", 1));
-    expect(totals.totalCents).toBe(50_970_000);
+    expect(totals.totalCents).toBe(53_970_000);
     expect(totals.admissions).toBe(3);
   });
 
@@ -160,8 +160,8 @@ describe("demo page options", () => {
     // The Preventa card's crossed-out reference is the current General price.
     expect(preventa).toContain("$199.900");
     expect(general).toContain("$199.900");
-    expect(paquete).toContain("$509.700");
-    expect(paquete).toContain("$169.900 por persona");
+    expect(paquete).toContain("$539.700");
+    expect(paquete).toContain("$179.900 por persona");
     // The real price is never crossed out on the General card. Only Preventa has a reference.
     expect(general).not.toContain("$159.900");
   });
@@ -201,7 +201,7 @@ describe("demo page options", () => {
     expect(totalText(root)).toBe("$159.900");
   });
 
-  it("keeps the package at exactly three admissions for $509.700", () => {
+  it("keeps the package at exactly three admissions for $539.700", () => {
     const { root } = mountPage();
     const add = stepper(root, "paquete", 1);
     click(add);
@@ -210,12 +210,12 @@ describe("demo page options", () => {
     expect(
       required(root.querySelector("[data-demo-admissions]"), "admissions").textContent,
     ).toContain("3");
-    expect(totalText(root)).toBe("$509.700");
+    expect(totalText(root)).toBe("$539.700");
     expect(add.disabled).toBe(true);
 
     click(add);
     expect(quantityText(root, "paquete")).toBe("1");
-    expect(totalText(root)).toBe("$509.700");
+    expect(totalText(root)).toBe("$539.700");
   });
 
   it("decrements back to an empty summary", () => {
@@ -283,7 +283,7 @@ describe("demo checkout", () => {
     expect(overlay.hidden).toBe(true);
 
     // Closing never touches the cart.
-    expect(totalText(root)).toBe("$509.700");
+    expect(totalText(root)).toBe("$539.700");
   });
 
   it("cannot add anything to the checkout from an empty selection", () => {

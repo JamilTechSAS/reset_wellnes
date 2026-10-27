@@ -1,11 +1,11 @@
 /**
  * The package product ("Comparte tu experiencia") — commercial facts and checkout availability.
  *
- * The package is THREE General admissions for COP 509.700 total (COP 169.900 each), sold only
+ * The package is THREE General admissions for COP 539.700 total (COP 179.900 each), sold only
  * while the General window is open. Migration 20261024230000 makes the backend model exactly
  * that: a `ticket_bundles` row with code `SHARE_EXPERIENCE`, `included_admissions = 3` and
- * `price_cents = 50970000`, on the General stage, reserving three admissions from the shared
- * pool of 100.
+ * `price_cents = 53970000` (repriced by migration 20261027090000), on the General stage,
+ * reserving three admissions from the shared pool of 100.
  *
  * `DOUBLE_EXPERIENCE` (the old two-admission package at COP 340.000) is retired for new
  * purchases: the migration deactivates its row and the request schema no longer accepts the
@@ -20,14 +20,14 @@ export const PACKAGE_CODE = "SHARE_EXPERIENCE";
 export type PackageCode = typeof PACKAGE_CODE;
 export const PACKAGE_NAME = "Comparte tu experiencia";
 export const PACKAGE_ADMISSIONS = 3;
-/** COP 169.900 per admission in hundredths of a peso (the unit the API and the DB use). */
-export const PACKAGE_UNIT_CENTS = 16_990_000;
-/** COP 509.700 for the package, charged once per package — NOT per admission. */
-export const PACKAGE_TOTAL_CENTS = 50_970_000;
-/** COP 169.900 per admission, formatted as the site formats every price. */
-export const PACKAGE_UNIT_PRICE_LABEL = "$169.900";
+/** COP 179.900 per admission in hundredths of a peso (the unit the API and the DB use). */
+export const PACKAGE_UNIT_CENTS = 17_990_000;
+/** COP 539.700 for the package, charged once per package — NOT per admission. */
+export const PACKAGE_TOTAL_CENTS = 53_970_000;
+/** COP 179.900 per admission, formatted as the site formats every price. */
+export const PACKAGE_UNIT_PRICE_LABEL = "$179.900";
 /** The package total, formatted for the card and the checkout summary. */
-export const PACKAGE_TOTAL_PRICE_LABEL = "$509.700";
+export const PACKAGE_TOTAL_PRICE_LABEL = "$539.700";
 
 /** The backend prices and reserves the three-admission package, so the card may start a checkout. */
 export const PACKAGE_CHECKOUT_ENABLED = true;

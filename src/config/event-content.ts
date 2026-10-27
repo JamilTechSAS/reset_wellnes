@@ -239,7 +239,7 @@ export const EVENT_CONTENT_CONFIG: EventLandingConfig = {
         id: "faq-acompanante",
         question: "¿Puedo ir con alguien?",
         answer:
-          "Sí. Durante la etapa General estará disponible Comparte tu experiencia: un paquete de 3 entradas por $509.700 ($169.900 por persona). También puedes comprar entradas General sueltas.",
+          "Sí. Durante la etapa General estará disponible Comparte tu experiencia: un paquete de 3 entradas por $539.700 ($179.900 por persona). También puedes comprar entradas General sueltas.",
       },
       {
         id: "faq-llevar",
@@ -356,8 +356,8 @@ export const EVENT_CONTENT_CONFIG: EventLandingConfig = {
       {
         id: "ticket-duo",
         name: "Comparte tu experiencia",
-        priceLabel: "$509.700",
-        detail: "3 entradas · $169.900 por persona · solo en la etapa General",
+        priceLabel: "$539.700",
+        detail: "3 entradas · $179.900 por persona · solo en la etapa General",
         status: "upcoming",
       },
       {

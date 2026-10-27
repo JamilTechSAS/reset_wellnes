@@ -198,7 +198,7 @@ async function seed(db: PGlite): Promise<void> {
         (event_id, ticket_type_id, pricing_tier_id, code, name, included_admissions, price_cents)
       values
         (v_event, v_tt, v_tier2, 'DOUBLE_EXPERIENCE', 'Doble experiencia', 2, 34000000),
-        (v_event, v_tt, v_tier2, 'SHARE_EXPERIENCE', 'Comparte tu experiencia', 3, 50970000);
+        (v_event, v_tt, v_tier2, 'SHARE_EXPERIENCE', 'Comparte tu experiencia', 3, 53970000);
       insert into public.discount_codes (event_id, ticket_type_id, pricing_tier_id, code, kind, percent_bps, max_redemptions, max_quantity)
         values (v_event, v_tt, v_tier2, 'AMIGOS', 'PERCENT', 2500, 1, 6);
       insert into public.discount_codes (event_id, ticket_type_id, pricing_tier_id, code, kind, amount_cents, max_quantity)
@@ -357,12 +357,12 @@ describe("pricing: stage selection and parity", () => {
       const bundle = await quote(db, 3, null, "SHARE_EXPERIENCE");
       expect(bundle.pricingTier.name).toBe("General");
       expect(bundle.quantity).toBe(3);
-      expect(bundle.subtotalInCents).toBe(50_970_000);
+      expect(bundle.subtotalInCents).toBe(53_970_000);
       expect(bundle.quantityDiscountInCents).toBe(0);
       expect(bundle.discountCodeInCents).toBe(0);
-      expect(bundle.totalInCents).toBe(50_970_000);
+      expect(bundle.totalInCents).toBe(53_970_000);
       // 3 × 16.990.000 = 50.970.000: the package total is charged once, never times three.
-      expect(bundle.totalInCents).toBe(16_990_000 * 3);
+      expect(bundle.totalInCents).toBe(17_990_000 * 3);
 
       // Three individual admissions stay individually priced (3 × 11.500.000) and the seeded
       // 10 % quantity discount applies to them, unlike the fixed-price package.
@@ -534,7 +534,7 @@ describe("order creation", () => {
     }
   });
 
-  it("creates Comparte tu experiencia for $509,700 and reserves exactly three General admissions", async () => {
+  it("creates Comparte tu experiencia for $539,700 and reserves exactly three General admissions", async () => {
     await closeFirstStage(db);
     const before = await db.query<{ quantity_reserved: number }>(
       `select quantity_reserved from public.pricing_tiers where sequence = 2`,
@@ -548,11 +548,11 @@ describe("order creation", () => {
     expect(order.replayed).toBe(false);
     expect(order.pricingTierName).toBe("General");
     expect(order.quantity).toBe(3);
-    expect(order.unitPriceInCents).toBe(16_990_000);
-    expect(order.subtotalInCents).toBe(50_970_000);
+    expect(order.unitPriceInCents).toBe(17_990_000);
+    expect(order.subtotalInCents).toBe(53_970_000);
     expect(order.quantityDiscountInCents).toBe(0);
     expect(order.discountCodeInCents).toBe(0);
-    expect(order.totalInCents).toBe(50_970_000);
+    expect(order.totalInCents).toBe(53_970_000);
 
     const stored = await db.query<{
       bundle_id: string | null;
@@ -573,12 +573,12 @@ describe("order creation", () => {
     );
     expect(stored.rows[0]?.bundle_id).not.toBeNull();
     expect(stored.rows[0]?.quantity).toBe(3);
-    expect(stored.rows[0]?.unit_price_cents).toBe(16_990_000);
-    expect(stored.rows[0]?.line_total_cents).toBe(50_970_000);
-    expect(stored.rows[0]?.subtotal_cents).toBe(50_970_000);
-    expect(stored.rows[0]?.total_cents).toBe(50_970_000);
+    expect(stored.rows[0]?.unit_price_cents).toBe(17_990_000);
+    expect(stored.rows[0]?.line_total_cents).toBe(53_970_000);
+    expect(stored.rows[0]?.subtotal_cents).toBe(53_970_000);
+    expect(stored.rows[0]?.total_cents).toBe(53_970_000);
     // The charged amount is the package total, not 3 × the General unit price.
-    expect(stored.rows[0]?.amount_cents).toBe(50_970_000);
+    expect(stored.rows[0]?.amount_cents).toBe(53_970_000);
 
     const after = await db.query<{ quantity_reserved: number }>(
       `select quantity_reserved from public.pricing_tiers where sequence = 2`,
@@ -591,7 +591,7 @@ describe("order creation", () => {
       key: "idem-share-experience-01",
     });
     expect(replay.replayed).toBe(true);
-    expect(replay.totalInCents).toBe(50_970_000);
+    expect(replay.totalInCents).toBe(53_970_000);
     const afterReplay = await db.query<{ quantity_reserved: number }>(
       `select quantity_reserved from public.pricing_tiers where sequence = 2`,
     );

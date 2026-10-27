@@ -1,6 +1,6 @@
 /**
- * One inventory for the whole event and the exact sales windows (migrations 20261024230000 and
- * 20261024240000).
+ * One inventory for the whole event and the exact sales windows (migrations 20261024230000,
+ * 20261024240000 and 20261027090000).
  *
  * Product rules under test (America/Bogota, 2026 — fixed UTC-5):
  *   * 100 admissions for the event, shared by Preventa, General and the package. No stage has
@@ -9,7 +9,7 @@
  *     at 00:00:00 on 29 oct.
  *   * NO SALES from 00:00:00 to 00:00:59.999 on 29 oct — General does not move to midnight.
  *   * General COP 199.900 · 00:01 29 oct → 23:59 13 nov · multi-admission.
- *   * "Comparte tu experiencia" (`SHARE_EXPERIENCE`) · 3 admissions · COP 509.700, sold only
+ *   * "Comparte tu experiencia" (`SHARE_EXPERIENCE`) · 3 admissions · COP 539.700, sold only
  *     during the General window; the retired two-admission `DOUBLE_EXPERIENCE` stays readable
  *     but is inactive.
  *
@@ -34,6 +34,7 @@ const EVENT = "RESET-SUNSET-2026";
 const MIGRATIONS = [
   "20261024230000_global_inventory_share_experience.sql",
   "20261024240000_general_price_199900.sql",
+  "20261027090000_share_experience_price_179900.sql",
 ] as const;
 
 /** The shipped windows, written as the instants the database stores (UTC). */
@@ -336,7 +337,7 @@ describe("catalog after the migration", () => {
     expect(Date.parse(GENERAL_OPENS) - Date.parse(PRESALE_ENDS)).toBe(60_000);
   });
 
-  it("sells the three-admission package for COP 509.700 during General only", async () => {
+  it("sells the three-admission package for COP 539.700 during General only", async () => {
     const result = await db.query<{
       code: string;
       name: string;
@@ -364,7 +365,7 @@ describe("catalog after the migration", () => {
         code: "SHARE_EXPERIENCE",
         name: "Comparte tu experiencia",
         included_admissions: 3,
-        price_cents: 50_970_000,
+        price_cents: 53_970_000,
         is_active: true,
         tier_sequence: 2,
       },
@@ -403,13 +404,13 @@ describe("published prices", () => {
     expect(two).toContain("QUANTITY_LIMIT");
   });
 
-  it("keeps the package at COP 509.700 for its three admissions", async () => {
+  it("keeps the package at COP 539.700 for its three admissions", async () => {
     await openGeneralStage();
     expect(await quote(3, "SHARE_EXPERIENCE")).toMatchObject({
       quantity: 3,
       bundleCode: "SHARE_EXPERIENCE",
-      subtotalInCents: 50_970_000,
-      totalInCents: 50_970_000,
+      subtotalInCents: 53_970_000,
+      totalInCents: 53_970_000,
     });
   });
 });
@@ -515,12 +516,12 @@ describe("shared inventory", () => {
     expect(await snapshot()).toMatchObject({ reserved: 4, remaining: 96 });
   });
 
-  it("reserves three admissions for one package and charges COP 509.700 once", async () => {
+  it("reserves three admissions for one package and charges COP 539.700 once", async () => {
     await openGeneralStage();
     const bundle = await createOrder(3, "SHARE_EXPERIENCE");
     expect(bundle).toMatchObject({
       quantity: 3,
-      totalInCents: 50_970_000,
+      totalInCents: 53_970_000,
       pricingTierName: "General",
     });
     expect(await snapshot()).toMatchObject({ reserved: 3, remaining: 97 });

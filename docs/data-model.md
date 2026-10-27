@@ -94,9 +94,9 @@ type), `price_cents` (`>= 0`), `quantity_limit` (null = unlimited, else `> 0`),
   `reserve_pricing_tier` and `quote_order_price` raise `PT409 / QUANTITY_LIMIT` before any counter
   moves; both functions also return the cap so the storefront can mirror it.
 
-- **Shipped prices (migrations `20261024220000`, `20261024230000`, `20261024240000`)**: Preventa
+- **Shipped prices (migrations `20261024220000`, `20261024230000`, `20261024240000`, `20261027090000`)**: Preventa
   `15990000` (COP 159.900), General `19990000` (COP 199.900), package `SHARE_EXPERIENCE`
-  `50970000` (3 × COP 169.900, one charge) on the General stage. Each reprice is a data-only
+  `53970000` (3 × COP 179.900, one charge) on the General stage. Each reprice is a data-only
   migration matched on the catalog keys, so quotes and orders read the same row the catalog
   publishes, and historical `order_items` keep their recorded amounts.
 - **One inventory for the event (migration `20261024230000`)**: `quantity_limit` is cleared on
@@ -140,7 +140,7 @@ where is_active` supports that lookup.
 - It reserves `included_admissions` from the shared pool and is refused with `SOLD_OUT` when the
   pool has fewer than that left.
 - `RESET-SUNSET-2026` ships two rows: `SHARE_EXPERIENCE` ("Comparte tu experiencia", 3
-  admissions, `price_cents = 50970000`) active on the General stage, and the retired
+  admissions, `price_cents = 53970000`) active on the General stage, and the retired
   `DOUBLE_EXPERIENCE` (2 admissions, `34000000`) with `is_active = false`. Historical orders keep
   reading the retired row through `order_items.bundle_id` and their frozen name and amount.
 

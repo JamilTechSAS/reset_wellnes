@@ -110,7 +110,7 @@ BEGIN
     event_id, ticket_type_id, pricing_tier_id, code, name, included_admissions, price_cents, is_active
   ) VALUES (
     v_event_id, v_ticket_type_id, v_general_tier_id, 'SHARE_EXPERIENCE',
-    'Comparte tu experiencia', 3, 50970000, true
+    'Comparte tu experiencia', 3, 53970000, true
   )
   ON CONFLICT (event_id, code) DO UPDATE SET
     ticket_type_id = EXCLUDED.ticket_type_id,

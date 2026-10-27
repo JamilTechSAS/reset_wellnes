@@ -22,7 +22,7 @@ export const MAX_ORDER_QUANTITY = 50;
 
 /**
  * The only named bundle a NEW purchase may ask for: "Comparte tu experiencia", three General
- * admissions for a fixed COP 509.700 (catalogued in `ticket_bundles`).
+ * admissions for a fixed COP 539.700 (catalogued in `ticket_bundles`).
  *
  * `DOUBLE_EXPERIENCE` (two admissions, COP 340.000) is retired: the migration deactivates its
  * row, and this schema never accepts the code again. Historical orders keep reading it because

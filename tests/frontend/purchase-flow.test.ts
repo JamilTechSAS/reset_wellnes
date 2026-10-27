@@ -320,21 +320,21 @@ describe("server-side quote", () => {
       makeQuote({
         quantity: 3,
         ticketType: { code: TEST_TICKET_TYPE_CODE, name: "Entrada general" },
-        pricingTier: { name: "General", sequence: 2, unitPriceInCents: 16_990_000 },
-        subtotalInCents: 50_970_000,
+        pricingTier: { name: "General", sequence: 2, unitPriceInCents: 17_990_000 },
+        subtotalInCents: 53_970_000,
         quantityDiscount: { applies: false, percentBps: 0, amountInCents: 0 },
         quantityDiscountInCents: 0,
         totalDiscountInCents: 0,
-        totalInCents: 50_970_000,
+        totalInCents: 53_970_000,
       }),
     );
     const env = setup({ api, seed: draftEntry(1) });
     env.controller.setBundleCode("SHARE_EXPERIENCE");
     await reachReview(env);
 
-    // One package is three admissions charged once: 3 × $169.900 = $509.700.
+    // One package is three admissions charged once: 3 × $179.900 = $539.700.
     expect(env.controller.getState().quantity).toBe(3);
-    expect(env.controller.getState().quote?.totalInCents).toBe(50_970_000);
+    expect(env.controller.getState().quote?.totalInCents).toBe(53_970_000);
     expect(env.api.quote).toHaveBeenCalledWith(
       expect.objectContaining({
         eventCode: TEST_EVENT_CODE,

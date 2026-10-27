@@ -16,7 +16,7 @@
 --     can never be reactivated by re-running this script.
 --
 -- Prices are stored in `price_cents`, which the schema defines as hundredths of a peso:
--- COP 159.900 -> 15990000, COP 199.900 -> 19990000, COP 509.700 -> 50970000.
+-- COP 159.900 -> 15990000, COP 199.900 -> 19990000, COP 539.700 -> 53970000.
 
 DO $$
 DECLARE
@@ -159,13 +159,13 @@ BEGIN
     price_cents = EXCLUDED.price_cents,
     is_active = false;
 
-  -- Comparte tu experiencia: exactly three admissions for COP 509.700 (COP 169.900 each),
+  -- Comparte tu experiencia: exactly three admissions for COP 539.700 (COP 179.900 each),
   -- sold only inside the General stage.
   INSERT INTO public.ticket_bundles (
     event_id, ticket_type_id, pricing_tier_id, code, name, included_admissions, price_cents, is_active
   ) VALUES (
     v_event_id, v_ticket_type_id, v_general_tier_id, 'SHARE_EXPERIENCE',
-    'Comparte tu experiencia', 3, 50970000, true
+    'Comparte tu experiencia', 3, 53970000, true
   )
   ON CONFLICT (event_id, code) DO UPDATE SET
     ticket_type_id = EXCLUDED.ticket_type_id,

@@ -43,8 +43,10 @@ describe("preventa discounted price", () => {
 
   it("keeps the General price and shows the package per person, never its total", () => {
     expect(HTML).toContain('<span class="tipo-precio">$199.900</span>');
-    expect(HTML).toContain('<span class="precio-ahora">$169.900</span>');
+    expect(HTML).toContain('<span class="precio-ahora">$179.900</span>');
     expect(HTML).toContain("por persona");
+    expect(HTML).not.toContain("$539.700");
+    expect(HTML).not.toContain("$169.900");
     expect(HTML).not.toContain("$509.700");
     expect(HTML).not.toContain("$340.000");
     expect(HTML).not.toContain("$170.000");
