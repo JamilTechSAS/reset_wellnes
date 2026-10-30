@@ -44,14 +44,14 @@ export const PRESALE_WINDOW_LABEL =
 /** Copy shown under the Preventa option once its window has closed. */
 export const PRESALE_CLOSED_NOTE = "Preventa finalizada.";
 
-/** Copy shown under the General option: availability only, no dates. */
+/** Copy shown under the General option while the stage is still closed: availability only, no dates. */
 export const GENERAL_WINDOW_LABEL = "Disponible al iniciar la etapa general";
+
+/** Copy shown under the General option once the stage is on sale, so the card never announces it as upcoming. */
+export const GENERAL_OPEN_LABEL = "Etapa activa.";
 
 // The package card's line lives with the package facts (`PACKAGE_UNAVAILABLE_NOTE`), which is the
 // only place that copy is written; this module owns when each stage opens, not the package's text.
-
-/** Footer/badge copy for the single, event-wide capacity. Never split by stage. */
-export const EVENT_CAPACITY_LABEL = "100 boletas en total";
 
 /**
  * Copy shown under the Preventa option (and as the buy-button help while it is locked): the whole

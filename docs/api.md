@@ -195,7 +195,8 @@ the API uses. The seeded Preventa stage carries `1`: a single admission per paym
 three individual admissions stay valid while inventory permits; the ticket type's
 `max_per_order` still applies on top. `SHARE_EXPERIENCE` is one package of exactly three
 admissions for a fixed COP 539,700 total (COP 179,900 each): any other quantity is refused with
-`BUNDLE_QUANTITY_INVALID`, and the package is refused with `BUNDLE_NOT_AVAILABLE` while its
+`VALIDATION_ERROR` / `BUNDLE_QUANTITY_INVALID` (HTTP 400, the request can never be valid for a
+fixed-size package), and the package is refused with `CONFLICT` / `BUNDLE_NOT_AVAILABLE` while its
 General stage is not the active one. The retired `DOUBLE_EXPERIENCE` (two admissions, COP
 340,000) is no longer accepted in a request: historical orders keep reading it from their own
 stored row.

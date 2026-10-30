@@ -14,6 +14,7 @@
 
 import {
   GENERAL_ENDS_AT,
+  GENERAL_OPEN_LABEL,
   GENERAL_OPENS_AT,
   GENERAL_WINDOW_LABEL,
   PRESALE_CLOSED_NOTE,
@@ -28,7 +29,6 @@ import {
 } from "../purchase/presale-schedule.ts";
 import {
   PACKAGE_ADMISSIONS,
-  PACKAGE_UNIT_PRICE_LABEL,
   PACKAGE_UNAVAILABLE_NOTE,
   packageCheckoutAvailable,
 } from "../purchase/package-availability.ts";
@@ -456,17 +456,10 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
   // ---------------------------------------------------------------------------
   const buyButton = document.getElementById("comprar");
   const termsCheckbox = document.getElementById("acepto-terminos") as HTMLInputElement | null;
-  const buyPriceSpan = document.getElementById("comprar-precio");
   const buyHelpText = document.getElementById("comprar-ayuda");
 
   if (buyButton) {
     const defaultTier = "preventa";
-    const tierPrices: Record<string, string> = {
-      preventa: "$159.900",
-      // The package is advertised per person, so the button mirrors the card.
-      duo: PACKAGE_UNIT_PRICE_LABEL,
-      general: "$199.900",
-    };
 
     // General and the package stay disabled until the public catalog confirms the General stage
     // is the one on sale. The catalog carries the server clock, so a device with a wrong clock
@@ -514,9 +507,6 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
     const updateTicketState = (): void => {
       const selectedRadio = document.querySelector<HTMLInputElement>(".tipo input:checked");
       const tier = selectedRadio?.value ?? defaultTier;
-      if (buyPriceSpan) {
-        buyPriceSpan.textContent = tierPrices[tier] ?? "$159.900";
-      }
 
       const selectionUnavailable = selectedRadio?.disabled === true;
       if (selectionUnavailable) {
@@ -823,7 +813,9 @@ export function initClientInteractions(options: ClientInteractionsOptions = {}):
                 // the availability line would be untrue, so it is removed (the price stays).
                 note.textContent = enabled ? "" : PACKAGE_UNAVAILABLE_NOTE;
               } else if (tier === "general") {
-                note.textContent = GENERAL_WINDOW_LABEL;
+                // Before opening, the card explains when the stage starts. Once it is on sale
+                // that line would be false, so it states that the stage is live instead.
+                note.textContent = enabled ? GENERAL_OPEN_LABEL : GENERAL_WINDOW_LABEL;
               } else if (!enabled) {
                 note.textContent = preventaLockedCopy();
               } else {

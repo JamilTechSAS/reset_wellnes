@@ -73,6 +73,7 @@ export type OrderErrorDetail =
   | "EVENT_NOT_ON_SALE"
   | "TICKET_TYPE_INACTIVE"
   | "QUANTITY_LIMIT"
+  | "BUNDLE_QUANTITY_INVALID"
   | "SOLD_OUT"
   | "NO_ASSIGNABLE_UNIT"
   | "IDEMPOTENCY_KEY_CONFLICT"
@@ -93,6 +94,14 @@ export function mapSqlErrorToAppError(error: unknown): AppError {
     });
   }
   if (sqlState === SQLSTATE_CONFLICT) {
+    // A named package has a fixed size, so a quantity that does not match its included
+    // admissions can never be a valid request — it is a client mistake (400), not a state
+    // that changed under the caller (409). The detail still travels in the context.
+    if (detail === "BUNDLE_QUANTITY_INVALID") {
+      return validationError("Bundle quantity must equal the admissions the bundle includes", {
+        context: { detail },
+      });
+    }
     return conflictError(`Database reported a conflict: ${detail ?? "unknown"}`, {
       context: { detail: detail ?? null },
     });

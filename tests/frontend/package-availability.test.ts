@@ -73,6 +73,15 @@ describe("package commercial terms", () => {
     expect(card).not.toContain("2 entradas");
   });
 
+  it("keeps the three-entry unit label unbreakable on narrow screens", () => {
+    // At 320px the label used to split inside the parentheses: "(3" on one line, "entradas)"
+    // on the next. The unit is one piece of copy, so the card must let it wrap as a whole.
+    const css = readFileSync(path.join(ROOT, "src/styles/reset.css"), "utf8");
+    const rule = /\.tipo-nombre small \{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(rule).toContain("white-space: nowrap");
+    expect(packageCardHtml()).toContain("<small>(3 entradas)</small>");
+  });
+
   it("ships the package option disabled so it cannot be selected before General opens", () => {
     expect(packageCardHtml()).toContain('value="duo" disabled');
   });
@@ -114,9 +123,7 @@ describe("package purchase guard", () => {
         </label>
       </fieldset>
       <input type="checkbox" id="acepto-terminos" />
-      <button class="comprar" id="comprar" type="button" aria-disabled="true">
-        Comprar entrada · <span id="comprar-precio">$159.900</span>
-      </button>
+      <button class="comprar" id="comprar" type="button" aria-disabled="true">Paga aquí</button>
       <p class="comprar-ayuda" id="comprar-ayuda"></p>
     `;
     cleanup = initClientInteractions({ openPurchase });

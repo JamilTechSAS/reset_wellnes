@@ -10,6 +10,9 @@ import { describe, expect, it, vi, type MockedFunction } from "vitest";
 
 import { loadConfig, type BackendConfig } from "@shared/config/env.ts";
 import {
+  BUNDLE_QUANTITY_MESSAGE_ES,
+  BUNDLE_QUANTITY_REASON,
+  bundleQuantityRefusal,
   CHECKOUT_CONFLICT_REASONS,
   checkoutConflictDetails,
   handleCreateOrder,
@@ -493,7 +496,7 @@ describe("bundle purchase contract", () => {
     });
   });
 
-  it("refuses a package with two admissions through the database contract, which the API maps to 409", async () => {
+  it("refuses a package with two admissions with a clear 400 instead of the generic conflict", async () => {
     // The schema accepts 1..50 for every product; the package/quantity pairing is authoritative
     // in SQL (`PT409` `BUNDLE_QUANTITY_INVALID`), so this is the response a two-admission
     // package request actually receives.
@@ -521,19 +524,44 @@ describe("bundle purchase contract", () => {
     expect(refusingQuote).toHaveBeenCalledWith(
       expect.objectContaining({ quantity: 2, bundleCode: "SHARE_EXPERIENCE" }),
     );
-    expect(toAppError(error).code).toBe("CONFLICT");
-    // Not in the purchase-rule allowlist: the buyer sees the generic conflict, no detail.
+    // A fixed-size package can never accept this quantity, so it is a malformed request (400),
+    // not a state conflict the buyer is supposed to retry.
+    expect(toAppError(error)).toMatchObject({
+      code: "VALIDATION_ERROR",
+      context: { detail: BUNDLE_QUANTITY_REASON },
+    });
+    // The conflict allowlist does not apply: this refusal is a validation error.
     expect(purchaseRuleDetails(error)).toBeUndefined();
 
-    const response = errorResponse(error, { details: purchaseRuleDetails(error) });
-    expect(response.status).toBe(409);
+    const refusal = bundleQuantityRefusal(error);
+    expect(refusal).toEqual({
+      message: BUNDLE_QUANTITY_MESSAGE_ES,
+      details: { reason: "BUNDLE_QUANTITY_INVALID" },
+    });
+    if (refusal === undefined) {
+      throw new Error("expected the package-size refusal to carry a message and reason");
+    }
+
+    const response = errorResponse(error, {
+      message: refusal.message,
+      details: refusal.details,
+    });
+    expect(response.status).toBe(400);
     expect(await response.json()).toEqual({
       ok: false,
       error: {
-        code: "CONFLICT",
-        message: DEFAULT_ERROR_MESSAGES_ES.CONFLICT,
+        code: "VALIDATION_ERROR",
+        message: "La cantidad no coincide con las admisiones que incluye el paquete.",
+        details: { reason: "BUNDLE_QUANTITY_INVALID" },
       },
     });
+  });
+
+  it("does not attach the package-size message to any other validation error", () => {
+    const other = validationError("bad input", { context: { detail: "INVALID_QUANTITY" } });
+    expect(bundleQuantityRefusal(other)).toBeUndefined();
+    expect(bundleQuantityRefusal(conflictError("conflict"))).toBeUndefined();
+    expect(bundleQuantityRefusal(new Error("BUNDLE_QUANTITY_INVALID"))).toBeUndefined();
   });
 });
 

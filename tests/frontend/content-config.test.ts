@@ -70,10 +70,6 @@ describe("EVENT_CONTENT_CONFIG", () => {
     expect(branding.logoAlt).toBe("Reset Wellness Club");
     expect(branding.logoFullWidth).toBeGreaterThan(0);
     expect(branding.logoFullHeight).toBeGreaterThan(0);
-
-    // "100 boletas en total" is the client's own wording; they never published a number.
-    expect(branding.badgeText).toBe("100 boletas en total");
-    expect(branding.badgeText).toContain("100 boletas en total");
   });
 
   it("defines the hero with the confirmed date, schedule and venue", () => {
@@ -90,6 +86,8 @@ describe("EVENT_CONTENT_CONFIG", () => {
   });
 
   it("publishes only verified hero facts ÔÇö never a capacity figure", () => {
+    // The capacity copy was removed from every surface; no config string may reintroduce it.
+    expect(JSON.stringify(EVENT_CONTENT_CONFIG)).not.toMatch(/100\s+boletas|boletas en total/i);
     expect(EVENT_CONTENT_CONFIG.hero.facts.length).toBeGreaterThanOrEqual(3);
     for (const fact of EVENT_CONTENT_CONFIG.hero.facts) {
       expect(fact.id).toBeTruthy();
@@ -243,6 +241,20 @@ describe("EVENT_CONTENT_CONFIG", () => {
     // The other two products keep their published prices.
     expect(finalCta.ticketOptions[0]?.priceLabel).toBe("$159.900");
     expect(finalCta.ticketOptions[2]?.priceLabel).toBe("$199.900");
+  });
+
+  it("describes the package in the present tense now that General is on sale", () => {
+    const answer = EVENT_CONTENT_CONFIG.faq.items.find(
+      (item) => item.id === "faq-acompanante",
+    )?.answer;
+    expect(answer).toContain("Durante la etapa General está disponible");
+    // It used to promise the package would be available later; the stage is open now.
+    expect(answer).not.toContain("estará disponible");
+
+    // The static page carries the same sentence, so config and HTML cannot drift apart.
+    const page = readFileSync(new URL("../../preguntas-frecuentes.html", import.meta.url), "utf8");
+    expect(page).toContain("Durante la etapa General está disponible");
+    expect(page).not.toContain("estará disponible");
   });
 
   it("never carries a discount code or a percentage claim", () => {

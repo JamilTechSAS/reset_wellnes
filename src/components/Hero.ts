@@ -85,11 +85,6 @@ export function renderHero(config: EventLandingConfig): string {
           </a>
         </div>
 
-        <div class="hero-capacity-pill">
-          <span class="dot" aria-hidden="true"></span>
-          <span>${escapeHtml(hero.capacityNotice)}</span>
-        </div>
-
         <p class="hero-media-pending">
           ${renderIcon("alert")}
           <span>${escapeHtml(hero.imagePendingNote)}</span>

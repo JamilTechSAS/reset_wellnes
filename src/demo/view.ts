@@ -165,7 +165,6 @@ export function renderDemoSection(cart: DemoCart): string {
       <p class="demo-assurance">La demo no solicita datos personales ni de pago y no puede abrir un
       checkout real de ePayco.</p>
       <ul class="demo-assurance-list">
-        <li>No reserva cupos de las 100 boletas.</li>
         <li>No crea pedidos ni pagos.</li>
         <li>No envía correos.</li>
       </ul>

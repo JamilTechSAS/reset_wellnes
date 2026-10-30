@@ -17,10 +17,6 @@ export function renderStickyBar(config: EventLandingConfig): string {
       <div class="sticky-bar-inner">
         <div class="sticky-bar-info">
           <span class="sticky-bar-event">${escapeHtml(config.branding.eventName)}</span>
-          <span class="sticky-bar-capacity">
-            <span class="sticky-bar-dot" aria-hidden="true"></span>
-            ${escapeHtml(config.branding.badgeText)}
-          </span>
         </div>
         <button
           type="button"

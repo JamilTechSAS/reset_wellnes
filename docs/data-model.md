@@ -133,7 +133,8 @@ where is_active` supports that lookup.
 - A package is **one** `order_items` row of `included_admissions` admissions at its own total
   price: `create_bundle_order` writes `quantity = included_admissions` and
   `line_total_cents = price_cents`, and refuses any other requested quantity with
-  `PT409 / BUNDLE_QUANTITY_INVALID`.
+  `PT409 / BUNDLE_QUANTITY_INVALID` (the API translates it to `VALIDATION_ERROR` / 400, because a
+  fixed-size package can never accept another quantity).
 - It is sold only while its `pricing_tier_id` is the active stage, otherwise
   `PT409 / BUNDLE_NOT_AVAILABLE` — identical on the quote and the creation path
   (migrations `20261024200000`, `20261024230000`).

@@ -645,6 +645,34 @@ export function checkoutConflictDetails(error: unknown): { readonly reason: stri
 export const PURCHASE_RULE_REASONS: readonly string[] = ["QUANTITY_LIMIT", "BUNDLE_NOT_AVAILABLE"];
 
 /**
+ * The package-size refusal, which is a validation error rather than a conflict.
+ *
+ * `BUNDLE_QUANTITY_INVALID` — the client asked for a number of admissions the named package
+ * never carries (the package is one fixed size). The database raises it before pricing, so
+ * nothing was reserved; answering with the generic conflict would hide the rule entirely.
+ */
+export const BUNDLE_QUANTITY_REASON = "BUNDLE_QUANTITY_INVALID";
+
+/** Spanish sentence naming the rule the buyer broke (user-safe, no identifiers). */
+export const BUNDLE_QUANTITY_MESSAGE_ES =
+  "La cantidad no coincide con las admisiones que incluye el paquete.";
+
+/**
+ * Message + `{ reason }` for the package-size refusal, or undefined for every other error.
+ *
+ * The HTTP status comes from the mapped code (`VALIDATION_ERROR` → 400); this helper only
+ * adds the sentence and the machine-readable reason so the client can act on the refusal.
+ */
+export function bundleQuantityRefusal(
+  error: unknown,
+): { readonly message: string; readonly details: { readonly reason: string } } | undefined {
+  const appError = toAppError(error);
+  return appError.code === "VALIDATION_ERROR" && appError.context.detail === BUNDLE_QUANTITY_REASON
+    ? { message: BUNDLE_QUANTITY_MESSAGE_ES, details: { reason: BUNDLE_QUANTITY_REASON } }
+    : undefined;
+}
+
+/**
  * `{ reason }` for an allowlisted purchase-rule CONFLICT, or undefined for everything else.
  *
  * The Spanish `message` and the HTTP status are untouched: the reason only lets the storefront

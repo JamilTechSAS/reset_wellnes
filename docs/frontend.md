@@ -94,7 +94,8 @@ retry.
 | "Comparte tu experiencia" (3 admissions, General stage only) | `quantity: 3`, `bundleCode: SHARE_EXPERIENCE`       | $179.900 per person ($539.700) |
 
 The package card is presented with its real commercial terms — title "Comparte tu experiencia (3
-entradas)", `$179.900 por persona` and "Disponible al iniciar la etapa general" — and it starts a
+entradas)", `$179.900 por persona` and, until General opens, "Disponible al iniciar la etapa
+general" — and it starts a
 checkout through the same dialog as the other tiers (`tier: "duo"` → `quantity: 3` and
 `bundleCode: SHARE_EXPERIENCE`). It is purchasable **only** while the catalog says General is the
 open stage _and_ the server-derived clock is inside the General window; the backend then re-prices
@@ -104,7 +105,8 @@ fewer than three remain. The retired `DOUBLE_EXPERIENCE` code is never sent by t
 The ticket cards keep a deliberately terse caption line (`.tipo-nota`, 12 px): the Preventa card
 restates its window in one friendly sentence ("Aprovecha la preventa del 25 de octubre a las 10:00
 a. m. al 28 de octubre a las 11:59 p. m."), while the General and package cards print only
-"Disponible al iniciar la etapa general" — no date ranges. The exact instants stay in
+availability — "Disponible al iniciar la etapa general" before the stage opens and "Etapa
+activa." once it is on sale — no date ranges. The exact instants stay in
 `src/purchase/presale-schedule.ts` and are what the gate enforces; the package total is kept as a
 constant (`PACKAGE_TOTAL_PRICE_LABEL`) for the contract below but is no longer printed on the card.
 
@@ -358,8 +360,8 @@ npm run dev                        # Vite on http://localhost:3000
   (America/Bogota); whether Preventa is actually buyable once that instant passes still comes from
   the backend availability response. Overriding the system clock is not a supported way to test:
   insert a tier whose window is open.
-- The page states **100 boletas en total** once, for the whole event; it never shows a per-stage
-  quota or an inferred remaining count.
+- The page states no event-capacity figure; it never shows a per-stage quota or an inferred
+  remaining count.
 - The ePayco modal is only opened with a `sessionId` the backend created, so a local run needs the
   backend's ePayco configuration. Completing a payment locally requires sandbox credentials or
   driving `public.confirm_payment(...)` directly as `service_role` (this is what the Phase 6B

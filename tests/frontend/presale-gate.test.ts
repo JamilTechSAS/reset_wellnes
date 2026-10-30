@@ -10,6 +10,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { initClientInteractions } from "../../src/utils/client-interactions.ts";
 import {
+  GENERAL_OPEN_LABEL,
+  GENERAL_WINDOW_LABEL,
   PRESALE_CLOSED_NOTE,
   PRESALE_SCHEDULE_NOTE,
   PRESALE_WINDOW_LABEL,
@@ -94,9 +96,7 @@ function mountTicketSection(): void {
       </label>
     </fieldset>
     <input type="checkbox" id="acepto-terminos" />
-    <button class="comprar" id="comprar" type="button" aria-disabled="true">
-      Comprar entrada · <span id="comprar-precio">$160.000</span>
-    </button>
+    <button class="comprar" id="comprar" type="button" aria-disabled="true">Paga aquí</button>
     <p class="comprar-ayuda" id="comprar-ayuda"></p>
   `;
 }
@@ -274,15 +274,21 @@ describe("presale time gate", () => {
       salesConfig: { apiBaseUrl: "http://api.test", eventCode: "RESET", ticketTypeCode: "GENERAL" },
     });
     await vi.advanceTimersByTimeAsync(0);
-    // Before the opening instant the stale General answer is not enough.
+    // Before the opening instant the stale General answer is not enough, and the card still
+    // announces the stage as upcoming.
     expect(tierRadio("general").disabled).toBe(true);
     expect(tierRadio("duo").disabled).toBe(true);
+    expect(tierCard("general").querySelector("[data-nota]")?.textContent).toBe(
+      GENERAL_WINDOW_LABEL,
+    );
 
     await vi.advanceTimersByTimeAsync(30_100);
 
     expect(tierRadio("general").disabled).toBe(false);
     expect(tierCard("duo").classList.contains("is-off")).toBe(false);
     expect(tierRadio("duo").disabled).toBe(false);
+    // Once General is on sale the card must not keep promising it will start later.
+    expect(tierCard("general").querySelector("[data-nota]")?.textContent).toBe(GENERAL_OPEN_LABEL);
 
     tierRadio("general").checked = true;
     clickBuy();

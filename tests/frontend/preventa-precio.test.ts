@@ -37,8 +37,16 @@ describe("preventa discounted price", () => {
     expect(HTML).not.toContain("$160.000");
   });
 
-  it("keeps the buy button price in sync with the discounted price", () => {
-    expect(HTML).toContain('<span id="comprar-precio">$159.900</span>');
+  it("no longer shows the capacity pill at the bottom of the page", () => {
+    expect(HTML).not.toContain("100 boletas en total");
+    expect(HTML).not.toContain("det-cupos");
+  });
+
+  it("labels the main buy button with the action instead of the price", () => {
+    const start = HTML.indexOf('id="comprar"');
+    const button = HTML.slice(start, HTML.indexOf("</button>", start));
+    expect(button).toContain("Paga aquí");
+    expect(button).not.toContain("$159.900");
   });
 
   it("keeps the General price and shows the package per person, never its total", () => {

@@ -1,7 +1,7 @@
 /**
  * Commercial sales schedule (America/Bogota, 2026): Preventa, General, the one-minute gap between
- * them, and the single event-wide capacity. The HTML labels are asserted against the same
- * constants the UI uses, so a copy change cannot drift from the gate.
+ * them. The HTML labels are asserted against the same constants the UI uses, so a copy change
+ * cannot drift from the gate.
  */
 
 import { readFileSync } from "node:fs";
@@ -10,7 +10,6 @@ import { describe, expect, it } from "vitest";
 
 import { PACKAGE_UNAVAILABLE_NOTE } from "../../src/purchase/package-availability.ts";
 import {
-  EVENT_CAPACITY_LABEL,
   GENERAL_ENDS_AT,
   GENERAL_OPENS_AT,
   GENERAL_WINDOW_LABEL,
@@ -82,9 +81,8 @@ describe("tickets page copy", () => {
     expect(HTML).not.toContain("$170.000");
   });
 
-  it("states one event-wide capacity of 100 and no per-stage quotas", () => {
-    expect(EVENT_CAPACITY_LABEL).toBe("100 boletas en total");
-    expect(FLAT).toContain(EVENT_CAPACITY_LABEL);
+  it("no longer states an event-capacity figure and keeps no per-stage quotas", () => {
+    expect(FLAT).not.toMatch(/100\s+boletas/i);
     expect(HTML).not.toMatch(/\b(30|70)\s*(boletas|entradas|cupos)/i);
     expect(HTML).not.toMatch(/cupos? (de|por) (preventa|general)/i);
   });

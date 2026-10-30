@@ -105,7 +105,6 @@ export type EventLandingConfig = {
     readonly eventName: string;
     readonly edition: string;
     readonly organizer: string;
-    readonly badgeText: string;
     readonly logoFullSrc: string;
     readonly logoShortSrc: string;
     readonly logoAlt: string;
@@ -122,7 +121,6 @@ export type EventLandingConfig = {
     readonly locationLabel: string;
     readonly primaryCtaText: string;
     readonly secondaryCtaText: string;
-    readonly capacityNotice: string;
     /** Verified facts only: no capacity, no invented statistics. */
     readonly facts: readonly HeroFact[];
     /** The client delivered no photography; this text records what is still missing. */

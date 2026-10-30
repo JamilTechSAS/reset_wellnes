@@ -79,10 +79,9 @@ describe("Component Rendering", () => {
     expect(factValues.join(" ")).toContain("Hotel GHL");
     expect(factValues.join(" ")).not.toMatch(/\b\d{2,4}\s*(cupos|asistentes|personas)\b/i);
 
-    // The client published no capacity figure, so the pill says exactly that.
-    const capacityPill = container.querySelector(".hero-capacity-pill");
-    expect(capacityPill?.textContent).toContain("100 boletas en total");
-    expect(capacityPill?.textContent).toContain("100 boletas en total");
+    // Capacity copy was removed at the client's request; the hero must not bring it back.
+    expect(container.querySelector(".hero-capacity-pill")).toBeNull();
+    expect(container.textContent).not.toMatch(/100 boletas/i);
 
     // No photography was delivered: the page says so instead of showing a stock image.
     expect(container.querySelector(".hero-media-pending")?.textContent).toContain(

@@ -49,6 +49,7 @@ import {
 import { createParticipantGateway, type ParticipantGateway } from "../_shared/db/participants.ts";
 import { createRateLimitGateway, type RateLimitGateway } from "../_shared/db/rate-limits.ts";
 import {
+  bundleQuantityRefusal,
   checkoutConflictDetails,
   handleCreateOrder,
   handleQuote,
@@ -376,14 +377,19 @@ Deno.serve(async (request: Request): Promise<Response> => {
     // "sold out", and it is safe in every environment.
     // The two vocabularies are disjoint by construction (see the allowlists' tests), so the
     // order here cannot change an existing checkout-session answer.
+    // A package request with the wrong number of admissions is a malformed request: it gets
+    // a 400 naming the rule instead of the generic conflict the buyer cannot act on.
+    const bundleRefusal = bundleQuantityRefusal(appError);
     const details =
       participantErrorDetails(error) ??
       configIssues ??
       (exposeDiagnostics ? providerDiagnostics : undefined) ??
       checkoutConflictDetails(appError) ??
-      purchaseRuleDetails(appError);
+      purchaseRuleDetails(appError) ??
+      bundleRefusal?.details;
     return errorResponse(appError, {
       ...(isConfig ? { message: "La configuración del backend está incompleta." } : {}),
+      ...(bundleRefusal === undefined ? {} : { message: bundleRefusal.message }),
       ...(details === undefined ? {} : { details }),
       headers: corsHeaders,
     });

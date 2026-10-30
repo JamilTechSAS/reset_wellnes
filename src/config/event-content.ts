@@ -38,8 +38,6 @@ export const EVENT_CONTENT_CONFIG: EventLandingConfig = {
     eventName: "Re set Sunset",
     edition: "Vol. 1 · Montería",
     organizer: "Reset Wellness Club",
-    // One event-wide capacity, never split by sales stage.
-    badgeText: "100 boletas en total",
     logoFullSrc: "/assets/reset/logo-reset.png",
     logoShortSrc: "/assets/reset/logo-reset-corto.png",
     logoAlt: "Reset Wellness Club",
@@ -58,8 +56,6 @@ export const EVENT_CONTENT_CONFIG: EventLandingConfig = {
     locationLabel: "Terraza del hotel GHL, Montería",
     primaryCtaText: "COMPRAR ENTRADA",
     secondaryCtaText: "Conoce la experiencia",
-    capacityNotice:
-      "100 boletas en total · La venta abre por etapas y el valor final lo confirma el sistema al iniciar la compra.",
     facts: [
       { id: "fact-date", value: "15 Nov 2026", label: "Domingo" },
       { id: "fact-hours", value: "6 horas", label: "De 1:00 p.m. a 7:00 p.m." },
@@ -214,7 +210,7 @@ export const EVENT_CONTENT_CONFIG: EventLandingConfig = {
     dressCode: "Sport + [color por confirmar]",
     whatToBring: ["Vestido de baño", "Toalla", "Bloqueador", "Tu documento de identidad"],
     accessNote:
-      "El evento tiene 100 boletas en total. Se realiza en una terraza, así que te recomendamos confirmar el clima del día y llegar con tiempo antes del inicio de las actividades.",
+      "El evento se realiza en una terraza, así que te recomendamos confirmar el clima del día y llegar con tiempo antes del inicio de las actividades.",
   },
 
   faq: {
@@ -239,7 +235,7 @@ export const EVENT_CONTENT_CONFIG: EventLandingConfig = {
         id: "faq-acompanante",
         question: "¿Puedo ir con alguien?",
         answer:
-          "Sí. Durante la etapa General estará disponible Comparte tu experiencia: un paquete de 3 entradas por $539.700 ($179.900 por persona). También puedes comprar entradas General sueltas.",
+          "Sí. Durante la etapa General está disponible Comparte tu experiencia: un paquete de 3 entradas por $539.700 ($179.900 por persona). También puedes comprar entradas General sueltas.",
       },
       {
         id: "faq-llevar",
