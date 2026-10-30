@@ -286,10 +286,19 @@ deployments and at the production project URL in production (Vercel environment 
 Project `pzogdjjdkgolybfcegcs` was brought from the 2026-10-07 schema to the current one and its
 catalogue was created for the first time:
 
-1. **Migrations.** `npx supabase db push --project-ref pzogdjjdkgolybfcegcs` applied the 22
-   migrations pending after `20261007233000`, in timestamp order. The set is additive — it drops
-   no table, view, column or row — and it leaves the legacy `tickets` / `attendance` / `consents` /
+1. **Migrations.** `npx supabase db push --project-ref pzogdjjdkgolybfcegcs` applied the migrations
+   pending after `20261007233000`, in timestamp order. The set is additive — it drops no table,
+   view, column or row — and it leaves the legacy `tickets` / `attendance` / `consents` /
    `email_deliveries` tables in place while no longer feeding them.
+
+   **Current state (verified 2026-10-29):** `supabase migration list` against the production ref
+   reports all **47** migrations in `supabase/migrations/` as applied, with no remote-only entry and
+   no local one missing. The count includes the migrations added after this record:
+   `20261025120000_checkout_call_unresolved.sql` (a second ePayco session is not authorized while
+   the first call is unresolved) and `20261027090000_share_experience_price_179900.sql`
+   (`SHARE_EXPERIENCE` at COP 539.700). Re-run the command before deploying instead of trusting the
+   number here: the history only grows.
+
 2. **Catalogue.** [../supabase/ops/production/seed_reset_sunset_event.sql](../supabase/ops/production/seed_reset_sunset_event.sql)
    creates `RESET-SUNSET-2026` (capacity 100, venue Terraza del hotel GHL, Montería), the `GENERAL`
    ticket type with its Preventa and General tiers, the retired `DOUBLE_EXPERIENCE` bundle kept
