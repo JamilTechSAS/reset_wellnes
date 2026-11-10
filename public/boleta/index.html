@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#513229">
+<title>Tu entrada · Re set Sunset</title>
+<link rel="icon" href="/favicon.ico">
+<style>
+  :root { --cafe:#513229; --beige:#f4f1e2; --vinnie:#d7d4b1; --bay:#fce6b7; --texto:#3b2a24; --suave:#7a5a4c; }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; background:var(--beige); color:var(--texto);
+         font-family:"Questrial",-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+         display:flex; align-items:center; justify-content:center; padding:20px 16px; }
+  .ticket { width:100%; max-width:380px; background:#fffdf7; border-radius:22px; overflow:hidden;
+            border:1px solid var(--vinnie); box-shadow:0 12px 32px rgba(81,50,41,.14); }
+  .head { background:var(--cafe); color:var(--beige); text-align:center; padding:24px 16px 22px; }
+  .head img { width:130px; height:auto; display:block; margin:0 auto 10px; }
+  .head small { letter-spacing:3px; text-transform:uppercase; font-size:11px; opacity:.85; }
+  .head h1 { margin:6px 0 0; font-family:"Fraunces",Georgia,serif; font-weight:400; font-size:28px; }
+  .body { padding:24px 20px; text-align:center; }
+  #qr { width:250px; height:250px; margin:0 auto; padding:10px; background:#fff; border-radius:12px; }
+  #qr img, #qr canvas { width:230px !important; height:230px !important; }
+  .id { font-size:22px; font-weight:700; letter-spacing:2px; margin:14px 0 2px; color:var(--cafe); }
+  .tipo { color:var(--suave); font-size:14px; }
+  .info { background:var(--beige); border-radius:12px; padding:12px 14px; margin-top:18px; text-align:left;
+          font-size:14px; line-height:1.7; }
+  .info div { display:grid; grid-template-columns:84px 1fr; gap:8px; padding:2px 0; line-height:1.45; }
+  .info strong { color:var(--suave); font-weight:400; }
+  .nota { color:var(--suave); font-size:12px; margin-top:16px; line-height:1.6; }
+  .estado { display:inline-block; margin-top:10px; padding:4px 12px; border-radius:999px; font-size:12px; font-weight:700; }
+  .estado.ok { background:var(--vinnie); color:var(--cafe); }
+  .estado.usada { background:var(--bay); color:#8a6516; }
+  .estado.anulada { background:rgba(166,64,47,.12); color:#a6402f; }
+  .error { padding:40px 20px; text-align:center; }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+  <main class="ticket">
+    <div class="head">
+      <img src="/correo/img/logo-beige.png" alt="Reset Wellness Club">
+      <small>Tu entrada</small>
+      <h1 id="evento">Re set Sunset</h1>
+    </div>
+
+    <div id="contenido" class="body">
+      <div id="qr" role="img" aria-label="Código QR de tu entrada"></div>
+      <div class="id" id="bid">…</div>
+      <div class="tipo" id="btipo"></div>
+      <div id="bestado"></div>
+      <div class="info hidden" id="binfo"></div>
+      <p class="nota">Muestra este QR en la entrada con el brillo alto.<br>Válido para <strong>una sola entrada</strong>. No lo compartas.</p>
+    </div>
+
+    <div id="error" class="error hidden">
+      <p><strong>No encontramos esta entrada.</strong></p>
+      <p class="nota">Abre el enlace completo desde el correo que te enviamos.</p>
+    </div>
+  </main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+  // URL de la Web App de Apps Script (termina en /exec)
+  const API_URL = 'https://script.google.com/macros/s/AKfycbz97rNIEqeF4MxgPUXQi0o4vzDZi03NyNkDPSolmg99QItn1UEw0BYT5am5HMS93sUScQ/exec';
+
+  const token = (location.hash.match(/[a-f0-9]{32}/i) || [])[0];
+  const $ = id => document.getElementById(id);
+  const mostrarError = () => { $('contenido').classList.add('hidden'); $('error').classList.remove('hidden'); };
+
+  if (!token) {
+    mostrarError();
+  } else {
+    // El QR se dibuja en el navegador; el token (después del #) nunca llega al servidor web
+    new QRCode($('qr'), { text: location.origin + location.pathname + '#' + token.toLowerCase(),
+                          width: 460, height: 460, correctLevel: QRCode.CorrectLevel.Q });
+
+    fetch(API_URL + '?action=info&token=' + encodeURIComponent(token))
+      .then(r => r.json())
+      .then(d => {
+        if (!d.ok) return mostrarError();
+        $('bid').textContent = d.id;
+        $('btipo').textContent = d.tipo || '';
+        if (d.evento) {
+          $('evento').textContent = d.evento.nombre;
+          const info = $('binfo');
+          [['Hola', d.nombre], ['Fecha', d.evento.fecha], ['Hora', d.evento.hora],
+           ['Lugar', d.evento.lugar], ['Vestimenta', d.evento.codigoVestimenta]].forEach(([k, v]) => {
+            if (!v) return;
+            const div = document.createElement('div');
+            const b = document.createElement('strong'); b.textContent = k;
+            div.append(b, document.createTextNode(v));
+            info.appendChild(div);
+          });
+          info.classList.remove('hidden');
+        }
+        const est = { VALIDA: ['ok', 'Activa'], USADA: ['usada', 'Ya fue usada'], ANULADA: ['anulada', 'Anulada'] }[d.estado];
+        if (est) $('bestado').innerHTML = '<span class="estado ' + est[0] + '">' + est[1] + '</span>';
+      })
+      .catch(() => { $('bid').textContent = ''; }); // sin conexión: el QR igual sirve para entrar
+  }
+</script>
+</body>
+</html>
