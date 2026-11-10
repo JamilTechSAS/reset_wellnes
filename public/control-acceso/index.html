@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="theme-color" content="#2b1a15">
+<title>Control de acceso · Re set Sunset</title>
+<style>
+  :root { --ok:#2e7d46; --rojo:#b3261e; --ambar:#c27a00; --fondo:#2b1a15; --arena:#f4f1e2; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; height:100%; }
+  body { background:var(--fondo); color:var(--arena);
+         font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; }
+  .hidden { display:none !important; }
+
+  /* Login */
+  #login { min-height:100%; display:flex; flex-direction:column; justify-content:center; padding:24px 16px; max-width:420px; margin:0 auto; }
+  #login h1 { font-size:22px; margin:0 0 4px; }
+  #login p { margin:0 0 20px; opacity:.7; font-size:14px; }
+  label { display:block; font-size:13px; opacity:.8; margin:14px 0 6px; }
+  input { width:100%; padding:14px; border-radius:12px; border:1px solid #5a3d33; background:#3a2620;
+          color:var(--arena); font-size:17px; }
+  button { width:100%; padding:15px; border:0; border-radius:12px; font-size:16px; font-weight:600;
+           background:var(--arena); color:var(--fondo); margin-top:20px; cursor:pointer; }
+  button.sec { background:transparent; color:var(--arena); border:1px solid #5a3d33; margin-top:10px; }
+  .err { color:#ffb4ab; font-size:14px; min-height:20px; margin-top:12px; }
+
+  /* Escáner */
+  #app { min-height:100%; display:flex; flex-direction:column; }
+  header { display:flex; justify-content:space-between; align-items:center; padding:12px 16px; font-size:14px; }
+  header b { font-size:16px; }
+  #contador { background:#3a2620; padding:6px 12px; border-radius:999px; font-variant-numeric:tabular-nums; }
+  #reader { width:100%; max-width:520px; margin:0 auto; }
+  #reader video { border-radius:14px; }
+  .acciones { padding:12px 16px 20px; max-width:520px; margin:0 auto; width:100%; }
+  .manual { display:flex; gap:8px; margin-top:10px; }
+  .manual input { flex:1; }
+  .manual button { width:auto; margin:0; padding:0 18px; }
+  #ultimo { font-size:13px; opacity:.7; text-align:center; margin-top:12px; min-height:18px; }
+
+  /* Resultado a pantalla completa */
+  #resultado { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+               text-align:center; padding:24px; z-index:10; }
+  #resultado.VALIDA { background:var(--ok); }
+  #resultado.USADA { background:var(--ambar); }
+  #resultado.INVALIDA, #resultado.ANULADA, #resultado.ERROR { background:var(--rojo); }
+  #resultado.CARGANDO { background:rgba(43,26,21,.94); }
+  #rIcono { font-size:96px; line-height:1; }
+  #rTitulo { font-size:34px; font-weight:800; margin:16px 0 8px; text-transform:uppercase; letter-spacing:1px; }
+  #rNombre { font-size:24px; font-weight:600; }
+  #rDetalle { font-size:16px; margin-top:10px; opacity:.95; line-height:1.5; }
+  #rSiguiente { margin-top:32px; max-width:320px; background:rgba(255,255,255,.95); color:#111; }
+</style>
+</head>
+<body>
+
+<section id="login">
+  <h1>Control de acceso</h1>
+  <p>Re set Sunset · solo staff</p>
+  <label for="staff">Tu nombre</label>
+  <input id="staff" autocomplete="name" placeholder="Ej: Laura – Puerta 1">
+  <label for="pin">PIN</label>
+  <input id="pin" type="password" inputmode="numeric" autocomplete="off" placeholder="••••••••">
+  <button id="entrar">Entrar</button>
+  <div class="err" id="loginErr"></div>
+</section>
+
+<section id="app" class="hidden">
+  <header>
+    <div><b id="hdrStaff"></b></div>
+    <div id="contador">— / —</div>
+  </header>
+  <div id="reader"></div>
+  <div class="acciones">
+    <div class="manual">
+      <input id="manualId" placeholder="ID (RW-0012 o 12) o cédula" autocapitalize="characters" inputmode="text">
+      <button id="manualBtn">Validar</button>
+    </div>
+    <div id="ultimo"></div>
+    <button class="sec" id="salir">Cerrar sesión</button>
+  </div>
+</section>
+
+<div id="resultado" class="hidden" role="alert">
+  <div id="rIcono"></div>
+  <div id="rTitulo"></div>
+  <div id="rNombre"></div>
+  <div id="rDetalle"></div>
+  <button id="rSiguiente">Escanear siguiente</button>
+</div>
+
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script>
+  // URL de la Web App de Apps Script (termina en /exec)
+  const API_URL = 'https://script.google.com/macros/s/AKfycbz97rNIEqeF4MxgPUXQi0o4vzDZi03NyNkDPSolmg99QItn1UEw0BYT5am5HMS93sUScQ/exec';
+
+  const $ = id => document.getElementById(id);
+  const store = {
+    get(k) { try { return localStorage.getItem('rw_' + k) || ''; } catch (e) { return ''; } },
+    set(k, v) { try { localStorage.setItem('rw_' + k, v); } catch (e) {} },
+    del(k) { try { localStorage.removeItem('rw_' + k); } catch (e) {} },
+  };
+
+  let sesion = { pin: store.get('pin'), staff: store.get('staff') };
+  let scanner = null, ocupado = false, ultimoCodigo = '', ultimoTiempo = 0;
+
+  async function api(params) {
+    const qs = new URLSearchParams(Object.assign({ pin: sesion.pin, staff: sesion.staff }, params));
+    const r = await fetch(API_URL + '?' + qs.toString(), { cache: 'no-store' });
+    return r.json();
+  }
+
+  // ---------- Login ----------
+  $('staff').value = sesion.staff;
+  $('entrar').onclick = async () => {
+    sesion = { pin: $('pin').value.trim(), staff: $('staff').value.trim() || 'Staff' };
+    $('loginErr').textContent = 'Verificando…';
+    try {
+      const d = await api({ action: 'stats' });
+      if (!d.ok) throw new Error(d.error || 'PIN incorrecto');
+      store.set('pin', sesion.pin); store.set('staff', sesion.staff);
+      $('loginErr').textContent = '';
+      iniciar(d);
+    } catch (e) {
+      $('loginErr').textContent = e.message === 'Failed to fetch' ? 'Sin conexión' : e.message;
+    }
+  };
+  $('salir').onclick = async () => {
+    store.del('pin');
+    if (scanner) { try { await scanner.stop(); } catch (e) {} }
+    location.reload();
+  };
+
+  // ---------- Escáner ----------
+  function iniciar(stats) {
+    $('login').classList.add('hidden');
+    $('app').classList.remove('hidden');
+    $('hdrStaff').textContent = sesion.staff;
+    pintarContador(stats);
+
+    scanner = new Html5Qrcode('reader', { formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE] });
+    scanner.start(
+      { facingMode: 'environment' },
+      { fps: 12, qrbox: (w, h) => { const s = Math.floor(Math.min(w, h) * 0.7); return { width: s, height: s }; } },
+      texto => alLeer(texto),
+      () => {}
+    ).catch(err => {
+      $('ultimo').textContent = 'No se pudo abrir la cámara: ' + err + '. Usa el ID manual.';
+    });
+  }
+
+  function alLeer(texto) {
+    const ahora = Date.now();
+    if (ocupado) return;
+    if (texto === ultimoCodigo && ahora - ultimoTiempo < 4000) return; // evita doble lectura del mismo QR
+    ultimoCodigo = texto; ultimoTiempo = ahora;
+    const token = (texto.match(/[a-f0-9]{32}/i) || [])[0];
+    if (!token) return mostrar({ status: 'INVALIDA', mensaje: 'Este QR no es una entrada de Re set Sunset' });
+    validar({ token });
+  }
+
+  $('manualBtn').onclick = () => {
+    const v = $('manualId').value.trim();
+    if (!v) return;
+    $('manualId').value = '';
+    validar({ id: v });
+  };
+
+  async function validar(params) {
+    ocupado = true;
+    if (scanner) { try { scanner.pause(true); } catch (e) {} }
+    mostrar({ status: 'CARGANDO' });
+    try {
+      const d = await api(Object.assign({ action: 'checkin' }, params));
+      if (!d.ok) throw new Error(d.error || 'Error');
+      mostrar(d);
+      if (d.status === 'VALIDA') actualizarContador();
+    } catch (e) {
+      if (/PIN/.test(e.message)) { store.del('pin'); }
+      mostrar({ status: 'ERROR', mensaje: e.message === 'Failed to fetch' ? 'Sin conexión. Intenta de nuevo.' : e.message });
+    }
+  }
+
+  const VISTA = {
+    CARGANDO: ['⏳', 'Validando…'],
+    VALIDA:   ['✅', 'Puede ingresar'],
+    USADA:    ['⚠️', 'Ya ingresó'],
+    ANULADA:  ['⛔', 'Boleta anulada'],
+    INVALIDA: ['❌', 'Boleta inválida'],
+    ERROR:    ['📶', 'Error'],
+  };
+
+  function mostrar(d) {
+    const [icono, titulo] = VISTA[d.status] || VISTA.ERROR;
+    const r = $('resultado');
+    r.className = d.status;
+    $('rIcono').textContent = icono;
+    $('rTitulo').textContent = titulo;
+    $('rNombre').textContent = d.nombre ? d.nombre + (d.id ? ' · ' + d.id : '') : (d.id || '');
+    let det = d.tipo ? d.tipo : '';
+    if (d.status === 'USADA') det = 'Primer ingreso: ' + (d.usadaEn || '') + (d.validadoPor ? ' por ' + d.validadoPor : '');
+    else if (d.status !== 'VALIDA' && d.mensaje) det = d.mensaje;
+    $('rDetalle').textContent = det;
+    $('rSiguiente').classList.toggle('hidden', d.status === 'CARGANDO');
+    if (d.status !== 'CARGANDO') {
+      $('ultimo').textContent = 'Último: ' + titulo + (d.id ? ' · ' + d.id : '');
+      senal(d.status === 'VALIDA');
+    }
+  }
+
+  $('rSiguiente').onclick = () => {
+    $('resultado').className = 'hidden';
+    ocupado = false;
+    if (scanner) { try { scanner.resume(); } catch (e) {} }
+  };
+
+  function senal(ok) {
+    try { navigator.vibrate && navigator.vibrate(ok ? 120 : [200, 100, 200]); } catch (e) {}
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.frequency.value = ok ? 880 : 220; o.connect(g); g.connect(ctx.destination);
+      g.gain.value = 0.15; o.start(); o.stop(ctx.currentTime + (ok ? 0.15 : 0.45));
+    } catch (e) {}
+  }
+
+  function pintarContador(s) { $('contador').textContent = s.ingresadas + ' / ' + s.emitidas + ' ingresados'; }
+  async function actualizarContador() { try { const s = await api({ action: 'stats' }); if (s.ok) pintarContador(s); } catch (e) {} }
+  setInterval(() => { if (!$('app').classList.contains('hidden')) actualizarContador(); }, 30000);
+
+  // Sesión guardada: entra directo
+  if (sesion.pin) {
+    api({ action: 'stats' }).then(d => d.ok ? iniciar(d) : store.del('pin')).catch(() => {});
+  }
+</script>
+</body>
+</html>
